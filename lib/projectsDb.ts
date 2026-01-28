@@ -6,6 +6,7 @@ export type ProjectSummary = {
   description: string | null;
   status: string | null;
   projectType: string | null;
+  budgetTotal?: number | null;
   city: string | null;
   address: string | null;
   createdAt: string | null;
@@ -28,6 +29,7 @@ type ProjectRow = {
   description: string | null;
   status: string | null;
   project_type: string | null;
+  budget_total: number | string | null;
   city: string | null;
   address: string | null;
   created_at: string | null;
@@ -38,7 +40,7 @@ export const fetchProjectsForUser = async (userId: string, limit?: number) => {
   let query = supabase
     .from("project_members")
     .select(
-      "status,role,project:projects(id,name,description,status,project_type,city,address,created_at,updated_at)"
+      "status,role,project:projects(id,name,description,status,project_type,budget_total,city,address,created_at,updated_at)"
     )
     .eq("user_id", userId);
 
@@ -56,12 +58,20 @@ export const fetchProjectsForUser = async (userId: string, limit?: number) => {
       ?.map((row) => {
         const project = row.project as ProjectRow | null;
         if (!project) return null;
+        const rawBudget = project.budget_total;
+        const budgetTotal =
+          typeof rawBudget === "number"
+            ? rawBudget
+            : typeof rawBudget === "string"
+              ? Number(rawBudget)
+              : null;
         return {
           id: project.id,
           name: project.name,
           description: project.description,
           status: project.status,
           projectType: project.project_type,
+          budgetTotal: Number.isFinite(budgetTotal) ? budgetTotal : null,
           city: project.city,
           address: project.address,
           createdAt: project.created_at,

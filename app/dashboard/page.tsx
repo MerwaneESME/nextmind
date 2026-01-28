@@ -7,11 +7,15 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
   AlertCircle,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle,
   Clock,
   FileText,
   Eye,
   Download,
+  TrendingUp,
+  Target,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { createProject, fetchProjectsForUser, ProjectSummary } from "@/lib/projectsDb";
@@ -52,6 +56,9 @@ const resolveProjectStatus = (status: string | null): ProjectStatusKey => {
   if (["en_attente", "pending"].includes(normalized)) return "en_attente";
   return "en_attente";
 };
+
+const toMonthKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 
 const getStatusBadge = (status: string) => {
   const styles = {
@@ -103,6 +110,8 @@ function ProfessionalDashboard() {
   const [quotes, setQuotes] = useState<QuoteSummary[]>([]);
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [quotesError, setQuotesError] = useState<string | null>(null);
+  const [monthOffset, setMonthOffset] = useState(0);
+  const [activeMonthKey, setActiveMonthKey] = useState<string | null>(null);
 
   const normalizeStoragePath = (bucket?: string, path?: string) => {
     if (!bucket || !path) return path;
@@ -114,7 +123,7 @@ function ProfessionalDashboard() {
     setProjectsLoading(true);
     setProjectsError(null);
     try {
-      const data = await fetchProjectsForUser(user.id, 5);
+      const data = await fetchProjectsForUser(user.id);
       setProjects(data);
     } catch (err: any) {
       setProjectsError(err?.message ?? "Impossible de charger les projets.");
@@ -129,7 +138,7 @@ function ProfessionalDashboard() {
     setQuotesLoading(true);
     setQuotesError(null);
     try {
-      const data = await fetchDevisForUser(user.id, 5);
+      const data = await fetchDevisForUser(user.id);
       setQuotes(data);
     } catch (err: any) {
       setQuotesError(err?.message ?? "Impossible de charger les devis.");
@@ -144,6 +153,34 @@ function ProfessionalDashboard() {
     void loadQuotes();
   }, [user?.id]);
 
+  const monthSeries = useMemo(() => {
+    const now = new Date();
+    const windowEnd = new Date(now.getFullYear(), now.getMonth() - monthOffset * 6, 1);
+    return Array.from({ length: 6 }, (_, index) => {
+      const monthDate = new Date(windowEnd.getFullYear(), windowEnd.getMonth() - (5 - index), 1);
+      const label = monthDate
+        .toLocaleDateString("fr-FR", { month: "short" })
+        .replace(".", "")
+        .toUpperCase();
+      return {
+        key: toMonthKey(monthDate),
+        label,
+        year: monthDate.getFullYear(),
+        date: monthDate,
+      };
+    });
+  }, [monthOffset]);
+
+  useEffect(() => {
+    if (!monthSeries.length) return;
+    setActiveMonthKey((prev) => {
+      if (prev && monthSeries.some((point) => point.key === prev)) {
+        return prev;
+      }
+      return monthSeries[monthSeries.length - 1].key;
+    });
+  }, [monthSeries]);
+
   const devisStats = useMemo(() => {
     const counters = { a_faire: 0, envoye: 0, valide: 0 };
     quotes.forEach((quote) => {
@@ -154,6 +191,120 @@ function ProfessionalDashboard() {
     });
     return counters;
   }, [quotes]);
+
+  const conversionStats = useMemo(() => {
+    const counters = { envoye: 0, valide: 0, refuse: 0 };
+    quotes.forEach((quote) => {
+      const status = resolveWorkflowStatus(quote);
+      if (status === "envoye") counters.envoye += 1;
+      if (status === "valide") counters.valide += 1;
+      if (status === "refuse") counters.refuse += 1;
+    });
+    const total = counters.envoye + counters.valide + counters.refuse;
+    const rate = total > 0 ? counters.valide / total : 0;
+    return { ...counters, total, rate };
+  }, [quotes]);
+
+  const revenueSeries = useMemo(() => {
+    const series = monthSeries.map((point) => ({ ...point, value: 0 }));
+    const seriesMap = new Map(series.map((point) => [point.key, point]));
+    quotes.forEach((quote) => {
+      if (resolveWorkflowStatus(quote) !== "valide") return;
+      if (typeof quote.totalTtc !== "number") return;
+      const date = new Date(quote.updatedAt);
+      const key = toMonthKey(date);
+      const bucket = seriesMap.get(key);
+      if (bucket) {
+        bucket.value += quote.totalTtc;
+      }
+    });
+    return series;
+  }, [quotes, monthSeries]);
+
+  const projectSeries = useMemo(() => {
+    const series = monthSeries.map((point) => ({ ...point, items: [] as ProjectSummary[] }));
+    const seriesMap = new Map(series.map((point) => [point.key, point]));
+    projects.forEach((project) => {
+      const source = project.createdAt ?? project.updatedAt;
+      if (!source) return;
+      const key = toMonthKey(new Date(source));
+      const bucket = seriesMap.get(key);
+      if (bucket) {
+        bucket.items.push(project);
+      }
+    });
+    return series;
+  }, [projects, monthSeries]);
+
+  const projectBudgetSeries = useMemo(
+    () =>
+      projectSeries.map((point) => ({
+        key: point.key,
+        value: point.items.reduce(
+          (sum, project) =>
+            sum + (typeof project.budgetTotal === "number" ? project.budgetTotal : 0),
+          0
+        ),
+      })),
+    [projectSeries]
+  );
+
+  const revenueTotal = useMemo(
+    () => revenueSeries.reduce((sum, point) => sum + point.value, 0),
+    [revenueSeries]
+  );
+
+  const revenueDelta = useMemo(() => {
+    const current = revenueSeries[revenueSeries.length - 1]?.value ?? 0;
+    const previous = revenueSeries[revenueSeries.length - 2]?.value ?? 0;
+    if (previous === 0) {
+      return { value: current > 0 ? 1 : 0, direction: current > 0 ? "up" : "flat" };
+    }
+    const change = (current - previous) / previous;
+    return { value: Math.abs(change), direction: change >= 0 ? "up" : "down" };
+  }, [revenueSeries]);
+
+  const annualRevenue = useMemo(() => {
+    const now = new Date();
+    const windowStart = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+    return quotes.reduce((sum, quote) => {
+      if (resolveWorkflowStatus(quote) !== "valide") return sum;
+      if (typeof quote.totalTtc !== "number") return sum;
+      const date = new Date(quote.updatedAt);
+      if (date < windowStart || date > now) return sum;
+      return sum + quote.totalTtc;
+    }, 0);
+  }, [quotes]);
+
+  const totalProjectBudget = useMemo(
+    () =>
+      projects.reduce(
+        (sum, project) => sum + (typeof project.budgetTotal === "number" ? project.budgetTotal : 0),
+        0
+      ),
+    [projects]
+  );
+
+  const budgetBaseline = annualRevenue > 0 ? annualRevenue : totalProjectBudget;
+  const budgetBaselineLabel =
+    annualRevenue > 0 ? "CA annuel" : totalProjectBudget > 0 ? "Budget total" : "Base indisponible";
+  const budgetBaselineDisplay =
+    budgetBaselineLabel === "Base indisponible"
+      ? budgetBaselineLabel
+      : `Base ${budgetBaselineLabel}`;
+  const budgetBaselineShortLabel =
+    budgetBaselineLabel === "Base indisponible" ? "Base" : budgetBaselineLabel;
+
+  const activeMonth =
+    monthSeries.find((point) => point.key === activeMonthKey) ??
+    monthSeries[monthSeries.length - 1];
+  const activeProjects =
+    projectSeries.find((point) => point.key === activeMonth?.key)?.items ?? [];
+  const windowLabel = monthSeries.length
+    ? `${monthSeries[0].label} ${monthSeries[0].year} - ${
+        monthSeries[monthSeries.length - 1].label
+      } ${monthSeries[monthSeries.length - 1].year}`
+    : "";
 
   const alertesNonLues = 0;
 
@@ -179,6 +330,8 @@ function ProfessionalDashboard() {
     (project) => resolveProjectStatus(project.status) === "termine"
   ).length;
   const devisRecus = 0;
+  const conversionPercent = Math.round(conversionStats.rate * 100);
+  const conversionTarget = 35;
 
   const handleViewQuote = (quote: QuoteSummary) => {
     const roleParam = user?.role === "professionnel" ? "professionnel" : "particulier";
@@ -286,6 +439,259 @@ function ProfessionalDashboard() {
       </div>
 
 
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="lg:col-span-2 overflow-hidden border-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white shadow-lg">
+          <CardHeader className="border-white/10">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm text-slate-300">Evolution du CA</p>
+                <p className="text-lg font-semibold text-white">Revenus sur 6 mois</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="hidden sm:block text-right">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Fenetre</p>
+                  <p className="text-xs text-slate-200">{windowLabel}</p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setMonthOffset((prev) => prev + 1)}
+                    className="h-8 w-8 rounded-full bg-white/10 text-slate-100 transition hover:bg-white/20"
+                    aria-label="Mois precedents"
+                  >
+                    <ChevronLeft className="h-4 w-4 mx-auto" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMonthOffset((prev) => Math.max(0, prev - 1))}
+                    disabled={monthOffset === 0}
+                    className="h-8 w-8 rounded-full bg-white/10 text-slate-100 transition hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                    aria-label="Mois suivants"
+                  >
+                    <ChevronRight className="h-4 w-4 mx-auto" />
+                  </button>
+                </div>
+                <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center">
+                  <TrendingUp className="h-5 w-5 text-emerald-300" />
+                </div>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Total</p>
+                <p className="text-3xl font-semibold text-white">{formatCurrency(revenueTotal)}</p>
+              </div>
+              <div className="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs">
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    revenueDelta.direction === "down" ? "bg-rose-400" : "bg-emerald-400"
+                  }`}
+                />
+                <span
+                  className={
+                    revenueDelta.direction === "down" ? "text-rose-200" : "text-emerald-200"
+                  }
+                >
+                  {revenueDelta.direction === "flat"
+                    ? "Stable vs mois dernier"
+                    : `${revenueDelta.direction === "down" ? "-" : "+"}${Math.round(
+                        revenueDelta.value * 100
+                      )}% vs mois dernier`}
+                </span>
+              </div>
+            </div>
+            <div className="relative">
+              <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-emerald-400/10 blur-3xl" />
+              <div className="flex items-end gap-3 h-36">
+                {revenueSeries.map((point, index) => {
+                  const projectCount = projectSeries[index]?.items.length ?? 0;
+                  const isActive = activeMonth?.key === point.key;
+                  const hasProjects = projectCount > 0;
+                  const projectBudget = projectBudgetSeries[index]?.value ?? 0;
+                  const budgetBaseForBar = budgetBaseline > 0 ? budgetBaseline : 1;
+                  const projectPercent =
+                    projectBudget > 0 ? (projectBudget / budgetBaseForBar) * 100 : 0;
+                  const projectHeight = projectBudget > 0
+                    ? Math.max(12, Math.min(100, Math.round(projectPercent)))
+                    : hasProjects
+                      ? 12
+                      : 0;
+                  return (
+                    <button
+                      key={point.key}
+                      type="button"
+                      onClick={() => setActiveMonthKey(point.key)}
+                      className="group flex flex-1 flex-col items-center gap-2 bg-transparent focus:outline-none"
+                      aria-pressed={isActive}
+                    >
+                      <div
+                        className={`relative w-full h-24 flex items-end rounded-md transition ${
+                          isActive ? "ring-2 ring-emerald-200/70" : ""
+                        }`}
+                      >
+                        <div
+                          className={`w-full rounded-md bg-gradient-to-t from-emerald-400/40 via-emerald-300/70 to-emerald-200 ${
+                            projectHeight > 0 ? "opacity-100" : "opacity-0"
+                          }`}
+                          style={{ height: `${projectHeight}%` }}
+                        />
+                      </div>
+                      <div className="flex flex-col items-center gap-1">
+                        <span
+                          className={`text-[10px] uppercase tracking-wide ${
+                            isActive ? "text-emerald-200" : "text-slate-400"
+                          }`}
+                        >
+                          {point.label}
+                        </span>
+                        <span
+                          className={`text-[10px] ${
+                            hasProjects ? "text-emerald-200" : "text-slate-500"
+                          }`}
+                        >
+                          {projectCount} projet{projectCount > 1 ? "s" : ""}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-white">
+                <span className="uppercase tracking-[0.2em] text-white">
+                  Projets {activeMonth?.label} {activeMonth?.year}
+                </span>
+                <span className="text-white/80">
+                  {activeProjects.length} projet{activeProjects.length > 1 ? "s" : ""} |{" "}
+                  {budgetBaselineDisplay}
+                  {budgetBaseline > 0 ? `: ${formatCurrency(budgetBaseline)}` : ""}
+                </span>
+              </div>
+              <div className="mt-3 space-y-3">
+                {activeProjects.length ? (
+                  activeProjects.map((project) => {
+                    const statusKey = resolveProjectStatus(project.status);
+                    const dotClass = {
+                      draft: "bg-slate-300",
+                      en_cours: "bg-blue-300",
+                      termine: "bg-emerald-300",
+                      en_attente: "bg-amber-300",
+                    }[statusKey];
+                    const budgetValue =
+                      typeof project.budgetTotal === "number" ? project.budgetTotal : 0;
+                    const baseline = budgetBaseline > 0 ? budgetBaseline : 1;
+                    const rawPercent = budgetValue > 0 ? (budgetValue / baseline) * 100 : 0;
+                    const displayPercent =
+                      budgetValue > 0 ? Math.max(6, Math.min(100, rawPercent)) : 0;
+                    return (
+                      <div key={project.id} className="rounded-lg bg-white/5 px-3 py-2">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-white truncate">
+                              {project.name}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-white/80">
+                              <span
+                                className={`h-1.5 w-1.5 rounded-full ${dotClass ?? "bg-slate-300"}`}
+                              />
+                              <span className="uppercase tracking-[0.15em] text-white/60">
+                                {project.projectType ?? "Projet"}
+                              </span>
+                              <span className="text-white/50">|</span>
+                              <span className="text-white/90">
+                                {budgetValue > 0 ? formatCurrency(budgetValue) : "Budget non defini"}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs font-semibold text-emerald-200">
+                              {Math.round(rawPercent)}%
+                            </p>
+                            <p className="text-[10px] uppercase tracking-[0.15em] text-slate-400">
+                              {budgetBaselineShortLabel}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-2 h-2 rounded-full bg-white/10">
+                          <div
+                            className="h-2 rounded-full bg-emerald-400/80"
+                            style={{ width: `${displayPercent}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <span className="text-xs text-slate-200">Aucun projet ce mois</span>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="relative overflow-hidden">
+          <div className="absolute -right-10 top-6 h-28 w-28 rounded-full bg-primary-100/80 blur-2xl" />
+          <div className="absolute -left-10 bottom-0 h-24 w-24 rounded-full bg-success-100/70 blur-2xl" />
+          <CardHeader className="relative border-neutral-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-neutral-500">Taux de conversion client</p>
+                <p className="text-lg font-semibold text-neutral-900">Conversion</p>
+              </div>
+              <div className="h-9 w-9 rounded-full bg-neutral-100 flex items-center justify-center">
+                <Target className="h-4 w-4 text-primary-600" />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="relative space-y-6">
+            <div className="flex items-center gap-4">
+              <div className="relative h-24 w-24">
+                <div
+                  className="absolute inset-0 rounded-full"
+                  style={{
+                    background: `conic-gradient(#10b981 ${Math.round(
+                      conversionStats.rate * 360
+                    )}deg, #e5e7eb 0deg)`,
+                  }}
+                />
+                <div className="absolute inset-2 rounded-full bg-white shadow-sm flex items-center justify-center">
+                  <span className="text-2xl font-semibold text-neutral-900">
+                    {conversionPercent}%
+                  </span>
+                </div>
+              </div>
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center justify-between gap-6">
+                  <span className="text-neutral-500">Envoyes</span>
+                  <span className="font-semibold text-neutral-900">{conversionStats.envoye}</span>
+                </div>
+                <div className="flex items-center justify-between gap-6">
+                  <span className="text-neutral-500">Valides</span>
+                  <span className="font-semibold text-neutral-900">{conversionStats.valide}</span>
+                </div>
+                <div className="flex items-center justify-between gap-6">
+                  <span className="text-neutral-500">Refuses</span>
+                  <span className="font-semibold text-neutral-900">{conversionStats.refuse}</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between text-xs text-neutral-500">
+              <span>Objectif {conversionTarget}%</span>
+              <span
+                className={`font-semibold ${
+                  conversionPercent >= conversionTarget ? "text-success-600" : "text-warning-600"
+                }`}
+              >
+                {conversionPercent >= conversionTarget ? "Au-dessus" : "Sous l'objectif"}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -382,7 +788,7 @@ function ProfessionalDashboard() {
               </TableRow>
             </TableHeader>
             <tbody>
-              {quotes.map((quote) => {
+              {quotes.slice(0, 5).map((quote) => {
                 const workflowStatus = resolveWorkflowStatus(quote);
                 return (
                   <TableRow key={quote.id}>
