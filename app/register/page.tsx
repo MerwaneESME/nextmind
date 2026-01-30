@@ -91,11 +91,12 @@ export default function RegisterPage() {
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">
       <div className="max-w-md w-full">
         <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2 mb-4">
-            <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-lg">N</span>
-            </div>
-            <span className="text-xl font-bold text-gray-900">NEXTMIND</span>
+          <Link href="/" className="inline-flex items-center mb-4">
+            <img
+              src="/images/nextmind.png"
+              alt="NextMind"
+              className="h-8 w-auto"
+            />
           </Link>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">
             Créer un compte

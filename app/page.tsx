@@ -9,11 +9,12 @@ export default function HomePage() {
       <header className="border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-lg">N</span>
-              </div>
-              <span className="text-xl font-bold text-gray-900">NEXTMIND</span>
+            <div className="flex items-center">
+              <img
+                src="/images/nextmind.png"
+                alt="NextMind"
+                className="h-8 w-auto"
+              />
             </div>
             <div className="flex items-center gap-4">
               <Link href="/login" className="text-gray-700 hover:text-gray-900 font-medium">
@@ -233,11 +234,12 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid md:grid-cols-4 gap-8">
             <div>
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
-                  <span className="text-white font-bold text-lg">N</span>
-                </div>
-                <span className="text-xl font-bold">NEXTMIND</span>
+              <div className="flex items-center mb-4">
+                <img
+                  src="/images/nextmind.png"
+                  alt="NextMind"
+                  className="h-8 w-auto"
+                />
               </div>
               <p className="text-gray-400 text-sm">
                 Tout sur le BTP pour mieux vous accompagner.
@@ -276,4 +278,3 @@ export default function HomePage() {
     </div>
   );
 }
-

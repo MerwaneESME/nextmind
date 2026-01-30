@@ -59,10 +59,11 @@ export function Sidebar({ userRole }: SidebarProps) {
           href={currentRole ? `/dashboard?role=${currentRole}` : "/dashboard"}
           className="flex items-center gap-2"
         >
-          <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center shadow-sm">
-            <span className="text-white font-bold text-lg leading-none">N</span>
-          </div>
-          <span className="text-xl font-bold text-neutral-900">NEXTMIND</span>
+          <img
+            src="/images/nextmind.png"
+            alt="NextMind"
+            className="h-8 w-auto"
+          />
         </Link>
       </div>
 
