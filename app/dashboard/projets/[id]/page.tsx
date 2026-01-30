@@ -1,11 +1,11 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState, type ComponentType } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { ArrowLeft, Calendar, MessageSquare, Users, FileText, Bot, Send } from "lucide-react";
+import { ArrowLeft, Bot, Send } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/hooks/useAuth";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -82,13 +82,13 @@ type AssistantMessage = {
 type TabKey = "overview" | "chat" | "devis" | "planning" | "membres" | "assistant";
 type WorkflowStatus = "a_faire" | "envoye" | "valide" | "refuse";
 
-const tabItems: Array<{ key: TabKey; label: string; icon: ComponentType<{ className?: string }> }> = [
-  { key: "overview", label: "Vue", icon: FileText },
-  { key: "chat", label: "Chat", icon: MessageSquare },
-  { key: "devis", label: "Devis", icon: FileText },
-  { key: "planning", label: "Planning", icon: Calendar },
-  { key: "membres", label: "Membres", icon: Users },
-  { key: "assistant", label: "Assistant IA", icon: Bot },
+const tabItems: Array<{ key: TabKey; label: string; iconSrc: string }> = [
+  { key: "overview", label: "Aperçu", iconSrc: "/images/grey/eye.png" },
+  { key: "chat", label: "Chat", iconSrc: "/images/grey/chat-teardrop-dots.png" },
+  { key: "devis", label: "Devis", iconSrc: "/images/grey/files.png" },
+  { key: "planning", label: "Planning", iconSrc: "/images/grey/calendar%20(1).png" },
+  { key: "membres", label: "Membres", iconSrc: "/images/grey/users-three%20(1).png" },
+  { key: "assistant", label: "Assistant IA", iconSrc: "/images/grey/robot.png" },
 ];
 
 const startOfWeek = (date: Date) => {
@@ -1272,12 +1272,24 @@ export default function ProjectDetailPage() {
     <div className="space-y-6">
       <header className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">{project?.name ?? "Projet"}</h1>
-            <p className="text-gray-600">{project?.description ?? "Aucune description."}</p>
+          <div className="flex items-center gap-4">
+            <img
+              src="/images/projet2.png"
+              alt="Projet"
+              className="h-28 w-28 object-contain logo-blend"
+            />
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">{project?.name ?? "Projet"}</h1>
+              <p className="text-gray-600">{project?.description ?? "Aucune description."}</p>
+            </div>
           </div>
-          <Button variant="outline" onClick={() => router.push(`/dashboard/projets?role=${role}`)}>
-            <ArrowLeft className="w-4 h-4 mr-2" />
+          <Button
+            variant="outline"
+            size="sm"
+            className="inline-flex items-center gap-2 whitespace-nowrap"
+            onClick={() => router.push(`/dashboard/projets?role=${role}`)}
+          >
+            <ArrowLeft className="w-4 h-4" />
             Retour
           </Button>
         </div>
@@ -1296,16 +1308,25 @@ export default function ProjectDetailPage() {
       </header>
 
       <nav className="flex flex-wrap gap-2">
-        {tabItems.map((tab) => (
-          <Button
-            key={tab.key}
-            variant={activeTab === tab.key ? "primary" : "outline"}
-            onClick={() => setActiveTab(tab.key)}
-          >
-            <tab.icon className="w-4 h-4 mr-2" />
-            {tab.label}
-          </Button>
-        ))}
+        {tabItems.map((tab) => {
+          const isActive = activeTab === tab.key;
+          return (
+            <Button
+              key={tab.key}
+              variant={isActive ? "primary" : "outline"}
+              size="sm"
+              className="inline-flex items-center gap-2 whitespace-nowrap"
+              onClick={() => setActiveTab(tab.key)}
+            >
+              <img
+                src={tab.iconSrc}
+                alt={tab.label}
+                className={`w-4 h-4 object-contain ${isActive ? "brightness-0 invert" : "logo-blend"}`}
+              />
+              {tab.label}
+            </Button>
+          );
+        })}
       </nav>
 
       {loading && <div className="text-sm text-gray-500">Chargement...</div>}
@@ -1605,50 +1626,57 @@ export default function ProjectDetailPage() {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
+                    <button
+                      type="button"
                       onClick={() => handleViewQuote(quote)}
                       disabled={isBusy || (!quote.fileUrl && !quote.previewData)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
+                      aria-label="Voir"
+                      title="Voir"
                     >
-                      Voir
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
+                      <img src="/images/file-pdf.png" alt="" className="w-5 h-5 object-contain" />
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handleDownloadQuote(quote)}
                       disabled={isBusy || (!quote.fileUrl && !quote.previewData)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
+                      aria-label="Télécharger"
+                      title="Télécharger"
                     >
-                      Télécharger
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="border-green-200 text-green-700"
+                      <img src="/images/download-simple.png" alt="" className="w-5 h-5 object-contain" />
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handleUpdateQuoteWorkflow(quote, "valide")}
                       disabled={isBusy || workflowStatus === "valide"}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-green-200 bg-white transition hover:bg-green-50 disabled:opacity-50"
+                      aria-label="Valider"
+                      title="Valider"
                     >
-                      Valider
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="border-red-200 text-red-700"
+                      <img src="/images/check-circle%20(1).png" alt="" className="w-5 h-5 object-contain" />
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => handleUpdateQuoteWorkflow(quote, "refuse")}
                       disabled={isBusy || workflowStatus === "refuse"}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-200 bg-white transition hover:bg-red-50 disabled:opacity-50"
+                      aria-label="Refuser"
+                      title="Refuser"
                     >
-                      Refuser
-                    </Button>
+                      <img src="/images/x-circle%20(1).png" alt="" className="w-5 h-5 object-contain" />
+                    </button>
                     {profile?.user_type === "pro" && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-red-200 text-red-600"
+                      <button
+                        type="button"
                         onClick={() => handleDeleteQuote(quote)}
                         disabled={isDeleting}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-200 bg-white transition hover:bg-red-50 disabled:opacity-50"
+                        aria-label="Supprimer"
+                        title="Supprimer"
                       >
-                        Supprimer
-                      </Button>
+                        <img src="/images/trash.png" alt="" className="w-5 h-5 object-contain" />
+                      </button>
                     )}
                   </div>
                 </div>
@@ -1975,7 +2003,11 @@ export default function ProjectDetailPage() {
                     >
                       {msg.role === "assistant" && (
                         <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
-                          <Bot className="w-5 h-5 text-primary-600" />
+                          <img
+                            src="/images/grey/robot.png"
+                            alt="Assistant IA"
+                            className="w-5 h-5 object-contain logo-blend"
+                          />
                         </div>
                       )}
                       <div
@@ -1994,7 +2026,11 @@ export default function ProjectDetailPage() {
                   {assistantLoading && (
                     <div className="flex gap-3 justify-start">
                       <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
-                        <Bot className="w-5 h-5 text-primary-600" />
+                        <img
+                          src="/images/grey/robot.png"
+                          alt="Assistant IA"
+                          className="w-5 h-5 object-contain logo-blend"
+                        />
                       </div>
                       <div className="bg-neutral-100 border border-neutral-200 rounded-lg px-4 py-2 shadow-sm">
                         <div className="flex gap-1">

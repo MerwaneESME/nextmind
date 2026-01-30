@@ -2,17 +2,6 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  LayoutDashboard,
-  FolderKanban,
-  FileText,
-  Users,
-  Newspaper,
-  MessageSquare,
-  Settings,
-  LogOut,
-  Bot,
-} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { UserRole } from "@/types";
 import { supabase } from "@/lib/supabaseClient";
@@ -22,20 +11,20 @@ interface SidebarProps {
 }
 
 const particulierNavItems = [
-  { href: "/dashboard", label: "Mes projets", icon: FolderKanban },
-  { href: "/dashboard/professionnels", label: "Professionnels", icon: Users },
-  { href: "/dashboard/messages", label: "Messages", icon: MessageSquare },
-  { href: "/dashboard/settings", label: "Parametres", icon: Settings },
+  { href: "/dashboard", label: "Mes projets", iconSrc: "/images/folder-open.png" },
+  { href: "/dashboard/professionnels", label: "Professionnels", iconSrc: "/images/users-three.png" },
+  { href: "/dashboard/messages", label: "Messages", iconSrc: "/images/chats.png" },
+  { href: "/dashboard/settings", label: "Parametres", iconSrc: "/images/gear.png" },
 ];
 
 const professionnelNavItems = [
-  { href: "/dashboard", label: "Tableau de bord", icon: LayoutDashboard },
-  { href: "/dashboard/projets", label: "Projets", icon: FolderKanban },
-  { href: "/dashboard/devis", label: "Devis", icon: FileText },
-  { href: "/dashboard/professionnels", label: "Professionnels", icon: Users },
-  { href: "/dashboard/portfolio", label: "Portfolio", icon: Newspaper },
-  { href: "/dashboard/messages", label: "Messages", icon: MessageSquare },
-  { href: "/dashboard/settings", label: "Parametres", icon: Settings },
+  { href: "/dashboard", label: "Tableau de bord", iconSrc: "/images/squares-four.png" },
+  { href: "/dashboard/projets", label: "Projets", iconSrc: "/images/folder-open.png" },
+  { href: "/dashboard/devis", label: "Devis", iconSrc: "/images/file.png" },
+  { href: "/dashboard/professionnels", label: "Professionnels", iconSrc: "/images/users-three.png" },
+  { href: "/dashboard/portfolio", label: "Portfolio", iconSrc: "/images/article.png" },
+  { href: "/dashboard/messages", label: "Messages", iconSrc: "/images/chats.png" },
+  { href: "/dashboard/settings", label: "Parametres", iconSrc: "/images/gear.png" },
 ];
 
 export function Sidebar({ userRole }: SidebarProps) {
@@ -69,7 +58,6 @@ export function Sidebar({ userRole }: SidebarProps) {
 
       <nav className="flex-1 p-4 space-y-1">
         {navItems.map((item) => {
-          const Icon = item.icon;
           const isActive =
             pathname === item.href || (item.href !== "/dashboard" && pathname?.startsWith(item.href + "/"));
 
@@ -84,7 +72,11 @@ export function Sidebar({ userRole }: SidebarProps) {
                   : "text-neutral-700 hover:bg-neutral-100"
               )}
             >
-              <Icon className="w-5 h-5" />
+              <img
+                src={item.iconSrc}
+                alt={item.label}
+                className="w-5 h-5 object-contain logo-blend"
+              />
               <span>{item.label}</span>
             </Link>
           );
@@ -96,15 +88,23 @@ export function Sidebar({ userRole }: SidebarProps) {
           href={currentRole ? `/chat?role=${currentRole}` : "/chat"}
           className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-neutral-700 hover:bg-neutral-100 transition-colors"
         >
-          <Bot className="w-5 h-5" />
+          <img
+            src="/images/grey/robot.png"
+            alt="Assistant IA"
+            className="w-5 h-5 object-contain logo-blend"
+          />
           <span>Assistant IA</span>
         </Link>
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-neutral-700 hover:bg-neutral-100 transition-colors"
+          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-red-600 !text-red-600 hover:bg-red-50 transition-colors"
         >
-          <LogOut className="w-5 h-5" />
-          <span>Deconnexion</span>
+          <img
+            src="/images/sign-out.png"
+            alt="Deconnexion"
+            className="w-5 h-5 object-contain"
+          />
+          <span className="text-red-600">Deconnexion</span>
         </button>
       </div>
     </aside>

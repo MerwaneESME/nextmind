@@ -235,11 +235,18 @@ export default function ProfessionnelsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Professionnels</h1>
-        <p className="text-gray-600">
-          Recherchez un professionnel par specialite et zone d intervention.
-        </p>
+      <div className="flex items-center gap-4">
+        <img
+          src="/images/pro.png"
+          alt="Professionnels"
+          className="h-28 w-28 object-contain logo-blend"
+        />
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Professionnels</h1>
+          <p className="text-gray-600">
+            Recherchez un professionnel par specialite et zone d intervention.
+          </p>
+        </div>
       </div>
 
       {error && (

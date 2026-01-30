@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Bell, CheckCircle, Search, X } from "lucide-react";
+import { AlertTriangle, CheckCircle, Search, X } from "lucide-react";
 import { User } from "@/types";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -168,7 +168,11 @@ export function Header({ user }: HeaderProps) {
             onClick={() => setOpenNotif((v) => !v)}
             aria-label="Notifications"
           >
-            <Bell className="w-5 h-5" />
+            <img
+              src="/images/bell.png"
+              alt="Notifications"
+              className="w-5 h-5 object-contain logo-blend"
+            />
             {unreadCount > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />}
           </button>
           {openNotif && (
@@ -198,7 +202,11 @@ export function Header({ user }: HeaderProps) {
                       ) : isSuccess(notif.type) ? (
                         <CheckCircle className="w-4 h-4 text-green-600 mt-0.5" />
                       ) : (
-                        <Bell className="w-4 h-4 text-primary-600 mt-0.5" />
+                        <img
+                          src="/images/bell.png"
+                          alt="Notification"
+                          className="w-4 h-4 object-contain logo-blend mt-0.5"
+                        />
                       )}
                       <div className="flex-1">
                         <p className="text-sm font-medium text-neutral-900">{notif.title}</p>

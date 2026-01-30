@@ -15,7 +15,6 @@ import {
   Eye,
   Download,
   TrendingUp,
-  Target,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { createProject, fetchProjectsForUser, ProjectSummary } from "@/lib/projectsDb";
@@ -375,9 +374,26 @@ function ProfessionalDashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Tableau de bord</h1>
-        <p className="text-gray-600">Vue d'ensemble de votre activité</p>
+      <div className="flex items-center gap-4">
+
+        <img
+
+          src="/images/dashboard.png"
+
+          alt="Tableau de bord"
+
+          className="h-28 w-28 object-contain logo-blend"
+
+        />
+
+        <div>
+
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Tableau de bord</h1>
+
+          <p className="text-gray-600">Vue d'ensemble de votre activité</p>
+
+        </div>
+
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -633,17 +649,17 @@ function ProfessionalDashboard() {
         </Card>
 
         <Card className="relative overflow-hidden">
-          <div className="absolute -right-10 top-6 h-28 w-28 rounded-full bg-primary-100/80 blur-2xl" />
-          <div className="absolute -left-10 bottom-0 h-24 w-24 rounded-full bg-success-100/70 blur-2xl" />
           <CardHeader className="relative border-neutral-100">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-neutral-500">Taux de conversion client</p>
                 <p className="text-lg font-semibold text-neutral-900">Conversion</p>
               </div>
-              <div className="h-9 w-9 rounded-full bg-neutral-100 flex items-center justify-center">
-                <Target className="h-4 w-4 text-primary-600" />
-              </div>
+              <img
+                src="/images/conversion.png"
+                alt="Conversion"
+                className="h-28 w-28 object-contain logo-blend"
+              />
             </div>
           </CardHeader>
           <CardContent className="relative space-y-6">

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -54,11 +53,7 @@ const formatDurationLabel = (days: number | null) => {
 };
 
 export default function PortfolioPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const { user, profile } = useAuth();
-  const roleParam = searchParams.get("role");
-  const role = roleParam === "professionnel" ? "professionnel" : "particulier";
 
   const [projects, setProjects] = useState<PortfolioProject[]>([]);
   const [loading, setLoading] = useState(false);
@@ -171,14 +166,18 @@ export default function PortfolioPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-4">
+          <img
+            src="/images/portfolio.png"
+            alt="Portfolio"
+            className="h-28 w-28 object-contain logo-blend"
+          />
+          <div>
           <h1 className="text-3xl font-bold text-neutral-900">Mes articles</h1>
           <p className="text-neutral-600">Gérez les projets publiés sur votre profil.</p>
+          </div>
         </div>
-        <Button variant="outline" onClick={() => router.push(`/dashboard?role=${role}`)}>
-          Retour
-        </Button>
       </div>
 
       <Card>

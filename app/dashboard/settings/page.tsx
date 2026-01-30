@@ -7,9 +7,16 @@ import { Input } from "@/components/ui/Input";
 export default function SettingsPage() {
   return (
     <div className="space-y-6">
-      <div>
+      <div className="flex items-center gap-4">
+        <img
+          src="/images/settings.png"
+          alt="Parametres"
+          className="h-28 w-28 object-contain logo-blend"
+        />
+        <div>
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Paramètres</h1>
         <p className="text-gray-600">Gérez vos préférences et informations</p>
+        </div>
       </div>
 
       <Card>
@@ -76,4 +83,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-

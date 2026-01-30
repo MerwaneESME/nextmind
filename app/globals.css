@@ -38,5 +38,7 @@
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
+  .logo-blend {
+    mix-blend-mode: multiply;
+  }
 }
-

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Bot, X, Minimize2 } from "lucide-react";
+import { X, Minimize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChatWindow } from "./ChatWindow";
 import { UserRole } from "@/types";
@@ -24,10 +24,14 @@ export function ChatWidget({ userRole = "particulier", userId, projectId }: Chat
             setIsOpen(true);
             setIsMinimized(false);
           }}
-          className="fixed bottom-6 right-6 w-14 h-14 bg-primary-600 text-white rounded-full shadow-lg hover:bg-primary-700 transition-colors flex items-center justify-center z-50"
+          className="fixed bottom-6 right-6 w-14 h-14 bg-[#38b6ff] text-white rounded-full shadow-lg hover:bg-[#2ea8ec] transition-colors flex items-center justify-center z-50"
           aria-label="Ouvrir l'assistant IA"
         >
-          <Bot className="w-6 h-6" />
+          <img
+            src="/images/robotbleu.png"
+            alt="Assistant IA"
+            className="w-6 h-6 object-contain brightness-0 invert"
+          />
         </button>
       )}
 
@@ -38,23 +42,27 @@ export function ChatWidget({ userRole = "particulier", userId, projectId }: Chat
             isMinimized ? "w-80 h-16" : "w-96 h-[600px]"
           )}
         >
-          <div className="bg-white rounded-lg shadow-2xl border border-gray-200 flex flex-col h-full">
-            <div className="flex items-center justify-between p-4 border-b border-neutral-200 bg-primary-600 text-white rounded-t-lg">
+            <div className="bg-white rounded-lg shadow-2xl border border-gray-200 flex flex-col h-full">
+            <div className="flex items-center justify-between p-4 border-b border-neutral-200 bg-[#38b6ff] text-white rounded-t-lg">
               <div className="flex items-center gap-2">
-                <Bot className="w-5 h-5" />
-                <span className="font-medium">Assistant IA</span>
+                <img
+                  src="/images/robotbleu.png"
+                  alt="Assistant IA"
+                  className="w-5 h-5 object-contain brightness-0 invert"
+                />
+                <span className="font-medium text-white">Assistant IA</span>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setIsMinimized(!isMinimized)}
-                  className="p-1 hover:bg-primary-700 rounded transition-colors"
+                  className="p-1 text-white hover:bg-[#2ea8ec] rounded transition-colors"
                   aria-label={isMinimized ? "Agrandir" : "Réduire"}
                 >
                   <Minimize2 className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => setIsOpen(false)}
-                  className="p-1 hover:bg-primary-700 rounded transition-colors"
+                  className="p-1 text-white hover:bg-[#2ea8ec] rounded transition-colors"
                   aria-label="Fermer"
                 >
                   <X className="w-4 h-4" />

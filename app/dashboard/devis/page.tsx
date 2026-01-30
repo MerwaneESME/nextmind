@@ -219,17 +219,33 @@ export default function DevisPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
+        <div className="flex items-center gap-4">
+          <img
+            src="/images/devis.png"
+            alt="Devis"
+            className="h-28 w-28 object-contain logo-blend"
+          />
+          <div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Devis</h1>
           <p className="text-gray-600">Gérez vos devis et factures</p>
+          </div>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={handleUploadClick}>
-            <Upload className="w-4 h-4 mr-2" />
+          <Button
+            variant="outline"
+            size="sm"
+            className="inline-flex items-center gap-2 whitespace-nowrap"
+            onClick={handleUploadClick}
+          >
+            <Upload className="w-4 h-4" />
             Uploader un devis
           </Button>
-          <Button onClick={handleCreate}>
-            <Plus className="w-4 h-4 mr-2" />
+          <Button
+            size="sm"
+            className="inline-flex items-center gap-2 whitespace-nowrap"
+            onClick={handleCreate}
+          >
+            <Plus className="w-4 h-4" />
             Nouveau devis
           </Button>
         </div>

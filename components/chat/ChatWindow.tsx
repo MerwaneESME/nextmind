@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Bot, User } from "lucide-react";
+import { Send, User } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { sendMessageToAI, type AIMessage, type AIContext } from "@/lib/ai-service";
 import { UserRole } from "@/types";
@@ -89,8 +89,12 @@ export function ChatWindow({ userRole = "particulier", userId = "demo-user", pro
             }`}
           >
             {message.role === "assistant" && (
-              <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <Bot className="w-5 h-5 text-primary-600" />
+              <div className="w-8 h-8 bg-[#38b6ff] rounded-full flex items-center justify-center flex-shrink-0">
+                <img
+                  src="/images/robotbleu.png"
+                  alt="Assistant IA"
+                  className="w-5 h-5 object-contain brightness-0 invert"
+                />
               </div>
             )}
             <div
@@ -111,8 +115,12 @@ export function ChatWindow({ userRole = "particulier", userId = "demo-user", pro
         ))}
         {isLoading && (
           <div className="flex gap-3 justify-start">
-            <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
-              <Bot className="w-5 h-5 text-primary-600" />
+            <div className="w-8 h-8 bg-[#38b6ff] rounded-full flex items-center justify-center">
+              <img
+                src="/images/robotbleu.png"
+                alt="Assistant IA"
+                className="w-5 h-5 object-contain brightness-0 invert"
+              />
             </div>
             <div className="bg-neutral-100 border border-neutral-200 rounded-lg px-4 py-2 shadow-sm">
               <div className="flex gap-1">
@@ -137,7 +145,11 @@ export function ChatWindow({ userRole = "particulier", userId = "demo-user", pro
             className="flex-1 px-4 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
             disabled={isLoading}
           />
-          <Button onClick={handleSend} disabled={isLoading || !input.trim()}>
+          <Button
+            onClick={handleSend}
+            disabled={isLoading || !input.trim()}
+            className="bg-[#38b6ff] text-white hover:bg-[#2ea8ec]"
+          >
             <Send className="w-4 h-4" />
           </Button>
         </div>
@@ -145,4 +157,3 @@ export function ChatWindow({ userRole = "particulier", userId = "demo-user", pro
     </div>
   );
 }
-

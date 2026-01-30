@@ -376,9 +376,16 @@ export default function MessagesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Messages</h1>
-        <p className="text-gray-600">Communiquez avec les professionnels et partenaires.</p>
+      <div className="flex items-center gap-4">
+        <img
+          src="/images/messages.png"
+          alt="Messages"
+          className="h-28 w-28 object-contain logo-blend"
+        />
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Messages</h1>
+          <p className="text-gray-600">Communiquez avec les professionnels et partenaires.</p>
+        </div>
       </div>
 
       {error && (

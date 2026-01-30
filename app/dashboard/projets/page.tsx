@@ -143,12 +143,23 @@ export default function ProjetsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Projets</h1>
-          <p className="text-gray-600">Gérez tous vos projets BTP</p>
+        <div className="flex items-center gap-4">
+          <img
+            src="/images/projet1.png"
+            alt="Projets"
+            className="h-28 w-28 object-contain logo-blend"
+          />
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Projets</h1>
+            <p className="text-gray-600">Gérez tous vos projets BTP</p>
+          </div>
         </div>
-        <Button onClick={() => setIsCreating(true)}>
-          <Plus className="w-4 h-4 mr-2" />
+        <Button
+          size="sm"
+          className="inline-flex items-center gap-2 whitespace-nowrap"
+          onClick={() => setIsCreating(true)}
+        >
+          <Plus className="w-4 h-4" />
           Nouveau projet
         </Button>
       </div>
@@ -330,3 +341,5 @@ export default function ProjetsPage() {
     </div>
   );
 }
+
+
