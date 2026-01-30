@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, Minimize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChatWindow } from "./ChatWindow";
@@ -15,6 +15,18 @@ interface ChatWidgetProps {
 export function ChatWidget({ userRole = "particulier", userId, projectId }: ChatWidgetProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+
+  useEffect(() => {
+    const handleOpen = () => {
+      setIsOpen(true);
+      setIsMinimized(false);
+    };
+    if (typeof window === "undefined") return;
+    window.addEventListener("open-chat-widget", handleOpen);
+    return () => {
+      window.removeEventListener("open-chat-widget", handleOpen);
+    };
+  }, []);
 
   return (
     <>

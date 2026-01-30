@@ -85,8 +85,13 @@ export function Sidebar({ userRole }: SidebarProps) {
 
       <div className="p-4 border-t border-neutral-200 space-y-1">
         <Link
-          href={currentRole ? `/chat?role=${currentRole}` : "/chat"}
-          className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-neutral-700 hover:bg-neutral-100 transition-colors"
+          href={currentRole ? `/dashboard/assistant?role=${currentRole}` : "/dashboard/assistant"}
+          className={cn(
+            "w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors",
+            pathname === "/dashboard/assistant"
+              ? "bg-primary-50 text-primary-700 font-medium shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
+              : "text-neutral-700 hover:bg-neutral-100"
+          )}
         >
           <img
             src="/images/grey/robot.png"

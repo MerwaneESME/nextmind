@@ -11,9 +11,15 @@ interface ChatWindowProps {
   userRole?: UserRole;
   userId?: string;
   projectId?: string;
+  autoScroll?: boolean;
 }
 
-export function ChatWindow({ userRole = "particulier", userId = "demo-user", projectId }: ChatWindowProps) {
+export function ChatWindow({
+  userRole = "particulier",
+  userId = "demo-user",
+  projectId,
+  autoScroll = true,
+}: ChatWindowProps) {
   const [messages, setMessages] = useState<AIMessage[]>([
     {
       role: "assistant",
@@ -32,8 +38,10 @@ export function ChatWindow({ userRole = "particulier", userId = "demo-user", pro
   };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    if (autoScroll) {
+      scrollToBottom();
+    }
+  }, [messages, autoScroll]);
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
