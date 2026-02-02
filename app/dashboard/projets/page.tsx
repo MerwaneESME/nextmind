@@ -41,7 +41,7 @@ const statusLabel = (status: StatusKey) => {
   const labels: Record<StatusKey, string> = {
     draft: "À faire",
     en_cours: "En cours",
-    termine: "Termine",
+    termine: "Terminé",
     en_attente: "En attente",
   };
   return labels[status];
@@ -54,6 +54,7 @@ export default function ProjetsPage() {
   const roleParam = searchParams.get("role");
   const role =
     user?.role ?? (roleParam === "professionnel" ? "professionnel" : "particulier");
+  const canCreateProject = role === "professionnel";
 
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -105,6 +106,10 @@ export default function ProjetsPage() {
 
   const handleCreate = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!canCreateProject) {
+      setError("Seuls les professionnels peuvent créer un projet.");
+      return;
+    }
     if (!user?.id || !form.name.trim()) return;
     setIsSubmitting(true);
     setError(null);
@@ -130,7 +135,7 @@ export default function ProjetsPage() {
       setIsCreating(false);
       await loadProjects();
     } catch (err: any) {
-      setError(err?.message ?? "Impossible de creer le projet.");
+      setError(err?.message ?? "Impossible de créer le projet.");
     } finally {
       setIsSubmitting(false);
     }
@@ -154,19 +159,27 @@ export default function ProjetsPage() {
             <p className="text-gray-600">Gérez tous vos projets BTP</p>
           </div>
         </div>
-        <Button
-          size="sm"
-          className="inline-flex items-center gap-2 whitespace-nowrap"
-          onClick={() => setIsCreating(true)}
-        >
-          <Plus className="w-4 h-4" />
-          Nouveau projet
-        </Button>
+        {canCreateProject && (
+          <Button
+            size="sm"
+            className="inline-flex items-center gap-2 whitespace-nowrap"
+            onClick={() => setIsCreating(true)}
+          >
+            <Plus className="w-4 h-4" />
+            Nouveau projet
+          </Button>
+        )}
       </div>
 
       {error && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
           {error}
+        </div>
+      )}
+      {!canCreateProject && (
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-700 text-sm">
+          Les particuliers peuvent consulter les projets partagés, mais seuls les professionnels
+          peuvent créer un projet.
         </div>
       )}
 
@@ -192,7 +205,7 @@ export default function ProjetsPage() {
               <option value="draft">À faire</option>
               <option value="en_cours">En cours</option>
               <option value="en_attente">En attente</option>
-              <option value="termine">Termine</option>
+              <option value="termine">Terminé</option>
             </select>
           </div>
         </CardContent>
@@ -215,7 +228,7 @@ export default function ProjetsPage() {
                     <TableHead>Projet</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Statut</TableHead>
-                    <TableHead>Date de creation</TableHead>
+                    <TableHead>Date de création</TableHead>
                 <TableHead>Dernière mise à jour</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -263,10 +276,10 @@ export default function ProjetsPage() {
         </CardContent>
       </Card>
 
-      {isCreating && (
+      {isCreating && canCreateProject && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-xl w-full p-6">
-            <h3 className="text-lg font-semibold text-neutral-900 mb-4">Creer un projet</h3>
+            <h3 className="text-lg font-semibold text-neutral-900 mb-4">Créer un projet</h3>
             <form className="space-y-4" onSubmit={handleCreate}>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Nom du projet *</label>
@@ -331,7 +344,7 @@ export default function ProjetsPage() {
                   Annuler
                 </Button>
                 <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? "Creation..." : "Creer le projet"}
+                  {isSubmitting ? "Création..." : "Créer le projet"}
                 </Button>
               </div>
             </form>

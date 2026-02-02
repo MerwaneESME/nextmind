@@ -15,7 +15,7 @@ export function Button({
   ...props
 }: ButtonProps) {
   const baseStyles =
-    "font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 shadow-[0_1px_2px_rgba(0,0,0,0.05)]";
+    "inline-flex items-center justify-center font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 shadow-[0_1px_2px_rgba(0,0,0,0.05)]";
   
   const variants = {
     primary:
@@ -43,4 +43,3 @@ export function Button({
     </button>
   );
 }
-

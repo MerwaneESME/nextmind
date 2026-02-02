@@ -5,7 +5,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { ChatWidget } from "@/components/chat/ChatWidget";
 import { UserRole } from "@/types";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 
 export default function DashboardLayout({
@@ -15,6 +15,7 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const pathname = usePathname();
   const roleParam = searchParams.get("role");
   const fallbackRole: UserRole = roleParam === "professionnel" ? "professionnel" : "particulier";
   const { session, user, loading } = useAuth();
@@ -53,7 +54,11 @@ export default function DashboardLayout({
         <Header user={activeUser} />
         <main className="p-6">{children}</main>
       </div>
-      <ChatWidget userRole={activeUser.role} userId={activeUser.id} />
+      <ChatWidget
+        userRole={activeUser.role}
+        userId={activeUser.id}
+        offsetBottom={pathname?.includes("/dashboard/messages") ? 96 : undefined}
+      />
     </div>
   );
 }

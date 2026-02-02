@@ -151,7 +151,7 @@ export default function ProfilePage() {
               onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
             />
             <Input
-              label="Telephone"
+              label="Téléphone"
               type="tel"
               value={form.phone}
               onChange={(event) => setForm((prev) => ({ ...prev, phone: event.target.value }))}
@@ -187,7 +187,7 @@ export default function ProfilePage() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-neutral-600 mb-4">
-              Les informations suivantes (entreprise, ville, adresse, site, telephone, email) sont visibles sur votre
+              Les informations suivantes (entreprise, ville, adresse, site, téléphone, email) sont visibles sur votre
               profil professionnel public.
             </p>
             <div className="grid md:grid-cols-2 gap-4">

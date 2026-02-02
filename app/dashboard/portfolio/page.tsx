@@ -203,7 +203,7 @@ export default function PortfolioPage() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-lg font-semibold text-neutral-900">
-                    {project.title || "Projet termine"}
+                    {project.title || "Projet terminé"}
                   </div>
                   <div className="text-xs text-neutral-500">
                     Publié le {project.created_at ? formatDate(project.created_at) : "-"}

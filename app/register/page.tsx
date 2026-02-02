@@ -83,7 +83,7 @@ export default function RegisterPage() {
       return;
     }
 
-    setNotice("Compte cree. Verifiez vos emails puis connectez-vous.");
+    setNotice("Compte créé. Vérifiez vos emails puis connectez-vous.");
     setIsLoading(false);
   };
 
@@ -95,15 +95,20 @@ export default function RegisterPage() {
             <img
               src="/images/nextmind.png"
               alt="NextMind"
-              className="h-8 w-auto"
+              className="h-8 w-auto logo-blend"
             />
           </Link>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">
             Créer un compte
           </h1>
           <p className="text-gray-600">
-            Rejoignez NEXTMIND et commencez dès aujourd'hui
+            Rejoignez Nextmind et commencez dès aujourd'hui
           </p>
+          <img
+            src="/images/subscribe.png"
+            alt="Inscription Nextmind"
+            className="mt-6 mx-auto h-32 w-auto object-contain logo-blend"
+          />
         </div>
 
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">

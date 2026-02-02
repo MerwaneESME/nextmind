@@ -10,11 +10,27 @@ interface ChatWidgetProps {
   userRole?: UserRole;
   userId?: string;
   projectId?: string;
+  dock?: "left" | "right";
+  offsetBottom?: number;
+  offsetSide?: number;
 }
 
-export function ChatWidget({ userRole = "particulier", userId, projectId }: ChatWidgetProps) {
+export function ChatWidget({
+  userRole = "particulier",
+  userId,
+  projectId,
+  dock = "right",
+  offsetBottom,
+  offsetSide,
+}: ChatWidgetProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const bottom = offsetBottom ?? 24;
+  const side = offsetSide ?? 24;
+  const positionStyle =
+    dock === "left"
+      ? ({ bottom, left: side } as const)
+      : ({ bottom, right: side } as const);
 
   useEffect(() => {
     const handleOpen = () => {
@@ -36,7 +52,8 @@ export function ChatWidget({ userRole = "particulier", userId, projectId }: Chat
             setIsOpen(true);
             setIsMinimized(false);
           }}
-          className="fixed bottom-6 right-6 w-14 h-14 bg-[#38b6ff] text-white rounded-full shadow-lg hover:bg-[#2ea8ec] transition-colors flex items-center justify-center z-50"
+          style={positionStyle}
+          className="fixed w-14 h-14 bg-[#38b6ff] text-white rounded-full shadow-lg hover:bg-[#2ea8ec] transition-colors flex items-center justify-center z-50"
           aria-label="Ouvrir l'assistant IA"
         >
           <img
@@ -49,8 +66,9 @@ export function ChatWidget({ userRole = "particulier", userId, projectId }: Chat
 
       {isOpen && (
         <div
+          style={positionStyle}
           className={cn(
-            "fixed bottom-6 right-6 z-50 transition-all duration-300",
+            "fixed z-50 transition-all duration-300",
             isMinimized ? "w-80 h-16" : "w-96 h-[600px]"
           )}
         >

@@ -77,12 +77,12 @@ const getStatusLabel = (status: string) => {
   const labels: Record<string, string> = {
     draft: "En étude",
     en_cours: "En cours",
-    termine: "Termine",
+    termine: "Terminé",
     en_attente: "En attente",
     a_faire: "En étude",
     envoye: "Envoyé",
     valide: "Validé",
-    refuse: "Refuse",
+    refuse: "Refusé",
   };
   return labels[status] || status;
 };
@@ -456,23 +456,23 @@ function ProfessionalDashboard() {
 
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2 overflow-hidden border-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white shadow-lg">
-          <CardHeader className="border-white/10">
+        <Card className="lg:col-span-2 overflow-hidden border border-primary-100 bg-gradient-to-br from-white via-primary-50/60 to-white shadow-sm">
+          <CardHeader className="border-primary-100/80">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-sm text-slate-300">Evolution du CA</p>
-                <p className="text-lg font-semibold text-white">Revenus sur 6 mois</p>
+                <p className="text-sm text-neutral-500">Evolution du CA</p>
+                <p className="text-lg font-semibold text-neutral-900">Revenus sur 6 mois</p>
               </div>
               <div className="flex items-center gap-3">
                 <div className="hidden sm:block text-right">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Fenetre</p>
-                  <p className="text-xs text-slate-200">{windowLabel}</p>
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-neutral-400">Fenetre</p>
+                  <p className="text-xs text-neutral-600">{windowLabel}</p>
                 </div>
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
                     onClick={() => setMonthOffset((prev) => prev + 1)}
-                    className="h-8 w-8 rounded-full bg-white/10 text-slate-100 transition hover:bg-white/20"
+                    className="h-8 w-8 rounded-full border border-primary-100 bg-primary-50 text-primary-700 transition hover:bg-primary-100"
                     aria-label="Mois precedents"
                   >
                     <ChevronLeft className="h-4 w-4 mx-auto" />
@@ -481,14 +481,14 @@ function ProfessionalDashboard() {
                     type="button"
                     onClick={() => setMonthOffset((prev) => Math.max(0, prev - 1))}
                     disabled={monthOffset === 0}
-                    className="h-8 w-8 rounded-full bg-white/10 text-slate-100 transition hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="h-8 w-8 rounded-full border border-primary-100 bg-primary-50 text-primary-700 transition hover:bg-primary-100 disabled:opacity-40 disabled:cursor-not-allowed"
                     aria-label="Mois suivants"
                   >
                     <ChevronRight className="h-4 w-4 mx-auto" />
                   </button>
                 </div>
-                <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center">
-                  <TrendingUp className="h-5 w-5 text-emerald-300" />
+                <div className="h-10 w-10 rounded-full bg-primary-100 flex items-center justify-center">
+                  <TrendingUp className="h-5 w-5 text-primary-600" />
                 </div>
               </div>
             </div>
@@ -496,18 +496,18 @@ function ProfessionalDashboard() {
           <CardContent className="space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Total</p>
-                <p className="text-3xl font-semibold text-white">{formatCurrency(revenueTotal)}</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-neutral-500">Total</p>
+                <p className="text-3xl font-semibold text-neutral-900">{formatCurrency(revenueTotal)}</p>
               </div>
-              <div className="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs">
+              <div className="flex items-center gap-2 rounded-full border border-primary-100 bg-primary-50 px-3 py-1 text-xs">
                 <span
                   className={`h-2 w-2 rounded-full ${
-                    revenueDelta.direction === "down" ? "bg-rose-400" : "bg-emerald-400"
+                    revenueDelta.direction === "down" ? "bg-red-500" : "bg-success-500"
                   }`}
                 />
                 <span
                   className={
-                    revenueDelta.direction === "down" ? "text-rose-200" : "text-emerald-200"
+                    revenueDelta.direction === "down" ? "text-red-600" : "text-success-600"
                   }
                 >
                   {revenueDelta.direction === "flat"
@@ -519,7 +519,7 @@ function ProfessionalDashboard() {
               </div>
             </div>
             <div className="relative">
-              <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-emerald-400/10 blur-3xl" />
+              <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-primary-400/10 blur-3xl" />
               <div className="flex items-end gap-3 h-36">
                 {revenueSeries.map((point, index) => {
                   const projectCount = projectSeries[index]?.items.length ?? 0;
@@ -544,11 +544,11 @@ function ProfessionalDashboard() {
                     >
                       <div
                         className={`relative w-full h-24 flex items-end rounded-md transition ${
-                          isActive ? "ring-2 ring-emerald-200/70" : ""
+                          isActive ? "ring-2 ring-primary-200/80" : ""
                         }`}
                       >
                         <div
-                          className={`w-full rounded-md bg-gradient-to-t from-emerald-400/40 via-emerald-300/70 to-emerald-200 ${
+                          className={`w-full rounded-md bg-gradient-to-t from-primary-600/30 via-primary-400/60 to-primary-200 ${
                             projectHeight > 0 ? "opacity-100" : "opacity-0"
                           }`}
                           style={{ height: `${projectHeight}%` }}
@@ -557,14 +557,14 @@ function ProfessionalDashboard() {
                       <div className="flex flex-col items-center gap-1">
                         <span
                           className={`text-[10px] uppercase tracking-wide ${
-                            isActive ? "text-emerald-200" : "text-slate-400"
+                            isActive ? "text-primary-700" : "text-neutral-500"
                           }`}
                         >
                           {point.label}
                         </span>
                         <span
                           className={`text-[10px] ${
-                            hasProjects ? "text-emerald-200" : "text-slate-500"
+                            hasProjects ? "text-primary-600" : "text-neutral-400"
                           }`}
                         >
                           {projectCount} projet{projectCount > 1 ? "s" : ""}
@@ -575,12 +575,12 @@ function ProfessionalDashboard() {
                 })}
               </div>
             </div>
-            <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-white">
-                <span className="uppercase tracking-[0.2em] text-white">
+            <div className="rounded-xl border border-primary-100/80 bg-primary-50/60 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-700">
+                <span className="uppercase tracking-[0.2em] text-neutral-800">
                   Projets {activeMonth?.label} {activeMonth?.year}
                 </span>
-                <span className="text-white/80">
+                <span className="text-neutral-600">
                   {activeProjects.length} projet{activeProjects.length > 1 ? "s" : ""} |{" "}
                   {budgetBaselineDisplay}
                   {budgetBaseline > 0 ? `: ${formatCurrency(budgetBaseline)}` : ""}
@@ -591,10 +591,10 @@ function ProfessionalDashboard() {
                   activeProjects.map((project) => {
                     const statusKey = resolveProjectStatus(project.status);
                     const dotClass = {
-                      draft: "bg-slate-300",
-                      en_cours: "bg-blue-300",
-                      termine: "bg-emerald-300",
-                      en_attente: "bg-amber-300",
+                      draft: "bg-neutral-300",
+                      en_cours: "bg-primary-300",
+                      termine: "bg-success-300",
+                      en_attente: "bg-warning-300",
                     }[statusKey];
                     const budgetValue =
                       typeof project.budgetTotal === "number" ? project.budgetTotal : 0;
@@ -603,37 +603,40 @@ function ProfessionalDashboard() {
                     const displayPercent =
                       budgetValue > 0 ? Math.max(6, Math.min(100, rawPercent)) : 0;
                     return (
-                      <div key={project.id} className="rounded-lg bg-white/5 px-3 py-2">
+                      <div
+                        key={project.id}
+                        className="rounded-lg border border-primary-100/70 bg-white px-3 py-2"
+                      >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="text-sm font-semibold text-white truncate">
+                            <p className="text-sm font-semibold text-neutral-900 truncate">
                               {project.name}
                             </p>
-                            <div className="flex flex-wrap items-center gap-2 text-xs text-white/80">
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-600">
                               <span
-                                className={`h-1.5 w-1.5 rounded-full ${dotClass ?? "bg-slate-300"}`}
+                                className={`h-1.5 w-1.5 rounded-full ${dotClass ?? "bg-neutral-300"}`}
                               />
-                              <span className="uppercase tracking-[0.15em] text-white/60">
+                              <span className="uppercase tracking-[0.15em] text-neutral-500">
                                 {project.projectType ?? "Projet"}
                               </span>
-                              <span className="text-white/50">|</span>
-                              <span className="text-white/90">
-                                {budgetValue > 0 ? formatCurrency(budgetValue) : "Budget non defini"}
+                              <span className="text-neutral-400">|</span>
+                              <span className="text-neutral-700">
+                                {budgetValue > 0 ? formatCurrency(budgetValue) : "Budget non défini"}
                               </span>
                             </div>
                           </div>
                           <div className="text-right">
-                            <p className="text-xs font-semibold text-emerald-200">
+                            <p className="text-xs font-semibold text-primary-600">
                               {Math.round(rawPercent)}%
                             </p>
-                            <p className="text-[10px] uppercase tracking-[0.15em] text-slate-400">
+                            <p className="text-[10px] uppercase tracking-[0.15em] text-neutral-500">
                               {budgetBaselineShortLabel}
                             </p>
                           </div>
                         </div>
-                        <div className="mt-2 h-2 rounded-full bg-white/10">
+                        <div className="mt-2 h-2 rounded-full bg-neutral-200">
                           <div
-                            className="h-2 rounded-full bg-emerald-400/80"
+                            className="h-2 rounded-full bg-primary-500"
                             style={{ width: `${displayPercent}%` }}
                           />
                         </div>
@@ -641,7 +644,7 @@ function ProfessionalDashboard() {
                     );
                   })
                 ) : (
-                  <span className="text-xs text-slate-200">Aucun projet ce mois</span>
+                  <span className="text-xs text-neutral-500">Aucun projet ce mois</span>
                 )}
               </div>
             </div>
@@ -681,15 +684,15 @@ function ProfessionalDashboard() {
               </div>
               <div className="space-y-2 text-sm">
                 <div className="flex items-center justify-between gap-6">
-                  <span className="text-neutral-500">Envoyes</span>
+                  <span className="text-neutral-500">Envoyés</span>
                   <span className="font-semibold text-neutral-900">{conversionStats.envoye}</span>
                 </div>
                 <div className="flex items-center justify-between gap-6">
-                  <span className="text-neutral-500">Valides</span>
+                  <span className="text-neutral-500">Validés</span>
                   <span className="font-semibold text-neutral-900">{conversionStats.valide}</span>
                 </div>
                 <div className="flex items-center justify-between gap-6">
-                  <span className="text-neutral-500">Refuses</span>
+                  <span className="text-neutral-500">Refusés</span>
                   <span className="font-semibold text-neutral-900">{conversionStats.refuse}</span>
                 </div>
               </div>
@@ -730,7 +733,7 @@ function ProfessionalDashboard() {
                   <TableRow>
                     <TableHead>Projet</TableHead>
                     <TableHead>Statut</TableHead>
-                    <TableHead>Date de creation</TableHead>
+                    <TableHead>Date de création</TableHead>
                     <TableHead>Dernière mise à jour</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -919,7 +922,7 @@ function ParticulierDashboard() {
       setIsCreating(false);
       await loadProjects();
     } catch (err: any) {
-      setError(err?.message ?? "Impossible de creer le projet.");
+      setError(err?.message ?? "Impossible de créer le projet.");
     } finally {
       setIsSubmitting(false);
     }
@@ -938,7 +941,7 @@ function ParticulierDashboard() {
           <p className="text-gray-600">Gérez vos projets BTP</p>
         </div>
         <Button onClick={() => setIsCreating(true)}>
-          Creer un nouveau projet
+          Créer un nouveau projet
         </Button>
       </div>
 
@@ -967,7 +970,7 @@ function ParticulierDashboard() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Projets termines</p>
+                <p className="text-sm text-gray-600 mb-1">Projets terminés</p>
                 <p className="text-2xl font-bold text-gray-900">
                   {projectsTermines}
                 </p>
@@ -981,7 +984,7 @@ function ParticulierDashboard() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Devis recus</p>
+                <p className="text-sm text-gray-600 mb-1">Devis reçus</p>
                 <p className="text-2xl font-bold text-gray-900">{devisRecus}</p>
               </div>
               <FileText className="w-8 h-8 text-yellow-600" />
@@ -1014,7 +1017,7 @@ function ParticulierDashboard() {
                       <p className="text-sm text-gray-600 mb-2">{project.description}</p>
                     )}
                     <div className="flex items-center gap-4 text-sm text-gray-500">
-                      <span>Cree le {project.createdAt ? formatDate(project.createdAt) : "-"}</span>
+                      <span>Créé le {project.createdAt ? formatDate(project.createdAt) : "-"}</span>
                       <span className="capitalize">
                         Statut: {getStatusLabel(statusKey)}
                       </span>
@@ -1035,7 +1038,7 @@ function ParticulierDashboard() {
       {isCreating && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-lg w-full p-6">
-            <h3 className="text-lg font-semibold text-neutral-900 mb-4">Creer un nouveau projet</h3>
+            <h3 className="text-lg font-semibold text-neutral-900 mb-4">Créer un nouveau projet</h3>
             <form className="space-y-4" onSubmit={handleCreateProject}>
               <Input
                 label="Titre du projet"
@@ -1059,7 +1062,7 @@ function ParticulierDashboard() {
                   Annuler
                 </Button>
                 <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? "Creation..." : "Creer le projet"}
+                  {isSubmitting ? "Création..." : "Créer le projet"}
                 </Button>
               </div>
             </form>

@@ -87,7 +87,7 @@ export default function DevisPage() {
       a_faire: "En étude",
       envoye: "Envoyé",
       valide: "Validé",
-      refuse: "Refuse",
+      refuse: "Refusé",
     };
     return labels[status];
   };
@@ -347,7 +347,7 @@ export default function DevisPage() {
                     <TableHead>Projet</TableHead>
                     <TableHead>Montant</TableHead>
                     <TableHead>Statut</TableHead>
-                    <TableHead>Date de creation</TableHead>
+                    <TableHead>Date de création</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>

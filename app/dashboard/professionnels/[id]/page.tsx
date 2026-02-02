@@ -225,7 +225,7 @@ export default function ProProfilePage() {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <h3 className="text-lg font-semibold text-neutral-900">
-                          {project.title || "Projet termine"}
+                          {project.title || "Projet terminé"}
                         </h3>
                         <div className="text-xs text-neutral-500 mt-1">
                           Publié le {project.created_at ? formatDate(project.created_at) : "-"}
@@ -270,7 +270,7 @@ export default function ProProfilePage() {
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
                 <h3 className="text-xl font-semibold text-neutral-900">
-                  {selectedProject.title || "Projet termine"}
+                  {selectedProject.title || "Projet terminé"}
                 </h3>
                 <p className="text-sm text-neutral-600">
                   Publié le {selectedProject.created_at ? formatDate(selectedProject.created_at) : "-"}

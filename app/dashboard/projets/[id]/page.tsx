@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ArrowLeft, Bot, Send } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
-import { useAuth } from "@/hooks/useAuth";
+import { mapUserTypeToRole, useAuth } from "@/hooks/useAuth";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { deleteDevisWithItems, mapDevisRowToSummary } from "@/lib/devisDb";
 import { downloadQuotePdf } from "@/lib/quotePdf";
+import { deleteProjectCascade, inviteProjectMemberByEmail } from "@/lib/projectsDb";
 import type { QuoteSummary } from "@/lib/quotesStore";
 
 type Project = {
@@ -21,6 +22,7 @@ type Project = {
   status: string | null;
   address: string | null;
   city: string | null;
+  created_by?: string | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -363,6 +365,7 @@ export default function ProjectDetailPage() {
   const { user, profile } = useAuth();
   const roleParam = searchParams.get("role");
   const role = roleParam === "professionnel" ? "professionnel" : "particulier";
+  const userRole = profile ? mapUserTypeToRole(profile.user_type) : role;
   const projectId = typeof params.id === "string" ? params.id : "";
 
   const [project, setProject] = useState<Project | null>(null);
@@ -401,11 +404,20 @@ export default function ProjectDetailPage() {
     postalCode: "",
     imagePath: "",
   });
+  const getAssistantIntro = (roleValue: string) =>
+    roleValue === "professionnel"
+      ? "Bonjour ! Je peux analyser le devis du projet et proposer un planning de tâches. Décrivez ce que vous voulez."
+      : "Bonjour ! Je suis votre conseiller : je peux expliquer les étapes du projet, clarifier les termes du BTP et vous aider à comprendre un devis.";
+
+  const assistantIntroVariants = [
+    "Bonjour ! Je peux analyser le devis du projet et proposer un planning de tâches. Décrivez ce que vous voulez.",
+    "Bonjour ! Je suis votre conseiller : je peux expliquer les étapes du projet, clarifier les termes du BTP et vous aider à comprendre un devis.",
+  ];
+
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([
     {
       role: "assistant",
-      content:
-        "Bonjour ! Je peux analyser le devis du projet et proposer un planning de tâches. Décrivez ce que vous voulez.",
+      content: getAssistantIntro(userRole),
       timestamp: new Date().toISOString(),
     },
   ]);
@@ -416,10 +428,34 @@ export default function ProjectDetailPage() {
   const [pendingProposal, setPendingProposal] = useState<AssistantProposal | null>(null);
   const [applyLoading, setApplyLoading] = useState(false);
 
+  useEffect(() => {
+    setAssistantMessages((prev) => {
+      if (prev.length !== 1) return prev;
+      if (prev[0]?.role !== "assistant") return prev;
+      if (!assistantIntroVariants.includes(prev[0]?.content ?? "")) return prev;
+      const nextContent = getAssistantIntro(userRole);
+      if (prev[0].content === nextContent) return prev;
+      return [{ ...prev[0], content: nextContent }];
+    });
+  }, [userRole]);
+
   const currentMember = useMemo(
     () => members.find((member) => member.user?.id === user?.id) ?? null,
     [members, user?.id]
   );
+  const memberRole = (currentMember?.role ?? "").toLowerCase();
+  const memberStatus = (currentMember?.status ?? "").toLowerCase();
+  const isOwnerByProject = project?.created_by === user?.id;
+  const isAcceptedMember =
+    memberStatus === "accepted" || memberStatus === "active" || isOwnerByProject;
+  const isManagerRole =
+    ["owner", "collaborator", "pro", "professionnel"].includes(memberRole) || isOwnerByProject;
+  const canManageProject = isAcceptedMember && isManagerRole;
+  const canInviteMembers = canManageProject;
+  const canEditTasks = canManageProject;
+  const canEditPlanning = canManageProject;
+  const canEditQuotes = canManageProject;
+  const canUseAssistantPlanning = canManageProject;
 
   const loadProject = async () => {
     if (!projectId || !user?.id) return;
@@ -532,6 +568,10 @@ export default function ProjectDetailPage() {
   };
 
   const openTaskModal = (day: Date) => {
+    if (!canEditTasks) {
+      setError("Seuls les professionnels peuvent ajouter des tâches.");
+      return;
+    }
     const dayKey = toDateKey(day);
     setSelectedDay(day);
     setTaskName("");
@@ -542,6 +582,10 @@ export default function ProjectDetailPage() {
   };
 
   const handleAddTask = async () => {
+    if (!canEditTasks) {
+      setError("Seuls les professionnels peuvent modifier le planning.");
+      return;
+    }
     if (!taskName.trim()) return;
     const payloadBase = {
       project_id: projectId,
@@ -615,6 +659,10 @@ export default function ProjectDetailPage() {
   };
 
   const handleUpdateTaskStatus = async (task: Task, nextStatus: TaskStatusValue) => {
+    if (!canEditTasks) {
+      setError("Seuls les professionnels peuvent modifier les tâches.");
+      return;
+    }
     const nextCompletedAt = nextStatus === "done" ? task.completed_at ?? new Date().toISOString() : null;
     const candidates = TASK_STATUS_DB_MAP[nextStatus] ?? [nextStatus];
     let updateError: { message?: string } | null = null;
@@ -641,6 +689,10 @@ export default function ProjectDetailPage() {
   };
 
   const handleDeleteTask = async (task: Task) => {
+    if (!canEditTasks) {
+      setError("Seuls les professionnels peuvent supprimer des tâches.");
+      return;
+    }
     if (!task?.id) return;
     const shouldDelete = window.confirm("Supprimer cette tâche ? Cette action est réversible uniquement en la recréant.");
     if (!shouldDelete) return;
@@ -656,6 +708,10 @@ export default function ProjectDetailPage() {
   };
 
   const handleUpdateProjectStatus = async (nextStatus: ProjectStatusValue) => {
+    if (!canManageProject) {
+      setError("Seuls les professionnels peuvent modifier le statut du projet.");
+      return;
+    }
     if (!projectId) return;
     setStatusUpdating(true);
     setError(null);
@@ -703,6 +759,10 @@ export default function ProjectDetailPage() {
   };
 
   const handlePublishProject = async () => {
+    if (!canManageProject) {
+      setError("Seuls les professionnels peuvent publier un projet.");
+      return;
+    }
     if (!user?.id) return;
     setPublishSubmitting(true);
     setError(null);
@@ -758,6 +818,10 @@ export default function ProjectDetailPage() {
   };
 
   const applyAssistantProposal = async () => {
+    if (!canUseAssistantPlanning) {
+      setAssistantNotice("Seuls les professionnels peuvent valider un planning.");
+      return;
+    }
     if (!pendingProposal || !projectId || !user?.id) return;
     const shouldReplace = window.confirm(
       "Valider ce planning va remplacer les tâches actuelles du projet. Voulez-vous continuer ?"
@@ -862,12 +926,15 @@ export default function ProjectDetailPage() {
         { role: "user", content: trimmed },
       ];
 
-      const response = await fetch(`${apiUrl}/project-chat`, {
+      const assistantEndpoint =
+        userRole === "professionnel" ? "/project-chat" : "/project-chat-client";
+      const response = await fetch(`${apiUrl}${assistantEndpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           project_id: projectId,
           user_id: user.id,
+          user_role: userRole,
           message: trimmed,
           history,
           force_plan: options?.forcePlan ?? false,
@@ -900,19 +967,35 @@ export default function ProjectDetailPage() {
     }
   };
 
+  const handleDeleteProject = async () => {
+    if (!canManageProject || !projectId) return;
+    const confirmed =
+      typeof window !== "undefined" &&
+      window.confirm(
+        "Supprimer ce projet ? Cette action est irreversible et supprimera les messages et taches liees."
+      );
+    if (!confirmed) return;
+    setError(null);
+    try {
+      await deleteProjectCascade(projectId);
+      router.push(`/dashboard/projets?role=${role}`);
+    } catch (err: any) {
+      setError(err?.message ?? "Impossible de supprimer le projet.");
+    }
+  };
+
   const handleInvitéByEmail = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!inviteEmail.trim() || !user?.id) return;
-    const payload = {
-      project_id: projectId,
-      invited_email: inviteEmail.trim(),
-      role: inviteRole,
-      status: "pending",
-      invited_by: user.id,
-    };
-    const { error: inviteError } = await supabase.from("project_members").insert(payload);
-    if (inviteError) {
-      setError(inviteError.message);
+    if (!canInviteMembers) {
+      setError("Seuls les professionnels peuvent inviter des membres.");
+      return;
+    }
+    if (!inviteEmail.trim() || !user?.id || !projectId) return;
+    setError(null);
+    try {
+      await inviteProjectMemberByEmail(user.id, projectId, inviteEmail.trim(), inviteRole);
+    } catch (err: any) {
+      setError(err?.message ?? "Impossible d'envoyer l'invitation.");
       return;
     }
     setInvitéEmail("");
@@ -956,6 +1039,10 @@ export default function ProjectDetailPage() {
   };
 
   const handleAttachQuote = async () => {
+    if (!canEditQuotes) {
+      setError("Seuls les professionnels peuvent lier un devis.");
+      return;
+    }
     if (!selectedQuoteId || !user?.id) return;
     setError(null);
     const { data, error: attachError } = await supabase
@@ -974,6 +1061,10 @@ export default function ProjectDetailPage() {
   };
 
   const handleUpdateQuoteWorkflow = async (quote: QuoteSummary, nextStatus: WorkflowStatus) => {
+    if (!canEditQuotes) {
+      setError("Seuls les professionnels peuvent modifier un devis.");
+      return;
+    }
     if (!projectId) return;
     setError(null);
     setQuoteStatusUpdatingId(quote.id);
@@ -1002,6 +1093,10 @@ export default function ProjectDetailPage() {
   };
 
   const handleDeleteQuote = async (quote: QuoteSummary) => {
+    if (!canEditQuotes) {
+      setError("Seuls les professionnels peuvent supprimer un devis.");
+      return;
+    }
     if (!user?.id) return;
     const confirmed =
       typeof window !== "undefined" && window.confirm("Etes-vous sur de vouloir supprimer ce devis ?");
@@ -1378,7 +1473,7 @@ export default function ProjectDetailPage() {
                 <select
                   className="w-full rounded-lg border border-amber-200 bg-white px-2 py-1 text-sm"
                   value={projectStatusValue}
-                  disabled={statusUpdating}
+                  disabled={statusUpdating || !canManageProject}
                   onChange={(event) =>
                     handleUpdateProjectStatus(event.target.value as ProjectStatusValue)
                   }
@@ -1392,19 +1487,29 @@ export default function ProjectDetailPage() {
                 <div className="text-xs text-gray-500">
                   Dernière maj : {project?.updated_at ? formatDate(project.updated_at) : "-"}
                 </div>
-                {projectStatusValue !== "termine" && profile?.user_type === "pro" && (
+                {projectStatusValue !== "termine" && canManageProject && (
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => handleUpdateProjectStatus("termine")}
-                    disabled={statusUpdating}
+                    disabled={statusUpdating || !canManageProject}
                   >
                     Cloturer le projet
                   </Button>
                 )}
-                {projectStatusValue === "termine" && profile?.user_type === "pro" && (
+                {projectStatusValue === "termine" && canManageProject && (
                   <Button variant="outline" size="sm" onClick={openPublishModal}>
                     Publier sur le profil
+                  </Button>
+                )}
+                {canManageProject && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-red-200 text-red-600"
+                    onClick={handleDeleteProject}
+                  >
+                    Supprimer le projet
                   </Button>
                 )}
               </CardContent>
@@ -1437,8 +1542,11 @@ export default function ProjectDetailPage() {
                   >
                     <div>
                       <div className="font-semibold text-gray-900">{item.name}</div>
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-gray-500 hidden">
                         {formatDate(item.date)} {item.timeLabel ? `â€¢ ${item.timeLabel}` : ""}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {formatDate(item.date)} {item.timeLabel ? `à ${item.timeLabel}` : ""}
                       </div>
                       {item.description && (
                         <div className="text-xs text-gray-500 mt-1">{item.description}</div>
@@ -1460,7 +1568,7 @@ export default function ProjectDetailPage() {
               <CardContent className="space-y-3 text-sm text-gray-700">
                 <div>
                   <div className="text-xs uppercase tracking-wide text-gray-400">Type</div>
-                  <div>{project?.project_type || "Non defini"}</div>
+                  <div>{project?.project_type || "Non défini"}</div>
                 </div>
                 <div>
                   <div className="text-xs uppercase tracking-wide text-gray-400">Localisation</div>
@@ -1501,7 +1609,7 @@ export default function ProjectDetailPage() {
                     <div>
                       <div className="font-semibold text-gray-900">{task.name}</div>
                       <div className="text-xs text-gray-500">
-                        {dueDate ? `Echeance: ${formatDate(dueDate)}` : "Sans date definie"}
+                        {dueDate ? `Échéance: ${formatDate(dueDate)}` : "Sans date définie"}
                       </div>
                       {delayLabel && (
                         <div className="text-xs font-semibold text-red-600 mt-1">{delayLabel}</div>
@@ -1511,6 +1619,7 @@ export default function ProjectDetailPage() {
                       <select
                         className="rounded-lg border border-gray-300 px-2 py-1 text-sm"
                         value={statusValue}
+                        disabled={!canEditTasks}
                         onChange={(event) =>
                           handleUpdateTaskStatus(task, event.target.value as TaskStatusValue)
                         }
@@ -1543,6 +1652,11 @@ export default function ProjectDetailPage() {
               <div className="text-sm text-gray-500">Échange avec les participants.</div>
             </CardHeader>
             <CardContent className="space-y-4">
+              {!canInviteMembers && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                  Seuls les professionnels peuvent inviter des membres.
+                </div>
+              )}
               <div className="space-y-3 max-h-[420px] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4">
                 {messages.length === 0 && (
                   <div className="text-sm text-gray-500">Aucun message pour le moment.</div>
@@ -1649,7 +1763,7 @@ export default function ProjectDetailPage() {
                     <button
                       type="button"
                       onClick={() => handleUpdateQuoteWorkflow(quote, "valide")}
-                      disabled={isBusy || workflowStatus === "valide"}
+                      disabled={isBusy || workflowStatus === "valide" || !canEditQuotes}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-green-200 bg-white transition hover:bg-green-50 disabled:opacity-50"
                       aria-label="Valider"
                       title="Valider"
@@ -1659,14 +1773,14 @@ export default function ProjectDetailPage() {
                     <button
                       type="button"
                       onClick={() => handleUpdateQuoteWorkflow(quote, "refuse")}
-                      disabled={isBusy || workflowStatus === "refuse"}
+                      disabled={isBusy || workflowStatus === "refuse" || !canEditQuotes}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-200 bg-white transition hover:bg-red-50 disabled:opacity-50"
                       aria-label="Refuser"
                       title="Refuser"
                     >
                       <img src="/images/x-circle%20(1).png" alt="" className="w-5 h-5 object-contain" />
                     </button>
-                    {profile?.user_type === "pro" && (
+                    {canEditQuotes && profile?.user_type === "pro" && (
                       <button
                         type="button"
                         onClick={() => handleDeleteQuote(quote)}
@@ -1685,32 +1799,34 @@ export default function ProjectDetailPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <div className="font-semibold text-gray-900">Lier un devis</div>
-              <div className="text-sm text-gray-500">Associer un devis existant.</div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Devis disponible</label>
-                <select
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
-                  value={selectedQuoteId}
-                  onChange={(event) => setSelectedQuoteId(event.target.value)}
-                >
-                  <option value="">Selectionner</option>
-                  {availableQuotes.map((quote) => (
-                    <option key={quote.id} value={quote.id}>
-                      {quote.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <Button onClick={handleAttachQuote} disabled={!selectedQuoteId}>
-                Lier au projet
-              </Button>
-            </CardContent>
-          </Card>
+          {canEditQuotes && (
+            <Card>
+              <CardHeader>
+                <div className="font-semibold text-gray-900">Lier un devis</div>
+                <div className="text-sm text-gray-500">Associer un devis existant.</div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Devis disponible</label>
+                  <select
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                    value={selectedQuoteId}
+                    onChange={(event) => setSelectedQuoteId(event.target.value)}
+                  >
+                    <option value="">Sélectionner</option>
+                    {availableQuotes.map((quote) => (
+                      <option key={quote.id} value={quote.id}>
+                        {quote.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <Button onClick={handleAttachQuote} disabled={!selectedQuoteId}>
+                  Lier au projet
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </section>
       )}
 
@@ -1776,13 +1892,13 @@ export default function ProjectDetailPage() {
                           key={dayKey}
                           role="button"
                           tabIndex={0}
-                          onClick={() => openTaskModal(day)}
+                          onClick={() => canEditPlanning && openTaskModal(day)}
                           onKeyDown={(event) => {
-                            if (event.key === "Enter") openTaskModal(day);
+                            if (event.key === "Enter" && canEditPlanning) openTaskModal(day);
                           }}
-                          className={`min-h-[72px] cursor-pointer border-l border-gray-200 px-2 py-2 ${
-                            isToday ? "bg-primary-50/30" : "bg-white hover:bg-primary-50/20"
-                          }`}
+                          className={`min-h-[72px] border-l border-gray-200 px-2 py-2 ${
+                            canEditPlanning ? "cursor-pointer" : "cursor-default"
+                          } ${isToday ? "bg-primary-50/30" : "bg-white hover:bg-primary-50/20"}`}
                         >
                           {dayTasks.length === 0 ? (
                             <div className="text-[11px] text-gray-400">Aucune action</div>
@@ -1837,13 +1953,13 @@ export default function ProjectDetailPage() {
                           key={dayKey}
                           role="button"
                           tabIndex={0}
-                          onClick={() => openTaskModal(day)}
+                          onClick={() => canEditPlanning && openTaskModal(day)}
                           onKeyDown={(event) => {
-                            if (event.key === "Enter") openTaskModal(day);
+                            if (event.key === "Enter" && canEditPlanning) openTaskModal(day);
                           }}
                           className={`relative border-l border-gray-200 ${
-                            isToday ? "bg-primary-50/30" : "bg-white"
-                          }`}
+                            canEditPlanning ? "cursor-pointer" : "cursor-default"
+                          } ${isToday ? "bg-primary-50/30" : "bg-white"}`}
                           style={{ height: `${planningRowHeight * timeSlots.length}px` }}
                         >
                           <div className="absolute inset-0">
@@ -1951,6 +2067,7 @@ export default function ProjectDetailPage() {
                 <select
                   className="w-full rounded-lg border border-gray-300 px-3 py-2"
                   value={inviteRole}
+                  disabled={!canInviteMembers}
                   onChange={(event) => setInvitéRole(event.target.value)}
                 >
                   <option value="client">Client</option>
@@ -1965,8 +2082,9 @@ export default function ProjectDetailPage() {
                   onChange={(event) => setInvitéEmail(event.target.value)}
                   placeholder="client@email.com"
                   type="email"
+                  disabled={!canInviteMembers}
                 />
-                <Button type="submit" disabled={!inviteEmail.trim()}>
+                <Button type="submit" disabled={!canInviteMembers || !inviteEmail.trim()}>
                   Envoyer l'invitation
                 </Button>
               </form>
@@ -1981,7 +2099,9 @@ export default function ProjectDetailPage() {
               <CardHeader>
                 <div className="font-semibold text-gray-900">Assistant IA du projet</div>
                 <div className="text-sm text-gray-500">
-                  Analyse le devis et propose un planning personnalisé.
+                  {userRole === "professionnel"
+                    ? "Analyse le devis et propose un planning personnalisé."
+                    : "Explique les étapes du projet et aide à comprendre le devis."}
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -1993,6 +2113,11 @@ export default function ProjectDetailPage() {
                 {assistantNotice && (
                   <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
                     {assistantNotice}
+                  </div>
+                )}
+                {!canUseAssistantPlanning && (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                    Vous pouvez poser vos questions, mais la modification du planning est réservée aux professionnels.
                   </div>
                 )}
                 <div className="space-y-3 max-h-[360px] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4">
@@ -2136,20 +2261,27 @@ export default function ProjectDetailPage() {
                         </div>
                       ))}
                     </div>
-                    <Button variant="outline" onClick={addProposalTask}>
+                    <Button
+                      variant="outline"
+                      onClick={addProposalTask}
+                      disabled={!canUseAssistantPlanning}
+                    >
                       Ajouter une tâche
                     </Button>
                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
                       Valider remplacera le planning actuel du projet.
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button onClick={applyAssistantProposal} disabled={applyLoading}>
+                      <Button
+                        onClick={applyAssistantProposal}
+                        disabled={applyLoading || !canUseAssistantPlanning}
+                      >
                         {applyLoading ? "Application..." : "Valider le planning"}
                       </Button>
                       <Button
                         variant="outline"
                         onClick={() => sendAssistantMessage("Refais un autre planning, plus adapté.", { forcePlan: true })}
-                        disabled={assistantLoading}
+                        disabled={assistantLoading || !canUseAssistantPlanning}
                       >
                         Refaire
                       </Button>
@@ -2163,19 +2295,199 @@ export default function ProjectDetailPage() {
           <Card>
             <CardHeader>
               <div className="font-semibold text-gray-900">Actions IA</div>
-              <div className="text-sm text-gray-500">Déclencher d'autres actions IA.</div>
+              <div className="text-sm text-gray-500">
+                {userRole === "professionnel"
+                  ? "Déclencher d'autres actions IA."
+                  : "Actions rapides pour comprendre votre projet."}
+              </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Button
-                variant="outline"
-                onClick={() => sendAssistantMessage("Propose un planning détaillé pour ce projet.", { forcePlan: true })}
-                disabled={assistantLoading}
-              >
-                Proposer un planning
-              </Button>
-              <div className="text-xs text-gray-500">
-                Utilisez l'assistant pour ajuster ou recréer une proposition.
-              </div>
+              {userRole === "professionnel" ? (
+                <>
+                  <div className="space-y-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => sendAssistantMessage("Propose un planning détaillé pour ce projet avec les tâches principales et les délais.", { forcePlan: true })}
+                      disabled={assistantLoading || !canUseAssistantPlanning}
+                      className="w-full justify-start text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                        </svg>
+                        Proposer un planning
+                      </span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => sendAssistantMessage("Analyse le devis de ce projet. Quels sont les postes principaux ? Y a-t-il des incohérences ou des points à vérifier ?", {})}
+                      disabled={assistantLoading}
+                      className="w-full justify-start text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Analyser le devis
+                      </span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => sendAssistantMessage("Vérifie la conformité du devis : TVA, mentions obligatoires, cohérence des totaux, et conformité réglementaire.", {})}
+                      disabled={assistantLoading}
+                      className="w-full justify-start text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Vérifier la conformité
+                      </span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => sendAssistantMessage("Calcule les marges et la rentabilité de ce projet. Quels sont les postes les plus rentables ?", {})}
+                      disabled={assistantLoading}
+                      className="w-full justify-start text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Calculer les marges
+                      </span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => sendAssistantMessage("Optimise les coûts de ce projet. Y a-t-il des postes où on peut réduire les coûts sans impacter la qualité ?", {})}
+                      disabled={assistantLoading}
+                      className="w-full justify-start text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        Optimiser les coûts
+                      </span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => sendAssistantMessage("Quels sont les risques et points d'attention pour ce projet ? Y a-t-il des éléments à surveiller particulièrement ?", {})}
+                      disabled={assistantLoading}
+                      className="w-full justify-start text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        Risques et points d'attention
+                      </span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => sendAssistantMessage("Propose des améliorations ou des alternatives pour ce projet. Y a-t-il des options plus performantes ou économiques ?", {})}
+                      disabled={assistantLoading}
+                      className="w-full justify-start text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                        Proposer des améliorations
+                      </span>
+                    </Button>
+                  </div>
+                  <div className="text-xs text-gray-500 pt-2 border-t border-gray-200">
+                    Actions rapides pour optimiser et gérer votre projet professionnel.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => sendAssistantMessage("Explique-moi le devis de ce projet en détail. Qu'est-ce qui est inclus ? Quels sont les postes principaux ?", {})}
+                      disabled={assistantLoading}
+                      className="w-full justify-start text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Explique-moi le devis
+                      </span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => sendAssistantMessage("Quelles sont les étapes principales de ce projet ? Comment va se dérouler le chantier ?", {})}
+                      disabled={assistantLoading}
+                      className="w-full justify-start text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                        </svg>
+                        Quelles sont les étapes ?
+                      </span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => sendAssistantMessage("Quel est le budget estimé pour ce projet ? Y a-t-il des coûts supplémentaires à prévoir ?", {})}
+                      disabled={assistantLoading}
+                      className="w-full justify-start text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Quel est le budget ?
+                      </span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => sendAssistantMessage("Peux-tu clarifier les termes techniques du devis ? Explique-moi les mots que je ne comprends pas.", {})}
+                      disabled={assistantLoading}
+                      className="w-full justify-start text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Clarifier les termes techniques
+                      </span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => sendAssistantMessage("Quels sont les délais prévus pour ce projet ? Combien de temps va prendre chaque étape ?", {})}
+                      disabled={assistantLoading}
+                      className="w-full justify-start text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Quels sont les délais ?
+                      </span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => sendAssistantMessage("Y a-t-il des points d'attention ou des risques à connaître pour ce projet ?", {})}
+                      disabled={assistantLoading}
+                      className="w-full justify-start text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        Points d'attention
+                      </span>
+                    </Button>
+                  </div>
+                  <div className="text-xs text-gray-500 pt-2 border-t border-gray-200">
+                    Ces actions vous aident à mieux comprendre votre projet et le devis associé.
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </section>
@@ -2213,6 +2525,7 @@ export default function ProjectDetailPage() {
                 <select
                   className="w-full rounded-lg border border-gray-300 px-3 py-2"
                   value={normalizeTaskStatus(selectedTask.status)}
+                  disabled={!canEditTasks}
                   onChange={(event) => handleUpdateTaskStatus(selectedTask, event.target.value as TaskStatusValue)}
                 >
                   {TASK_STATUS_OPTIONS.map((option) => (
@@ -2222,7 +2535,9 @@ export default function ProjectDetailPage() {
                   ))}
                 </select>
               </div>
-              <div className="flex items-center justify-end gap-2">
+              <div
+                className={`flex items-center justify-end gap-2 ${canEditTasks ? "" : "hidden"}`}
+              >
                 <Button
                   variant="outline"
                   className="border-red-200 text-red-600"
@@ -2307,7 +2622,7 @@ export default function ProjectDetailPage() {
                 <Button variant="ghost" onClick={() => setIsTaskModalOpen(false)}>
                   Annuler
                 </Button>
-                <Button onClick={handleAddTask} disabled={!taskName.trim()}>
+                <Button onClick={handleAddTask} disabled={!canEditTasks || !taskName.trim()}>
                   Ajouter
                 </Button>
               </div>

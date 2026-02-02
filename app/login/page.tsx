@@ -82,15 +82,20 @@ export default function LoginPage() {
             <img
               src="/images/nextmind.png"
               alt="NextMind"
-              className="h-8 w-auto"
+              className="h-8 w-auto logo-blend"
             />
           </Link>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">
             Connexion
           </h1>
           <p className="text-gray-600">
-            Connectez-vous à votre compte NEXTMIND
+            Connectez-vous à votre compte Nextmind
           </p>
+          <img
+            src="/images/connexion.png"
+            alt="Connexion Nextmind"
+            className="mt-6 mx-auto h-32 w-auto object-contain logo-blend"
+          />
         </div>
 
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">

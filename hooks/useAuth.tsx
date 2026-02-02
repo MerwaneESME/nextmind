@@ -3,6 +3,7 @@
 import { ReactNode, createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
+import { claimProjectInvites } from "@/lib/projectsDb";
 import type { User, UserRole } from "@/types";
 
 export type Profile = {
@@ -149,11 +150,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           if (!active) return;
           if (pendingResult?.data) {
             setProfile(pendingResult.data);
+            if (user.email) {
+              void claimProjectInvites(user.id, user.email).catch((error) => {
+                // eslint-disable-next-line no-console
+                console.error("Invite claim failed", error);
+              });
+            }
             return;
           }
           const result = await fetchProfile(user.id, user.email);
           if (!active) return;
           setProfile(result.profile);
+          if (result.profile && user.email) {
+            void claimProjectInvites(user.id, user.email).catch((error) => {
+              // eslint-disable-next-line no-console
+              console.error("Invite claim failed", error);
+            });
+          }
         } catch (error) {
           if (active) {
             // eslint-disable-next-line no-console
