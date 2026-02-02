@@ -27,6 +27,66 @@ export interface AIResponse {
   };
 }
 
+type BackendHistoryItem = {
+  role: "user" | "assistant" | "system";
+  content: string;
+};
+
+type ChatApiResponse = {
+  reply?: string;
+  formatted?: string;
+};
+
+type ProjectChatApiResponse = {
+  reply?: string;
+  proposal?: unknown | null;
+  requires_devis?: boolean;
+};
+
+function getAiApiUrl(): string {
+  const rawUrl = process.env.NEXT_PUBLIC_AI_API_URL;
+  if (!rawUrl) {
+    throw new Error("AI API non configurée (NEXT_PUBLIC_AI_API_URL).");
+  }
+  return rawUrl.replace(/\/+$/, "");
+}
+
+function buildHistory(
+  conversationHistory: AIMessage[] | undefined,
+  limit: number
+): BackendHistoryItem[] | undefined {
+  if (!conversationHistory?.length) return undefined;
+
+  return conversationHistory.slice(-limit).map((item) => ({
+    role: item.role,
+    content: item.content,
+  }));
+}
+
+async function postJson<TResponse>(url: string, body: unknown): Promise<TResponse> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  const data = (await response.json().catch(() => null)) as TResponse | null;
+
+  if (!response.ok) {
+    const errorMessage =
+      (data as any)?.detail ??
+      (data as any)?.error ??
+      `Erreur AI API (${response.status}).`;
+    throw new Error(errorMessage);
+  }
+
+  if (!data) {
+    throw new Error("Réponse AI API invalide.");
+  }
+
+  return data;
+}
+
 /**
  * Envoie un message à l'agent IA
  * 
@@ -36,21 +96,38 @@ export async function sendMessageToAI(
   message: string,
   context: AIContext
 ): Promise<AIResponse> {
-  // Simulation d'une réponse IA
-  // À remplacer par: const response = await fetch('/api/ai/chat', { ... })
-  
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        message: "Je comprends votre demande. Comment puis-je vous aider avec votre projet BTP ?",
-        suggestions: [
-          "Créer un nouveau projet",
-          "Consulter mes projets",
-          "Trouver un professionnel",
-        ],
-      });
-    }, 1000);
+  const apiUrl = getAiApiUrl();
+  const history = buildHistory(context.conversationHistory, 10);
+
+  if (context.projectId) {
+    const endpoint =
+      context.userRole === "professionnel" ? "/project-chat" : "/project-chat-client";
+    const data = await postJson<ProjectChatApiResponse>(`${apiUrl}${endpoint}`, {
+      project_id: context.projectId,
+      user_id: context.userId,
+      user_role: context.userRole,
+      message,
+      history,
+    });
+
+    return {
+      message: data.reply ?? "Je reviens vers vous avec une réponse.",
+    };
+  }
+
+  const data = await postJson<ChatApiResponse>(`${apiUrl}/chat`, {
+    message,
+    thread_id: `${context.userRole}:${context.userId}`,
+    history,
+    metadata: {
+      user_id: context.userId,
+      user_role: context.userRole,
+    },
   });
+
+  return {
+    message: data.reply ?? data.formatted ?? "Je reviens vers vous avec une réponse.",
+  };
 }
 
 /**
@@ -117,4 +194,3 @@ export async function searchProductsWithAI(
     }, 1000);
   });
 }
-

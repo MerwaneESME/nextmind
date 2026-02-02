@@ -112,7 +112,13 @@ export function ChatWindow({
                   : "bg-neutral-100 text-neutral-900 border border-neutral-200 shadow-sm"
               }`}
             >
-              <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+              <p
+                className={`text-sm whitespace-pre-wrap ${
+                  message.role === "user" ? "text-white" : "text-neutral-900"
+                }`}
+              >
+                {message.content}
+              </p>
             </div>
             {message.role === "user" && (
               <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center flex-shrink-0">
