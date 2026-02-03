@@ -9,18 +9,29 @@ export interface AIMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  quickActions?: QuickAction[];
+}
+
+export interface QuickAction {
+  id: string;
+  label: string;
+  type: string;
+  icon: string;
 }
 
 export interface AIContext {
   userId: string;
   userRole: "particulier" | "professionnel";
   projectId?: string;
+  conversationId?: string;
   conversationHistory?: AIMessage[];
 }
 
 export interface AIResponse {
   message: string;
   suggestions?: string[];
+  quickActions?: QuickAction[];
+  conversationId?: string;
   actions?: {
     type: "create_project" | "generate_quote" | "search_products" | "other";
     data?: any;
@@ -35,6 +46,8 @@ type BackendHistoryItem = {
 type ChatApiResponse = {
   reply?: string;
   formatted?: string;
+  quick_actions?: QuickAction[];
+  conversation_id?: string | null;
 };
 
 type ProjectChatApiResponse = {
@@ -92,6 +105,21 @@ async function postJson<TResponse>(url: string, body: unknown): Promise<TRespons
  * 
  * TODO: Remplacer par un appel réel à votre API IA
  */
+async function postPdf(url: string, body: unknown): Promise<Blob> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(errorText || `Erreur PDF API (${response.status}).`);
+  }
+
+  return await response.blob();
+}
+
 export async function sendMessageToAI(
   message: string,
   context: AIContext
@@ -118,6 +146,7 @@ export async function sendMessageToAI(
   const data = await postJson<ChatApiResponse>(`${apiUrl}/chat`, {
     message,
     thread_id: `${context.userRole}:${context.userId}`,
+    conversation_id: context.conversationId,
     history,
     metadata: {
       user_id: context.userId,
@@ -127,6 +156,8 @@ export async function sendMessageToAI(
 
   return {
     message: data.reply ?? data.formatted ?? "Je reviens vers vous avec une réponse.",
+    quickActions: data.quick_actions ?? [],
+    conversationId: data.conversation_id ?? context.conversationId,
   };
 }
 
@@ -135,6 +166,19 @@ export async function sendMessageToAI(
  * 
  * TODO: Remplacer par un appel réel à votre API IA
  */
+export async function generateChecklistPdf(payload: {
+  projectName?: string;
+  conversationContext: string;
+  query?: string;
+}): Promise<Blob> {
+  const apiUrl = getAiApiUrl();
+  return await postPdf(`${apiUrl}/generate-checklist-pdf`, {
+    project_name: payload.projectName ?? null,
+    conversation_context: payload.conversationContext,
+    query: payload.query ?? null,
+  });
+}
+
 export async function generateProjectWithAI(
   description: string,
   userId: string

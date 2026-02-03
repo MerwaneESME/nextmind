@@ -2138,7 +2138,7 @@ export default function ProjectDetailPage() {
                       <div
                         className={`max-w-[80%] rounded-lg px-4 py-2 text-sm ${
                           msg.role === "user"
-                            ? "bg-primary-600 text-white shadow-sm"
+                            ? "bg-primary-400 text-white shadow-sm"
                             : "bg-neutral-100 text-neutral-900 border border-neutral-200 shadow-sm"
                         }`}
                       >
@@ -2178,7 +2178,7 @@ export default function ProjectDetailPage() {
                       }
                     }}
                     placeholder="Demandez un planning ou une aide sur ce projet..."
-                    className="flex-1 px-4 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
+                    className="flex-1 px-4 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 bg-white selection:bg-primary-200 selection:text-neutral-900"
                     disabled={assistantLoading}
                   />
                   <Button
@@ -2210,7 +2210,7 @@ export default function ProjectDetailPage() {
                       <textarea
                         value={pendingProposal.summary ?? ""}
                         onChange={(event) => updateProposalSummary(event.target.value)}
-                        className="w-full min-h-[90px] px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        className="w-full min-h-[90px] px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 selection:bg-primary-200 selection:text-neutral-900"
                         placeholder="Résumé rapide du planning proposé."
                       />
                     </div>
@@ -2234,7 +2234,7 @@ export default function ProjectDetailPage() {
                             <textarea
                               value={task.description ?? ""}
                               onChange={(event) => updateProposalTask(index, { description: event.target.value })}
-                              className="w-full min-h-[80px] px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                              className="w-full min-h-[80px] px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 selection:bg-primary-200 selection:text-neutral-900"
                               placeholder="Détails utiles pour la tâche."
                             />
                           </div>
@@ -2614,7 +2614,7 @@ export default function ProjectDetailPage() {
                 <textarea
                   value={taskDescription}
                   onChange={(event) => setTaskDescription(event.target.value)}
-                  className="w-full min-h-[120px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full min-h-[120px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 selection:bg-primary-200 selection:text-neutral-900"
                   placeholder="Précisions sur la tâche"
                 />
               </div>
@@ -2656,7 +2656,7 @@ export default function ProjectDetailPage() {
                 <textarea
                   value={publishForm.summary}
                   onChange={(event) => setPublishForm((prev) => ({ ...prev, summary: event.target.value }))}
-                  className="w-full min-h-[120px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full min-h-[120px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 selection:bg-primary-200 selection:text-neutral-900"
                   placeholder="Décrivez le projet terminé."
                 />
               </div>
