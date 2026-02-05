@@ -8,6 +8,8 @@ import { supabase } from "@/lib/supabaseClient";
 
 interface SidebarProps {
   userRole: UserRole;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 const particulierNavItems = [
@@ -27,7 +29,7 @@ const professionnelNavItems = [
   { href: "/dashboard/settings", label: "Parametres", iconSrc: "/images/gear.png" },
 ];
 
-export function Sidebar({ userRole }: SidebarProps) {
+export function Sidebar({ userRole, collapsed = false, onToggleCollapse }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const currentRole: UserRole = userRole;
@@ -42,21 +44,43 @@ export function Sidebar({ userRole }: SidebarProps) {
   };
 
   return (
-    <aside className="fixed left-0 top-0 h-full w-64 bg-white border-r border-neutral-200 flex flex-col">
-      <div className="p-6 border-b border-neutral-200">
+    <aside
+      className={cn(
+        "fixed left-0 top-0 h-full bg-white border-r border-neutral-200 flex flex-col",
+        "transition-[width] duration-200 ease-in-out",
+        collapsed ? "w-16" : "w-64"
+      )}
+    >
+      <button
+        type="button"
+        onClick={onToggleCollapse}
+        aria-label={collapsed ? "Afficher le menu" : "Masquer le menu"}
+        className={cn(
+          "absolute top-1/2 -translate-y-1/2 right-0 translate-x-1/2",
+          "h-9 w-9 rounded-full border border-neutral-200 bg-white shadow-sm",
+          "grid place-items-center text-neutral-700 hover:bg-neutral-50",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2"
+        )}
+      >
+        <span className="text-lg leading-none" aria-hidden>
+          {collapsed ? "›" : "‹"}
+        </span>
+      </button>
+
+      <div className={cn("border-b border-neutral-200", collapsed ? "p-4" : "p-6")}>
         <Link
           href={currentRole ? `/dashboard?role=${currentRole}` : "/dashboard"}
-          className="flex items-center gap-2"
+          className={cn("flex items-center gap-2", collapsed && "justify-center")}
         >
           <img
             src="/images/nextmind.png"
             alt="NextMind"
-            className="h-8 w-auto"
+            className={cn("h-8 w-auto", collapsed && "h-7")}
           />
         </Link>
       </div>
 
-      <nav className="flex-1 p-4 space-y-1">
+      <nav className={cn("flex-1 space-y-1", collapsed ? "p-2" : "p-4")}>
         {navItems.map((item) => {
           const isActive =
             pathname === item.href || (item.href !== "/dashboard" && pathname?.startsWith(item.href + "/"));
@@ -66,7 +90,8 @@ export function Sidebar({ userRole }: SidebarProps) {
               key={item.href}
               href={currentRole ? `${item.href}?role=${currentRole}` : item.href}
               className={cn(
-                "flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors",
+                "flex items-center gap-3 rounded-lg transition-colors",
+                collapsed ? "justify-center px-2 py-2.5" : "px-4 py-2.5",
                 isActive
                   ? "bg-primary-50 text-primary-700 font-medium shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
                   : "text-neutral-700 hover:bg-neutral-100"
@@ -77,17 +102,18 @@ export function Sidebar({ userRole }: SidebarProps) {
                 alt={item.label}
                 className="w-5 h-5 object-contain logo-blend"
               />
-              <span>{item.label}</span>
+              {!collapsed && <span>{item.label}</span>}
             </Link>
           );
         })}
       </nav>
 
-      <div className="p-4 border-t border-neutral-200 space-y-1">
+      <div className={cn("border-t border-neutral-200 space-y-1", collapsed ? "p-2" : "p-4")}>
         <Link
           href={currentRole ? `/dashboard/assistant?role=${currentRole}` : "/dashboard/assistant"}
           className={cn(
-            "w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors",
+            "w-full flex items-center gap-3 rounded-lg transition-colors",
+            collapsed ? "justify-center px-2 py-2.5" : "px-4 py-2.5",
             pathname === "/dashboard/assistant"
               ? "bg-primary-50 text-primary-700 font-medium shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
               : "text-neutral-700 hover:bg-neutral-100"
@@ -98,18 +124,21 @@ export function Sidebar({ userRole }: SidebarProps) {
             alt="Assistant IA"
             className="w-5 h-5 object-contain logo-blend"
           />
-          <span>Assistant IA</span>
+          {!collapsed && <span>Assistant IA</span>}
         </Link>
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-red-600 !text-red-600 hover:bg-red-50 transition-colors"
+          className={cn(
+            "w-full flex items-center gap-3 rounded-lg text-red-600 !text-red-600 hover:bg-red-50 transition-colors",
+            collapsed ? "justify-center px-2 py-2.5" : "px-4 py-2.5"
+          )}
         >
           <img
             src="/images/sign-out.png"
             alt="Deconnexion"
             className="w-5 h-5 object-contain"
           />
-          <span className="text-red-600">Deconnexion</span>
+          {!collapsed && <span className="text-red-600">Deconnexion</span>}
         </button>
       </div>
     </aside>

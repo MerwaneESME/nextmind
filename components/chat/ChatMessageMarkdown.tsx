@@ -1,6 +1,13 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { TermsSearch } from "@/components/TermsSearch";
+import { BudgetSummary } from "@/components/assistant/BudgetSummary";
+import { ExampleCard } from "@/components/assistant/ExampleCard";
+import { MessageCard } from "@/components/assistant/MessageCard";
+import { RiskWarning } from "@/components/assistant/RiskWarning";
+import { TimelinePhase, type TimelinePhaseData } from "@/components/assistant/TimelinePhase";
+import { formatCurrency } from "@/lib/utils";
 
 type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -11,6 +18,257 @@ type MarkdownBlock =
   | { type: "ol"; items: string[] }
   | { type: "blockquote"; text: string }
   | { type: "code"; code: string; language?: string };
+
+type DevisTermsUiPayload = {
+  query?: string;
+  category?: string;
+  ids?: string[];
+};
+
+type AssistantBudgetPayload = {
+  ht?: number | null;
+  tva?: number | null;
+  ttc?: number | null;
+  hint?: string;
+  payments?: Array<{
+    label: string;
+    percent?: number;
+    amount?: number;
+    note?: string;
+  }>;
+};
+
+type AssistantTimelinePayload = {
+  title?: string;
+  totalDuration?: string;
+  phases?: TimelinePhaseData[];
+};
+
+type AssistantRisksPayload = {
+  groups?: Array<{
+    icon?: string;
+    title: string;
+    description?: string;
+    actions?: string[];
+    variant?: "info" | "warning" | "danger" | "success";
+  }>;
+  safetyBudget?: Array<{ label: string; value: string }>;
+};
+
+type AssistantDevisPayload = {
+  totalTtc?: number | null;
+  quotes?: Array<{
+    id?: string;
+    title: string;
+    status?: string;
+    totalTtc?: number | null;
+    updatedAt?: string;
+  }>;
+};
+
+type AssistantExamplePayload = { text?: string };
+
+function isDevisTermsLanguage(language: string | undefined): boolean {
+  const lang = (language || "").trim().toLowerCase();
+  return lang === "devis-terms" || lang === "devis_terms" || lang === "btp-terms";
+}
+
+function parseDevisTermsUiPayload(code: string): DevisTermsUiPayload {
+  const raw = (code || "").trim();
+  if (!raw) return {};
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+
+    const obj = parsed as Record<string, unknown>;
+    return {
+      query: typeof obj.query === "string" ? obj.query : undefined,
+      category: typeof obj.category === "string" ? obj.category : undefined,
+      ids: Array.isArray(obj.ids) ? obj.ids.filter((id) => typeof id === "string") : undefined,
+    };
+  } catch {
+    return { query: raw };
+  }
+}
+
+function isAssistantLanguage(language: string | undefined): boolean {
+  const lang = (language || "").trim().toLowerCase();
+  return (
+    lang === "assistant-budget" ||
+    lang === "assistant-timeline" ||
+    lang === "assistant-risks" ||
+    lang === "assistant-devis" ||
+    lang === "assistant-example"
+  );
+}
+
+function parseJsonPayload(code: string): unknown {
+  const raw = (code || "").trim();
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function renderAssistantBlock(language: string | undefined, code: string): ReactNode | null {
+  const lang = (language || "").trim().toLowerCase();
+  const parsed = parseJsonPayload(code);
+  if (!parsed || typeof parsed !== "object") {
+    return (
+      <MessageCard variant="warning" title="Réponse formatée invalide">
+        Je n&apos;arrive pas à afficher ce bloc. Essayez de reformuler.
+      </MessageCard>
+    );
+  }
+
+  if (lang === "assistant-example") {
+    const payload = parsed as AssistantExamplePayload;
+    if (!payload.text) return null;
+    return <ExampleCard text={payload.text} />;
+  }
+
+  if (lang === "assistant-budget") {
+    const payload = parsed as AssistantBudgetPayload;
+    const ttc = typeof payload.ttc === "number" ? payload.ttc : null;
+
+    return (
+      <div className="space-y-3">
+        {ttc !== null ? (
+          <BudgetSummary ht={payload.ht ?? null} tva={payload.tva ?? null} ttc={ttc} />
+        ) : (
+          <MessageCard variant="info" title="Budget">
+            Ajoutez un devis lié au projet pour un total fiable.
+          </MessageCard>
+        )}
+
+        {payload.hint && (
+          <MessageCard variant="info" title="Résumé">
+            {payload.hint}
+          </MessageCard>
+        )}
+
+        {payload.payments && payload.payments.length > 0 && (
+          <div className="bg-white border border-neutral-200 rounded-lg p-4">
+            <h4 className="font-bold text-neutral-900 mb-3">Échéancier (repère)</h4>
+            <div className="space-y-2">
+              {payload.payments.map((p, idx) => {
+                const amount = typeof p.amount === "number" ? formatCurrency(p.amount) : null;
+                const percent = typeof p.percent === "number" ? `${p.percent}%` : null;
+                return (
+                  <div
+                    key={`${p.label}-${idx}`}
+                    className="flex items-start justify-between gap-3 rounded-lg bg-neutral-50 border border-neutral-200 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-semibold text-neutral-900">{p.label}</div>
+                      {(percent || p.note) && (
+                        <div className="text-xs text-neutral-600">{[percent, p.note].filter(Boolean).join(" • ")}</div>
+                      )}
+                    </div>
+                    {amount && <div className="font-bold text-neutral-900 whitespace-nowrap">{amount}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (lang === "assistant-timeline") {
+    const payload = parsed as AssistantTimelinePayload;
+    const phases = Array.isArray(payload.phases) ? payload.phases : [];
+
+    return (
+      <div className="space-y-3">
+        {(payload.title || payload.totalDuration) && (
+          <MessageCard variant="info" title={payload.title ?? "Planning"}>
+            {payload.totalDuration ?? "Durée variable selon l’ampleur et les aléas."}
+          </MessageCard>
+        )}
+        <div className="relative">
+          {phases.map((phase, idx) => (
+            <TimelinePhase key={`${phase.title}-${idx}`} phase={phase} index={idx} isLast={idx === phases.length - 1} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (lang === "assistant-risks") {
+    const payload = parsed as AssistantRisksPayload;
+    const groups = Array.isArray(payload.groups) ? payload.groups : [];
+    const safetyBudget = Array.isArray(payload.safetyBudget) ? payload.safetyBudget : [];
+
+    return (
+      <div className="space-y-3">
+        {groups.map((g, idx) => (
+          <RiskWarning
+            key={`${g.title}-${idx}`}
+            icon={g.icon}
+            title={g.title}
+            description={g.description}
+            actions={g.actions}
+            variant={g.variant ?? "warning"}
+          />
+        ))}
+        {safetyBudget.length > 0 && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <h4 className="font-bold text-blue-900 mb-3">💼 À prévoir en sécurité</h4>
+            <div className="space-y-2 text-sm text-blue-800">
+              {safetyBudget.map((row, idx) => (
+                <div key={`${row.label}-${idx}`} className="flex items-center justify-between gap-3">
+                  <span>{row.label}</span>
+                  <span className="font-semibold">{row.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (lang === "assistant-devis") {
+    const payload = parsed as AssistantDevisPayload;
+    const quotes = Array.isArray(payload.quotes) ? payload.quotes : [];
+    const total = typeof payload.totalTtc === "number" ? payload.totalTtc : null;
+
+    return (
+      <div className="space-y-3">
+        <MessageCard variant="info" title="Résumé">
+          {total !== null
+            ? `Total TTC (devis liés) : ${formatCurrency(total)}.`
+            : "Aucun total TTC disponible. Ajoutez/liez un devis au projet pour obtenir un total."}
+        </MessageCard>
+
+        {quotes.length > 0 && (
+          <div className="grid gap-2">
+            {quotes.slice(0, 6).map((q, idx) => (
+              <div key={`${q.title}-${idx}`} className="bg-white border border-neutral-200 rounded-lg p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-neutral-900 truncate">{q.title}</div>
+                    {q.status && <div className="text-xs text-neutral-500">{q.status}</div>}
+                  </div>
+                  {typeof q.totalTtc === "number" && (
+                    <div className="font-bold text-neutral-900 whitespace-nowrap">{formatCurrency(q.totalTtc)}</div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+}
 
 function isCodeFenceStart(line: string) {
   return /^\s*```/.test(line);
@@ -417,6 +675,19 @@ export function ChatMessageMarkdown({ content }: { content: string }) {
         }
 
         if (block.type === "code") {
+          if (isDevisTermsLanguage(block.language)) {
+            const payload = parseDevisTermsUiPayload(block.code);
+            return <TermsSearch key={`terms-${blockIndex}`} initialPayload={payload} />;
+          }
+
+          if (isAssistantLanguage(block.language)) {
+            return (
+              <div key={`assistant-${blockIndex}`} className="space-y-2">
+                {renderAssistantBlock(block.language, block.code)}
+              </div>
+            );
+          }
+
           return (
             <pre
               key={`code-${blockIndex}`}

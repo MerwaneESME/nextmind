@@ -159,6 +159,9 @@ export function ChatWindow({
 
       let followUpQuery = "";
       switch (actionId) {
+        case "devis_terms":
+          followUpQuery = "Peux-tu m'expliquer les termes techniques d’un devis ? (lexique)";
+          break;
         case "create_estimate":
           followUpQuery = "Crée-moi un mini-devis détaillé pour ce projet";
           break;

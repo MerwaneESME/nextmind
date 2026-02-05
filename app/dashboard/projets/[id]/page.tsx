@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -13,6 +13,10 @@ import { deleteDevisWithItems, mapDevisRowToSummary } from "@/lib/devisDb";
 import { downloadQuotePdf } from "@/lib/quotePdf";
 import { deleteProjectCascade, inviteProjectMemberByEmail } from "@/lib/projectsDb";
 import type { QuoteSummary } from "@/lib/quotesStore";
+import { ChatMessageMarkdown } from "@/components/chat/ChatMessageMarkdown";
+import type { AssistantActionButton } from "@/components/assistant/ActionButton";
+import { ActionMenu } from "@/components/assistant/ActionMenu";
+import { formatAssistantReply, type AssistantUiMode } from "@/lib/assistantResponses";
 
 type Project = {
   id: string;
@@ -364,6 +368,7 @@ export default function ProjectDetailPage() {
   const searchParams = useSearchParams();
   const { user, profile } = useAuth();
   const roleParam = searchParams.get("role");
+  const tabParam = searchParams.get("tab");
   const role = roleParam === "professionnel" ? "professionnel" : "particulier";
   const userRole = profile ? mapUserTypeToRole(profile.user_type) : role;
   const projectId = typeof params.id === "string" ? params.id : "";
@@ -374,7 +379,9 @@ export default function ProjectDetailPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [quotes, setQuotes] = useState<QuoteSummary[]>([]);
   const [availableQuotes, setAvailableQuotes] = useState<QuoteSummary[]>([]);
-  const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const isTabKey = (value: string | null): value is TabKey =>
+    !!value && tabItems.some((tab) => tab.key === value);
+  const [activeTab, setActiveTab] = useState<TabKey>(() => (isTabKey(tabParam) ? tabParam : "overview"));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [messageInput, setMessageInput] = useState("");
@@ -426,7 +433,61 @@ export default function ProjectDetailPage() {
   const [assistantError, setAssistantError] = useState<string | null>(null);
   const [assistantNotice, setAssistantNotice] = useState<string | null>(null);
   const [pendingProposal, setPendingProposal] = useState<AssistantProposal | null>(null);
+  const [assistantActiveAction, setAssistantActiveAction] = useState<AssistantActionButton["id"] | null>(null);
   const [applyLoading, setApplyLoading] = useState(false);
+  const assistantSectionRef = useRef<HTMLDivElement | null>(null);
+  const assistantMessagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const assistantMessagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  const animateScrollTop = (
+    element: { scrollTop: number },
+    to: number,
+    durationMs = 650
+  ) => {
+    const from = element.scrollTop;
+    const delta = to - from;
+    if (!Number.isFinite(delta) || Math.abs(delta) < 2) return;
+
+    const start = performance.now();
+    const easeInOutCubic = (t: number) =>
+      t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+    const step = (now: number) => {
+      const elapsed = now - start;
+      const t = Math.min(1, elapsed / durationMs);
+      element.scrollTop = from + delta * easeInOutCubic(t);
+      if (t < 1) requestAnimationFrame(step);
+    };
+
+    requestAnimationFrame(step);
+  };
+
+  useEffect(() => {
+    if (!isTabKey(tabParam)) return;
+    if (tabParam === activeTab) return;
+    setActiveTab(tabParam);
+  }, [tabParam, activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== "assistant") return;
+    const id = window.setTimeout(() => {
+      const target = assistantSectionRef.current;
+      if (!target) return;
+      const rect = target.getBoundingClientRect();
+      const alreadyComfortable = rect.top >= 80 && rect.top <= window.innerHeight * 0.35;
+      if (alreadyComfortable) return;
+      animateScrollTop(window.document.documentElement, window.scrollY + rect.top - 80, 800);
+    }, 50);
+    return () => window.clearTimeout(id);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== "assistant") return;
+    const container = assistantMessagesContainerRef.current;
+    if (!container) return;
+    const target = container.scrollHeight;
+    animateScrollTop(container, target, 700);
+  }, [assistantLoading, assistantMessages.length, activeTab]);
 
   useEffect(() => {
     setAssistantMessages((prev) => {
@@ -899,12 +960,19 @@ export default function ProjectDetailPage() {
     });
   };
 
-  const sendAssistantMessage = async (content: string, options?: { forcePlan?: boolean }) => {
+  const sendAssistantMessage = async (
+    content: string,
+    options?: { forcePlan?: boolean; uiMode?: AssistantUiMode; actionId?: string }
+  ) => {
     if (!user?.id || !projectId) return;
     const trimmed = content.trim();
     if (!trimmed || assistantLoading) return;
     setAssistantError(null);
     setAssistantNotice(null);
+
+    if (options?.actionId) {
+      setAssistantActiveAction(options.actionId);
+    }
 
     const userMessage: AssistantMessage = {
       role: "user",
@@ -941,9 +1009,19 @@ export default function ProjectDetailPage() {
         }),
       });
       const data = await response.json();
+      const rawReply = (data.reply ?? "Je reviens vers vous avec une proposition.") as string;
+      const nextReply =
+        options?.uiMode
+          ? formatAssistantReply(options.uiMode, rawReply, {
+              projectName: project?.name ?? null,
+              projectType: project?.project_type ?? null,
+              totalBudgetTtc: totalBudget,
+              quotes,
+            })
+          : rawReply;
       const assistantMessage: AssistantMessage = {
         role: "assistant",
-        content: data.reply ?? "Je reviens vers vous avec une proposition.",
+        content: nextReply,
         timestamp: new Date().toISOString(),
         proposal: data.proposal ?? null,
         requires_devis: Boolean(data.requires_devis),
@@ -966,6 +1044,170 @@ export default function ProjectDetailPage() {
       setAssistantLoading(false);
     }
   };
+
+  const assistantActionButtons = useMemo(() => {
+    if (userRole === "professionnel") {
+      const actions: Array<
+        AssistantActionButton & {
+          prompt: string;
+          uiMode?: AssistantUiMode;
+          forcePlan?: boolean;
+        }
+      > = [
+        {
+          id: "pro_plan",
+          icon: "🗓️",
+          title: "Planning détaillé",
+          description: "Proposition de tâches + dates",
+          color: "indigo",
+          prompt: "Propose un planning détaillé pour ce projet avec les tâches principales et les délais.",
+          forcePlan: true,
+        },
+        {
+          id: "pro_devis_analyze",
+          icon: "📄",
+          title: "Analyse devis",
+          description: "Postes principaux + cohérences",
+          color: "blue",
+          prompt:
+            "Analyse le devis de ce projet. Quels sont les postes principaux ? Y a-t-il des incohérences ou des points à vérifier ?",
+          uiMode: "devis",
+        },
+        {
+          id: "pro_devis_validate",
+          icon: "✅",
+          title: "Conformité",
+          description: "TVA, mentions, totaux",
+          color: "green",
+          prompt:
+            "Vérifie la conformité du devis : TVA, mentions obligatoires, cohérence des totaux, et conformité réglementaire.",
+        },
+        {
+          id: "pro_budget",
+          icon: "💰",
+          title: "Budget",
+          description: "Synthèse coûts + paiements",
+          color: "purple",
+          prompt: "Quel est le budget estimé pour ce projet ? Y a-t-il des coûts supplémentaires à prévoir ?",
+          uiMode: "budget",
+        },
+        {
+          id: "pro_risks",
+          icon: "⚠️",
+          title: "Risques",
+          description: "Points d’attention chantier",
+          color: "red",
+          prompt:
+            "Quels sont les risques et points d'attention pour ce projet ? Y a-t-il des éléments à surveiller particulièrement ?",
+          uiMode: "risks",
+        },
+        {
+          id: "pro_terms",
+          icon: "❓",
+          title: "Termes",
+          description: "Lexique BTP (devis)",
+          color: "orange",
+          prompt: "Peux-tu clarifier les termes techniques du devis ? Explique-moi les mots que je ne comprends pas.",
+          uiMode: "terms",
+        },
+        {
+          id: "pro_margins",
+          icon: "📈",
+          title: "Marges",
+          description: "Rentabilité par poste",
+          color: "purple",
+          prompt: "Calcule les marges et la rentabilité de ce projet. Quels sont les postes les plus rentables ?",
+        },
+        {
+          id: "pro_optimize",
+          icon: "⚡",
+          title: "Optimiser",
+          description: "Réduire sans dégrader",
+          color: "blue",
+          prompt:
+            "Optimise les coûts de ce projet. Y a-t-il des postes où on peut réduire les coûts sans impacter la qualité ?",
+        },
+        {
+          id: "pro_improve",
+          icon: "✨",
+          title: "Améliorations",
+          description: "Alternatives & options",
+          color: "green",
+          prompt:
+            "Propose des améliorations ou des alternatives pour ce projet. Y a-t-il des options plus performantes ou économiques ?",
+        },
+      ];
+
+      return actions.map(({ prompt, uiMode, forcePlan, ...a }) => ({
+        ...a,
+        disabled: assistantLoading,
+        onClick: () => void sendAssistantMessage(prompt, { forcePlan, uiMode, actionId: a.id }),
+      }));
+    }
+
+    const actions: Array<AssistantActionButton & { prompt: string; uiMode: AssistantUiMode }> = [
+      {
+        id: "client_devis",
+        icon: "📄",
+        title: "Explique le devis",
+        description: "Comprendre les postes et inclusions",
+        color: "blue",
+        prompt: "Explique-moi le devis de ce projet en détail. Qu'est-ce qui est inclus ? Quels sont les postes principaux ?",
+        uiMode: "devis",
+      },
+      {
+        id: "client_steps",
+        icon: "✓",
+        title: "Les étapes",
+        description: "Chronologie des travaux",
+        color: "green",
+        prompt: "Quelles sont les étapes principales de ce projet ? Comment va se dérouler le chantier ?",
+        uiMode: "steps",
+      },
+      {
+        id: "client_budget",
+        icon: "💰",
+        title: "Le budget",
+        description: "Coûts, paiements, imprévus",
+        color: "purple",
+        prompt: "Quel est le budget estimé pour ce projet ? Y a-t-il des coûts supplémentaires à prévoir ?",
+        uiMode: "budget",
+      },
+      {
+        id: "client_terms",
+        icon: "❓",
+        title: "Termes techniques",
+        description: "Vocabulaire BTP simplifié",
+        color: "orange",
+        prompt: "Peux-tu clarifier les termes techniques du devis ? Explique-moi les mots que je ne comprends pas.",
+        uiMode: "terms",
+      },
+      {
+        id: "client_delays",
+        icon: "⏰",
+        title: "Les délais",
+        description: "Durée et jalons",
+        color: "indigo",
+        prompt: "Quels sont les délais prévus pour ce projet ? Combien de temps va prendre chaque étape ?",
+        uiMode: "delays",
+      },
+      {
+        id: "client_risks",
+        icon: "⚠",
+        title: "Points d'attention",
+        description: "Risques et précautions",
+        color: "red",
+        prompt: "Y a-t-il des points d'attention ou des risques à connaître pour ce projet ?",
+        uiMode: "risks",
+      },
+    ];
+
+    return actions.map(({ prompt, uiMode, ...a }) => ({
+      ...a,
+      disabled: assistantLoading,
+      onClick: () => void sendAssistantMessage(prompt, { uiMode, actionId: a.id }),
+    }));
+  }, [assistantLoading, sendAssistantMessage, userRole]);
 
   const handleDeleteProject = async () => {
     if (!canManageProject || !projectId) return;
@@ -1411,7 +1653,12 @@ export default function ProjectDetailPage() {
               variant={isActive ? "primary" : "outline"}
               size="sm"
               className="inline-flex items-center gap-2 whitespace-nowrap"
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => {
+                setActiveTab(tab.key);
+                const next = new URLSearchParams(searchParams.toString());
+                next.set("tab", tab.key);
+                router.replace(`/dashboard/projets/${projectId}?${next.toString()}`, { scroll: false });
+              }}
             >
               <img
                 src={tab.iconSrc}
@@ -2093,18 +2340,22 @@ export default function ProjectDetailPage() {
         </section>
       )}
       {!loading && activeTab === "assistant" && (
-        <section className="grid gap-6 lg:grid-cols-[2fr_1fr] items-start">
+        <section ref={assistantSectionRef} className="grid gap-6">
           <div className="space-y-6">
-            <Card className="min-h-[420px]">
-              <CardHeader>
-                <div className="font-semibold text-gray-900">Assistant IA du projet</div>
-                <div className="text-sm text-gray-500">
-                  {userRole === "professionnel"
-                    ? "Analyse le devis et propose un planning personnalisé."
-                    : "Explique les étapes du projet et aide à comprendre le devis."}
+            <Card className="min-h-[520px] h-[calc(100vh-280px)] flex flex-col">
+              <CardContent className="flex flex-col gap-4 flex-1 min-h-0">
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-neutral-900">Actions rapides</div>
+                      <div className="text-xs text-neutral-500">
+                        Ouvrez le menu pour choisir une action (cartes, timeline, budget…).
+                      </div>
+                    </div>
+                    <ActionMenu actions={assistantActionButtons} disabled={assistantLoading} />
+                  </div>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
+
                 {assistantError && (
                   <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                     {assistantError}
@@ -2120,7 +2371,10 @@ export default function ProjectDetailPage() {
                     Vous pouvez poser vos questions, mais la modification du planning est réservée aux professionnels.
                   </div>
                 )}
-                <div className="space-y-3 max-h-[360px] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4">
+                <div
+                  ref={assistantMessagesContainerRef}
+                  className="flex-1 min-h-0 space-y-3 overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 sm:p-6"
+                >
                   {assistantMessages.map((msg, index) => (
                     <div
                       key={`${msg.timestamp}-${index}`}
@@ -2138,13 +2392,11 @@ export default function ProjectDetailPage() {
                       <div
                         className={`max-w-[80%] rounded-lg px-4 py-2 text-sm ${
                           msg.role === "user"
-                            ? "bg-primary-400 text-white shadow-sm"
+                            ? "bg-primary-400 text-white shadow-sm [&_*]:text-white"
                             : "bg-neutral-100 text-neutral-900 border border-neutral-200 shadow-sm"
                         }`}
                       >
-                        <p className={`whitespace-pre-wrap ${msg.role === "user" ? "text-white" : "text-neutral-900"}`}>
-                          {msg.content}
-                        </p>
+                        <ChatMessageMarkdown content={msg.content} />
                       </div>
                     </div>
                   ))}
@@ -2166,8 +2418,9 @@ export default function ProjectDetailPage() {
                       </div>
                     </div>
                   )}
+                  <div ref={assistantMessagesEndRef} />
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 pb-2">
                   <input
                     type="text"
                     value={assistantInput}
@@ -2177,13 +2430,18 @@ export default function ProjectDetailPage() {
                         void sendAssistantMessage(assistantInput);
                       }
                     }}
-                    placeholder="Demandez un planning ou une aide sur ce projet..."
-                    className="flex-1 px-4 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 bg-white selection:bg-primary-200 selection:text-neutral-900"
+                    placeholder={
+                      assistantActiveAction
+                        ? "Complétez ou posez une question liée à l’action…"
+                        : "Posez une question (devis, étapes, budget, délais, risques)…"
+                    }
+                    className="flex-1 h-14 px-4 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 bg-white selection:bg-primary-200 selection:text-neutral-900 text-base"
                     disabled={assistantLoading}
                   />
                   <Button
                     onClick={() => sendAssistantMessage(assistantInput)}
                     disabled={assistantLoading || !assistantInput.trim()}
+                    className="h-14"
                   >
                     <Send className="w-4 h-4" />
                   </Button>
@@ -2191,6 +2449,7 @@ export default function ProjectDetailPage() {
               </CardContent>
             </Card>
 
+            {userRole === "professionnel" && (
             <Card>
               <CardHeader>
                 <div className="font-semibold text-gray-900">Proposition de planning</div>
@@ -2290,206 +2549,9 @@ export default function ProjectDetailPage() {
                 )}
               </CardContent>
             </Card>
+            )}
           </div>
 
-          <Card>
-            <CardHeader>
-              <div className="font-semibold text-gray-900">Actions IA</div>
-              <div className="text-sm text-gray-500">
-                {userRole === "professionnel"
-                  ? "Déclencher d'autres actions IA."
-                  : "Actions rapides pour comprendre votre projet."}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {userRole === "professionnel" ? (
-                <>
-                  <div className="space-y-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Propose un planning détaillé pour ce projet avec les tâches principales et les délais.", { forcePlan: true })}
-                      disabled={assistantLoading || !canUseAssistantPlanning}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                        </svg>
-                        Proposer un planning
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Analyse le devis de ce projet. Quels sont les postes principaux ? Y a-t-il des incohérences ou des points à vérifier ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        Analyser le devis
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Vérifie la conformité du devis : TVA, mentions obligatoires, cohérence des totaux, et conformité réglementaire.", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Vérifier la conformité
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Calcule les marges et la rentabilité de ce projet. Quels sont les postes les plus rentables ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Calculer les marges
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Optimise les coûts de ce projet. Y a-t-il des postes où on peut réduire les coûts sans impacter la qualité ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
-                        Optimiser les coûts
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Quels sont les risques et points d'attention pour ce projet ? Y a-t-il des éléments à surveiller particulièrement ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        Risques et points d'attention
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Propose des améliorations ou des alternatives pour ce projet. Y a-t-il des options plus performantes ou économiques ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                        Proposer des améliorations
-                      </span>
-                    </Button>
-                  </div>
-                  <div className="text-xs text-gray-500 pt-2 border-t border-gray-200">
-                    Actions rapides pour optimiser et gérer votre projet professionnel.
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Explique-moi le devis de ce projet en détail. Qu'est-ce qui est inclus ? Quels sont les postes principaux ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        Explique-moi le devis
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Quelles sont les étapes principales de ce projet ? Comment va se dérouler le chantier ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                        </svg>
-                        Quelles sont les étapes ?
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Quel est le budget estimé pour ce projet ? Y a-t-il des coûts supplémentaires à prévoir ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Quel est le budget ?
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Peux-tu clarifier les termes techniques du devis ? Explique-moi les mots que je ne comprends pas.", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Clarifier les termes techniques
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Quels sont les délais prévus pour ce projet ? Combien de temps va prendre chaque étape ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Quels sont les délais ?
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Y a-t-il des points d'attention ou des risques à connaître pour ce projet ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        Points d'attention
-                      </span>
-                    </Button>
-                  </div>
-                  <div className="text-xs text-gray-500 pt-2 border-t border-gray-200">
-                    Ces actions vous aident à mieux comprendre votre projet et le devis associé.
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
         </section>
       )}
       {taskDetailOpen && selectedTask && (
