@@ -23,6 +23,9 @@ export interface AIContext {
   userId: string;
   userRole: "particulier" | "professionnel";
   projectId?: string;
+  phaseId?: string;
+  lotId?: string;
+  contextType?: "project" | "phase" | "lot";
   conversationId?: string;
   conversationHistory?: AIMessage[];
 }
@@ -126,12 +129,18 @@ export async function sendMessageToAI(
 ): Promise<AIResponse> {
   const apiUrl = getAiApiUrl();
   const history = buildHistory(context.conversationHistory, 10);
+  const contextType =
+    context.contextType ??
+    (context.lotId ? "lot" : context.phaseId ? "phase" : context.projectId ? "project" : undefined);
 
   if (context.projectId) {
     const endpoint =
       context.userRole === "professionnel" ? "/project-chat" : "/project-chat-client";
     const data = await postJson<ProjectChatApiResponse>(`${apiUrl}${endpoint}`, {
       project_id: context.projectId,
+      phase_id: context.phaseId ?? null,
+      lot_id: context.lotId ?? null,
+      context_type: contextType ?? "project",
       user_id: context.userId,
       user_role: context.userRole,
       message,
@@ -151,6 +160,10 @@ export async function sendMessageToAI(
     metadata: {
       user_id: context.userId,
       user_role: context.userRole,
+      context_type: contextType ?? null,
+      project_id: context.projectId ?? null,
+      phase_id: context.phaseId ?? null,
+      lot_id: context.lotId ?? null,
     },
   });
 

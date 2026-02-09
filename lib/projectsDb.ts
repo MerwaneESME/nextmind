@@ -7,6 +7,8 @@ export type ProjectSummary = {
   status: string | null;
   projectType: string | null;
   budgetTotal?: number | null;
+  phasesCount?: number;
+  lotsCount?: number;
   city: string | null;
   address: string | null;
   createdAt: string | null;
@@ -54,34 +56,39 @@ export const fetchProjectsForUser = async (userId: string, limit?: number) => {
     throw error;
   }
 
-  const mapped =
-    data
-      ?.map((row) => {
-        const project = row.project as ProjectRow | null;
-        if (!project) return null;
-        const rawBudget = project.budget_total;
-        const budgetTotal =
-          typeof rawBudget === "number"
-            ? rawBudget
-            : typeof rawBudget === "string"
-              ? Number(rawBudget)
-              : null;
-        return {
-          id: project.id,
-          name: project.name,
-          description: project.description,
-          status: project.status,
-          projectType: project.project_type,
-          budgetTotal: Number.isFinite(budgetTotal) ? budgetTotal : null,
-          city: project.city,
-          address: project.address,
-          createdAt: project.created_at,
-          updatedAt: project.updated_at,
-          memberStatus: row.status ?? null,
-          memberRole: row.role ?? null,
-        } as ProjectSummary;
-      })
-      .filter(Boolean) ?? [];
+  const firstOrNull = <T,>(value: T | T[] | null | undefined): T | null => {
+    if (!value) return null;
+    if (Array.isArray(value)) return (value[0] ?? null) as T | null;
+    return value as T;
+  };
+
+  const mapped = (data ?? [])
+    .map((row) => {
+      const project = firstOrNull(row.project as any) as ProjectRow | null;
+      if (!project) return null;
+      const rawBudget = project.budget_total;
+      const budgetTotal =
+        typeof rawBudget === "number"
+          ? rawBudget
+          : typeof rawBudget === "string"
+            ? Number(rawBudget)
+            : null;
+      return {
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        status: project.status,
+        projectType: project.project_type,
+        budgetTotal: Number.isFinite(budgetTotal) ? budgetTotal : null,
+        city: project.city,
+        address: project.address,
+        createdAt: project.created_at,
+        updatedAt: project.updated_at,
+        memberStatus: row.status ?? null,
+        memberRole: row.role ?? null,
+      } as ProjectSummary;
+    })
+    .filter((p): p is ProjectSummary => Boolean(p));
 
   mapped.sort((a, b) => {
     const aDate = a.updatedAt ?? a.createdAt ?? "";
@@ -89,8 +96,76 @@ export const fetchProjectsForUser = async (userId: string, limit?: number) => {
     return aDate < bDate ? 1 : -1;
   });
 
+  // Enrich with phase/lot counts (best-effort; never fail list rendering).
+  try {
+    const ids = mapped.map((p) => p.id).filter(Boolean);
+    if (ids.length) {
+      const counts = await fetchHierarchyCounts(ids);
+      for (const p of mapped) {
+        const c = counts[p.id];
+        if (c) {
+          p.phasesCount = c.phases;
+          p.lotsCount = c.lots;
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
   return mapped;
 };
+
+export async function fetchHierarchyCounts(
+  projectIds: string[]
+): Promise<Record<string, { phases: number; lots: number }>> {
+  const ids = (projectIds ?? []).filter(Boolean);
+  if (!ids.length) return {};
+
+  const { data: phases, error: phasesError } = await supabase
+    .from("phases")
+    .select("id,project_id")
+    .in("project_id", ids);
+  if (phasesError) throw phasesError;
+
+  const result: Record<string, { phases: number; lots: number }> = {};
+  const phaseIds: string[] = [];
+
+  for (const row of phases ?? []) {
+    const pid = (row as any).project_id as string | undefined;
+    const phid = (row as any).id as string | undefined;
+    if (!pid || !phid) continue;
+    phaseIds.push(phid);
+    result[pid] = result[pid] ?? { phases: 0, lots: 0 };
+    result[pid].phases += 1;
+  }
+
+  if (!phaseIds.length) {
+    for (const pid of ids) result[pid] = result[pid] ?? { phases: 0, lots: 0 };
+    return result;
+  }
+
+  const { data: lots, error: lotsError } = await supabase.from("lots").select("id,phase_id").in("phase_id", phaseIds);
+  if (lotsError) throw lotsError;
+
+  const phaseToProject: Record<string, string> = {};
+  for (const row of phases ?? []) {
+    const pid = (row as any).project_id as string | undefined;
+    const phid = (row as any).id as string | undefined;
+    if (pid && phid) phaseToProject[phid] = pid;
+  }
+
+  for (const l of lots ?? []) {
+    const phid = (l as any).phase_id as string | undefined;
+    const pid = phid ? phaseToProject[phid] : undefined;
+    if (!pid) continue;
+    result[pid] = result[pid] ?? { phases: 0, lots: 0 };
+    result[pid].lots += 1;
+  }
+
+  for (const pid of ids) result[pid] = result[pid] ?? { phases: 0, lots: 0 };
+  return result;
+}
 
 export const createProject = async (userId: string, input: CreateProjectInput) => {
   const payload = {

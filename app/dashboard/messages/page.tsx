@@ -69,6 +69,12 @@ type ProjectInviteRow = {
   project: { id: string; name: string | null } | null;
 };
 
+const firstOrNull = <T,>(value: T | T[] | null | undefined): T | null => {
+  if (!value) return null;
+  if (Array.isArray(value)) return (value[0] ?? null) as T | null;
+  return value as T;
+};
+
 const pickCounterpart = (members: MemberRow[], currentUserId: string) => {
   const others = members.filter((member) => member.user_id !== currentUserId);
   if (!others.length) return null;
@@ -227,12 +233,17 @@ export default function MessagesPage() {
       if (messagesRes.error) throw messagesRes.error;
 
       const membersByConversation: Record<string, MemberRow[]> = {};
-      (membersRes.data as MemberRow[] | null | undefined)?.forEach((member) => {
-        if (!member.conversation_id) return;
-        if (!membersByConversation[member.conversation_id]) {
-          membersByConversation[member.conversation_id] = [];
+      ((membersRes.data as any[] | null | undefined) ?? []).forEach((member) => {
+        const conversationId = String(member?.conversation_id ?? "");
+        if (!conversationId) return;
+        if (!membersByConversation[conversationId]) {
+          membersByConversation[conversationId] = [];
         }
-        membersByConversation[member.conversation_id].push(member);
+        membersByConversation[conversationId].push({
+          conversation_id: conversationId,
+          user_id: String(member?.user_id ?? ""),
+          profile: firstOrNull(member?.profile) as any,
+        });
       });
 
       const lastMessageByConversation: Record<string, MessageRow> = {};
@@ -306,7 +317,15 @@ export default function MessagesPage() {
       }
       const { data, error: inviteError } = await query;
       if (inviteError) throw inviteError;
-      setPendingInvites((data as ProjectInviteRow[] | null | undefined) ?? []);
+      const normalizedInvites: ProjectInviteRow[] = (data ?? []).map((row: any) => ({
+        id: String(row.id),
+        project_id: String(row.project_id),
+        role: row.role ?? null,
+        status: row.status ?? null,
+        invited_email: row.invited_email ?? null,
+        project: firstOrNull(row.project) as any,
+      }));
+      setPendingInvites(normalizedInvites);
     } catch (err: any) {
       setError(err?.message ?? "Impossible de charger les invitations.");
     }

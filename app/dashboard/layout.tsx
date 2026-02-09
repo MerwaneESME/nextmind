@@ -22,7 +22,8 @@ export default function DashboardLayout({
   const fallbackRole: UserRole = roleParam === "professionnel" ? "professionnel" : "particulier";
   const { session, user, loading } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const hideChatWidget = pathname?.startsWith("/dashboard/projets/") && tabParam === "assistant";
+  const hideChatWidget =
+    pathname?.startsWith("/dashboard/projets/") && (tabParam === "assistant" || tabParam === "guide");
 
   const activeUser = useMemo(() => {
     if (user) return user;

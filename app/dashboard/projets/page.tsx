@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/Button";
 import { Plus, Search } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
+import { Badge } from "@/components/ui/Badge";
+import ProgressBar from "@/components/ui/ProgressBar";
+import EmptyState from "@/components/ui/EmptyState";
 import {
   createProject,
   fetchProjectsForUser,
@@ -55,6 +58,7 @@ export default function ProjetsPage() {
   const role =
     user?.role ?? (roleParam === "professionnel" ? "professionnel" : "particulier");
   const canCreateProject = role === "professionnel";
+  const showLegacyTable = false;
 
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -145,6 +149,13 @@ export default function ProjetsPage() {
     router.push(`/dashboard/projets/${projectId}?role=${role}`);
   };
 
+  const getProgressPercent = (status: StatusKey) => {
+    if (status === "termine") return 100;
+    if (status === "en_cours") return 55;
+    if (status === "en_attente") return 25;
+    return 10;
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -221,8 +232,46 @@ export default function ProjetsPage() {
           {loading ? (
             <p className="text-sm text-gray-500">Chargement des projets...</p>
           ) : (
-            <>
-              <Table>
+            <div className="space-y-4">
+              {filteredProjects.length === 0 ? (
+                <div className="rounded-xl border border-gray-200 bg-white p-8">
+                  <EmptyState
+                    icon="🏗️"
+                    title="Aucun projet pour le moment"
+                    description={
+                      canCreateProject
+                        ? "Créez votre premier projet BTP pour commencer à gérer vos chantiers."
+                        : "Aucun projet ne vous a encore été partagé."
+                    }
+                    action={
+                      canCreateProject
+                        ? {
+                            label: "+ Créer un projet",
+                            onClick: () => setIsCreating(true),
+                          }
+                        : undefined
+                    }
+                  />
+                </div>
+              ) : (
+                filteredProjects.map((project) => {
+                  const statusKey = resolveStatusKey(project.status);
+                  return (
+                    <ProjectCard
+                      key={project.id}
+                      project={project}
+                      statusKey={statusKey}
+                      statusLabel={statusLabel(statusKey)}
+                      progress={getProgressPercent(statusKey)}
+                      onOpen={() => handleOpen(project.id)}
+                    />
+                  );
+                })
+              )}
+
+              {showLegacyTable && (
+                <>
+                  <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Projet</TableHead>
@@ -240,6 +289,9 @@ export default function ProjetsPage() {
                         <TableCell>
                           <div>
                             <p className="font-medium text-gray-900">{project.name}</p>
+                            <p className="text-xs text-gray-500">
+                              {(project.phasesCount ?? 0)} phase(s) • {(project.lotsCount ?? 0)} lot(s)
+                            </p>
                             {project.description && (
                               <p className="text-sm text-gray-500">{project.description}</p>
                             )}
@@ -271,7 +323,9 @@ export default function ProjetsPage() {
               {!filteredProjects.length && (
                 <p className="text-sm text-gray-500 mt-4">Aucun projet pour ce filtre.</p>
               )}
-            </>
+                </>
+              )}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -351,6 +405,72 @@ export default function ProjetsPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ProjectCard({
+  project,
+  statusKey,
+  statusLabel,
+  progress,
+  onOpen,
+}: {
+  project: ProjectSummary;
+  statusKey: StatusKey;
+  statusLabel: string;
+  progress: number;
+  onOpen: () => void;
+}) {
+  return (
+    <div
+      className="group border rounded-xl hover:shadow-lg transition-all bg-white p-6 cursor-pointer"
+      onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onOpen();
+      }}
+    >
+      <div className="flex items-start justify-between mb-4 gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-3 mb-2 flex-wrap">
+            <h3 className="text-xl font-semibold group-hover:text-blue-600 transition-colors">
+              {project.name}
+            </h3>
+            <Badge type="project" status={statusKey}>
+              {statusLabel}
+            </Badge>
+          </div>
+
+          {project.description ? (
+            <p className="text-gray-600 text-sm mb-3 line-clamp-2">{project.description}</p>
+          ) : null}
+
+          <div className="flex items-center gap-4 text-sm text-gray-500 flex-wrap">
+            <span className="flex items-center gap-1">📋 {project.phasesCount ?? 0} phase(s)</span>
+            <span className="flex items-center gap-1">🏗️ {project.lotsCount ?? 0} lot(s)</span>
+            <span className="flex items-center gap-1">📅 {project.createdAt ? formatDate(project.createdAt) : "-"}</span>
+          </div>
+        </div>
+
+        <div className="text-xs text-gray-500 whitespace-nowrap">
+          {project.updatedAt ? `Màj: ${formatDate(project.updatedAt)}` : ""}
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <ProgressBar percentage={progress} showLabel />
+      </div>
+
+      <div className="flex items-center justify-between text-sm pt-3 border-t">
+        <span className="text-gray-600">Budget</span>
+        <span className="font-semibold text-gray-900">
+          {typeof project.budgetTotal === "number"
+            ? `${project.budgetTotal.toLocaleString("fr-FR")} €`
+            : "-"}
+        </span>
+      </div>
     </div>
   );
 }

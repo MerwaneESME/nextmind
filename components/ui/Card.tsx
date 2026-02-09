@@ -1,42 +1,41 @@
-import { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-interface CardProps {
+interface CardProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
-  className?: string;
 }
 
-export function Card({ children, className }: CardProps) {
+export function Card({ children, className, ...props }: CardProps) {
   return (
-    <div className={cn("bg-white rounded-lg shadow-sm border border-gray-200", className)}>
+    <div
+      {...props}
+      className={cn("bg-white rounded-lg shadow-sm border border-gray-200", className)}
+    >
       {children}
     </div>
   );
 }
 
-interface CardHeaderProps {
+interface CardHeaderProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
-  className?: string;
 }
 
-export function CardHeader({ children, className }: CardHeaderProps) {
+export function CardHeader({ children, className, ...props }: CardHeaderProps) {
   return (
-    <div className={cn("px-6 py-4 border-b border-gray-200", className)}>
+    <div {...props} className={cn("px-6 py-4 border-b border-gray-200", className)}>
       {children}
     </div>
   );
 }
 
-interface CardContentProps {
+interface CardContentProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
-  className?: string;
 }
 
-export function CardContent({ children, className }: CardContentProps) {
+export function CardContent({ children, className, ...props }: CardContentProps) {
   return (
-    <div className={cn("px-6 py-4", className)}>
+    <div {...props} className={cn("px-6 py-4", className)}>
       {children}
     </div>
   );
 }
-

@@ -89,17 +89,17 @@ export function TermsSearch({
 
   return (
     <div className={cn("space-y-3", className)}>
-      <div className="rounded-lg border border-neutral-200 bg-white p-4">
+      <div className="rounded-[var(--nm-radius,0.75rem)] border border-[color:var(--nm-border,#e5e7eb)] bg-[color:var(--nm-surface,#ffffff)] p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-neutral-900">📚 Lexique du devis BTP</p>
-            <p className="text-xs text-neutral-600">
+            <p className="text-sm font-semibold text-[color:var(--nm-ink,#111827)]">📚 Lexique du devis BTP</p>
+            <p className="text-xs text-[color:var(--nm-muted,#4b5563)]">
               Recherchez un terme ou filtrez par catégorie (ex: &quot;acompte&quot;, &quot;IPN&quot;, &quot;TVA&quot;).
             </p>
           </div>
           <button
             type="button"
-            className="text-xs text-neutral-600 underline underline-offset-2 hover:text-neutral-900"
+            className="text-xs text-[color:var(--nm-muted,#4b5563)] underline underline-offset-2 hover:text-[color:var(--nm-ink,#111827)]"
             onClick={() => {
               setQuery("");
               setSelectedCategory("all");
@@ -115,6 +115,7 @@ export function TermsSearch({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Rechercher un terme…"
             aria-label="Rechercher un terme"
+            className="bg-[color:var(--nm-surface-2,#ffffff)] border-[color:var(--nm-border,#d1d5db)] text-[color:var(--nm-ink,#111827)] placeholder:text-[color:var(--nm-muted,#6b7280)]"
           />
 
           <div className="flex flex-wrap gap-2">
@@ -122,10 +123,10 @@ export function TermsSearch({
               type="button"
               onClick={() => setSelectedCategory("all")}
               className={cn(
-                "rounded-full px-3 py-2 text-xs border",
+                "rounded-full px-3 py-2 text-xs border transition-colors",
                 selectedCategory === "all"
-                  ? "bg-neutral-900 text-white border-neutral-900"
-                  : "bg-white text-neutral-700 border-neutral-200 hover:border-neutral-300"
+                  ? "bg-[color:var(--nm-ink,#111827)] text-[color:var(--nm-bg,#ffffff)] border-transparent"
+                  : "bg-[color:var(--nm-surface-2,#ffffff)] text-[color:var(--nm-ink,#374151)] border-[color:var(--nm-border,#e5e7eb)] hover:border-[color:var(--nm-border,#d1d5db)]"
               )}
             >
               Toutes ({devisTerms.length})
@@ -141,8 +142,10 @@ export function TermsSearch({
                   type="button"
                   onClick={() => setSelectedCategory(c.name)}
                   className={cn(
-                    "rounded-full px-3 py-2 text-xs border flex items-center gap-1",
-                    isActive ? "text-white border-transparent" : "bg-white text-neutral-700 border-neutral-200 hover:border-neutral-300"
+                    "rounded-full px-3 py-2 text-xs border flex items-center gap-1 transition-colors",
+                    isActive
+                      ? "text-white border-transparent"
+                      : "bg-[color:var(--nm-surface-2,#ffffff)] text-[color:var(--nm-ink,#374151)] border-[color:var(--nm-border,#e5e7eb)] hover:border-[color:var(--nm-border,#d1d5db)]"
                   )}
                   style={isActive ? { backgroundColor: c.color } : undefined}
                   aria-pressed={isActive}
@@ -158,7 +161,7 @@ export function TermsSearch({
       </div>
 
       {filtered.length === 0 ? (
-        <div className="rounded-lg border border-neutral-200 bg-white p-4 text-sm text-neutral-700">
+        <div className="rounded-[var(--nm-radius,0.75rem)] border border-[color:var(--nm-border,#e5e7eb)] bg-[color:var(--nm-surface,#ffffff)] p-4 text-sm text-[color:var(--nm-muted,#374151)]">
           Aucun terme trouvé. Essayez un autre mot-clé (ex: &quot;décennale&quot;, &quot;ragréage&quot;).
         </div>
       ) : (

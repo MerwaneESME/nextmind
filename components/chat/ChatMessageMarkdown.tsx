@@ -1,7 +1,9 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { TermsSearch } from "@/components/TermsSearch";
+import { useMemo } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Button } from "@/components/ui/Button";
 import { BudgetSummary } from "@/components/assistant/BudgetSummary";
 import { ExampleCard } from "@/components/assistant/ExampleCard";
 import { MessageCard } from "@/components/assistant/MessageCard";
@@ -111,6 +113,16 @@ function parseJsonPayload(code: string): unknown {
   } catch {
     return null;
   }
+}
+
+function parseAssistantExampleBlock(language: string | undefined, code: string): ReactNode | null {
+  const lang = (language || "").trim().toLowerCase();
+  if (lang !== "assistant-example") return null;
+  const parsed = parseJsonPayload(code);
+  if (!parsed || typeof parsed !== "object") return null;
+  const payload = parsed as AssistantExamplePayload;
+  if (!payload.text) return null;
+  return <ExampleCard text={payload.text} />;
 }
 
 function renderAssistantBlock(language: string | undefined, code: string): ReactNode | null {
@@ -499,7 +511,11 @@ function findNextInlineToken(text: string, fromIndex: number) {
   return candidates[0];
 }
 
-function renderInlineMarkdown(text: string, keyPrefix = "md"): ReactNode[] {
+function renderInlineMarkdown(
+  text: string,
+  keyPrefix = "md",
+  transformHref?: (href: string) => string | null
+): ReactNode[] {
   const nodes: ReactNode[] = [];
   let cursor = 0;
   let keyIndex = 0;
@@ -553,7 +569,7 @@ function renderInlineMarkdown(text: string, keyPrefix = "md"): ReactNode[] {
       const inner = text.slice(cursor + 2, end);
       nodes.push(
         <strong key={`${keyPrefix}-b-${keyIndex++}`}>
-          {renderInlineMarkdown(inner, `${keyPrefix}-b${keyIndex}`)}
+          {renderInlineMarkdown(inner, `${keyPrefix}-b${keyIndex}`, transformHref)}
         </strong>
       );
       cursor = end + 2;
@@ -582,22 +598,23 @@ function renderInlineMarkdown(text: string, keyPrefix = "md"): ReactNode[] {
       if (!href) {
         nodes.push(
           <span key={`${keyPrefix}-linktext-${keyIndex++}`}>
-            {renderInlineMarkdown(linkText, `${keyPrefix}-lt${keyIndex}`)}
+            {renderInlineMarkdown(linkText, `${keyPrefix}-lt${keyIndex}`, transformHref)}
           </span>
         );
         cursor = closeParen + 1;
         continue;
       }
 
+      const finalHref = transformHref ? transformHref(href) ?? href : href;
       nodes.push(
         <a
           key={`${keyPrefix}-a-${keyIndex++}`}
-          href={href}
-          target={href.startsWith("http") ? "_blank" : undefined}
-          rel={href.startsWith("http") ? "noreferrer noopener" : undefined}
+          href={finalHref}
+          target={finalHref.startsWith("http") ? "_blank" : undefined}
+          rel={finalHref.startsWith("http") ? "noreferrer noopener" : undefined}
           className="underline underline-offset-2"
         >
-          {renderInlineMarkdown(linkText, `${keyPrefix}-a${keyIndex}`)}
+          {renderInlineMarkdown(linkText, `${keyPrefix}-a${keyIndex}`, transformHref)}
         </a>
       );
       cursor = closeParen + 1;
@@ -625,6 +642,57 @@ function headingClassName(level: HeadingLevel) {
 }
 
 export function ChatMessageMarkdown({ content }: { content: string }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const projectContext = useMemo(() => {
+    const match = (pathname || "").match(/\/dashboard\/projets\/([^\/?#]+)/);
+    const projectId = match?.[1] ? decodeURIComponent(match[1]) : null;
+    const role = searchParams.get("role") || null;
+    return { projectId, role };
+  }, [pathname, searchParams]);
+
+  const openGuide = (section: string, patch?: Record<string, string | null | undefined>) => {
+    if (!projectContext.projectId) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.set("tab", "guide");
+    next.set("section", section);
+    next.delete("term");
+    next.delete("q");
+
+    if (patch) {
+      for (const [key, value] of Object.entries(patch)) {
+        if (!value) next.delete(key);
+        else next.set(key, value);
+      }
+    }
+
+    if (!next.get("role") && projectContext.role) next.set("role", projectContext.role);
+    router.replace(`/dashboard/projets/${projectContext.projectId}?${next.toString()}`, { scroll: false });
+  };
+
+  const transformHref = (href: string) => {
+    const trimmed = (href || "").trim();
+    if (!trimmed.startsWith("#/guide")) return null;
+    if (!projectContext.projectId) return trimmed;
+
+    const queryIndex = trimmed.indexOf("?");
+    const hashParams = new URLSearchParams(queryIndex >= 0 ? trimmed.slice(queryIndex + 1) : "");
+    const section = hashParams.get("section") || "lexique";
+    const term = hashParams.get("term") || hashParams.get("terme") || null;
+    const q = hashParams.get("q") || hashParams.get("type") || hashParams.get("categorie") || null;
+
+    const next = new URLSearchParams(searchParams.toString());
+    next.set("tab", "guide");
+    next.set("section", section);
+    if (term) next.set("term", term);
+    if (q) next.set("q", q);
+    if (!next.get("role") && projectContext.role) next.set("role", projectContext.role);
+
+    return `/dashboard/projets/${projectContext.projectId}?${next.toString()}`;
+  };
+
   const blocks = parseMarkdownBlocks(content);
 
   return (
@@ -634,7 +702,7 @@ export function ChatMessageMarkdown({ content }: { content: string }) {
           const Tag = `h${block.level}` as keyof JSX.IntrinsicElements;
           return (
             <Tag key={`h-${blockIndex}`} className={headingClassName(block.level)}>
-              {renderInlineMarkdown(block.text, `h-${blockIndex}`)}
+              {renderInlineMarkdown(block.text, `h-${blockIndex}`, transformHref)}
             </Tag>
           );
         }
@@ -644,7 +712,7 @@ export function ChatMessageMarkdown({ content }: { content: string }) {
             <ul key={`ul-${blockIndex}`} className="list-disc pl-5 space-y-1">
               {block.items.map((item, itemIndex) => (
                 <li key={`ul-${blockIndex}-${itemIndex}`} className="whitespace-pre-wrap">
-                  {renderInlineMarkdown(item, `ul-${blockIndex}-${itemIndex}`)}
+                  {renderInlineMarkdown(item, `ul-${blockIndex}-${itemIndex}`, transformHref)}
                 </li>
               ))}
             </ul>
@@ -656,7 +724,7 @@ export function ChatMessageMarkdown({ content }: { content: string }) {
             <ol key={`ol-${blockIndex}`} className="list-decimal pl-5 space-y-1">
               {block.items.map((item, itemIndex) => (
                 <li key={`ol-${blockIndex}-${itemIndex}`} className="whitespace-pre-wrap">
-                  {renderInlineMarkdown(item, `ol-${blockIndex}-${itemIndex}`)}
+                  {renderInlineMarkdown(item, `ol-${blockIndex}-${itemIndex}`, transformHref)}
                 </li>
               ))}
             </ol>
@@ -669,7 +737,7 @@ export function ChatMessageMarkdown({ content }: { content: string }) {
               key={`bq-${blockIndex}`}
               className="border-l-2 border-black/20 pl-3 italic whitespace-pre-wrap"
             >
-              {renderInlineMarkdown(block.text, `bq-${blockIndex}`)}
+              {renderInlineMarkdown(block.text, `bq-${blockIndex}`, transformHref)}
             </blockquote>
           );
         }
@@ -677,14 +745,64 @@ export function ChatMessageMarkdown({ content }: { content: string }) {
         if (block.type === "code") {
           if (isDevisTermsLanguage(block.language)) {
             const payload = parseDevisTermsUiPayload(block.code);
-            return <TermsSearch key={`terms-${blockIndex}`} initialPayload={payload} />;
+            return (
+              <MessageCard key={`terms-${blockIndex}`} variant="info" title="Lexique">
+                <div className="space-y-2">
+                  <div>Le lexique complet est disponible dans le Guide du projet.</div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openGuide("lexique", { q: payload.query ?? null })}
+                    disabled={!projectContext.projectId}
+                  >
+                    Ouvrir le Guide
+                  </Button>
+                </div>
+              </MessageCard>
+            );
           }
 
           if (isAssistantLanguage(block.language)) {
+            const example = parseAssistantExampleBlock(block.language, block.code);
+            if (example) {
+              return (
+                <div key={`assistant-example-${blockIndex}`} className="space-y-2">
+                  {example}
+                </div>
+              );
+            }
+
+            const lang = (block.language || "").trim().toLowerCase();
+            const sectionByLang: Record<string, string> = {
+              "assistant-budget": "mon-budget",
+              "assistant-timeline": "delais-types",
+              "assistant-risks": "points-attention",
+              "assistant-devis": "mon-devis",
+            };
+            const section = sectionByLang[lang] ?? "lexique";
+            const titleByLang: Record<string, string> = {
+              "assistant-budget": "Budget",
+              "assistant-timeline": "Délais",
+              "assistant-risks": "Points d’attention",
+              "assistant-devis": "Devis",
+            };
+
             return (
-              <div key={`assistant-${blockIndex}`} className="space-y-2">
-                {renderAssistantBlock(block.language, block.code)}
-              </div>
+              <MessageCard key={`assistant-${blockIndex}`} variant="info" title={titleByLang[lang] ?? "Guide"}>
+                <div className="space-y-2">
+                  <div>Cette partie détaillée est disponible dans l’onglet Guide du projet.</div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openGuide(section)}
+                    disabled={!projectContext.projectId}
+                  >
+                    Ouvrir le Guide
+                  </Button>
+                </div>
+              </MessageCard>
             );
           }
 
@@ -700,7 +818,7 @@ export function ChatMessageMarkdown({ content }: { content: string }) {
 
         return (
           <p key={`p-${blockIndex}`} className="whitespace-pre-wrap">
-            {renderInlineMarkdown(block.text, `p-${blockIndex}`)}
+            {renderInlineMarkdown(block.text, `p-${blockIndex}`, transformHref)}
           </p>
         );
       })}

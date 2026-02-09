@@ -57,7 +57,11 @@ export async function POST(req: Request): Promise<Response> {
       logoPath: safeLogoPath,
     });
 
-    return new Response(buffer, {
+    const view = new Uint8Array(buffer);
+    const safeArrayBuffer = new ArrayBuffer(view.byteLength);
+    new Uint8Array(safeArrayBuffer).set(view);
+
+    return new Response(safeArrayBuffer, {
       headers: {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

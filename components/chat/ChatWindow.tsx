@@ -12,12 +12,16 @@ import {
 } from "@/lib/ai-service";
 import { UserRole } from "@/types";
 import { ChatMessageMarkdown } from "./ChatMessageMarkdown";
+import { FeedbackButtons } from "@/components/feedback";
 
 interface ChatWindowProps {
   onClose?: () => void;
   userRole?: UserRole;
   userId?: string;
   projectId?: string;
+  phaseId?: string;
+  lotId?: string;
+  contextType?: "project" | "phase" | "lot";
   autoScroll?: boolean;
 }
 
@@ -25,6 +29,9 @@ export function ChatWindow({
   userRole = "particulier",
   userId = "demo-user",
   projectId,
+  phaseId,
+  lotId,
+  contextType,
   autoScroll = true,
 }: ChatWindowProps) {
   const [messages, setMessages] = useState<AIMessage[]>([
@@ -46,7 +53,16 @@ export function ChatWindow({
     timestamp: new Date().toISOString(),
   });
 
-  const storageKey = `nextmind:conversationId:${userRole}:${userId}:${projectId ?? "global"}`;
+  const resolvedContextType =
+    contextType ?? (lotId ? "lot" : phaseId ? "phase" : projectId ? "project" : "project");
+  const scopeKey =
+    resolvedContextType === "lot"
+      ? `lot:${lotId ?? "unknown"}`
+      : resolvedContextType === "phase"
+        ? `phase:${phaseId ?? "unknown"}`
+        : `project:${projectId ?? "global"}`;
+
+  const storageKey = `nextmind:conversationId:${userRole}:${userId}:${scopeKey}`;
   const [conversationId, setConversationId] = useState<string>(() => {
     if (typeof window === "undefined") return "";
     return window.localStorage.getItem(storageKey) ?? generateUUID();
@@ -114,6 +130,9 @@ export function ChatWindow({
         userId,
         userRole,
         projectId,
+        phaseId,
+        lotId,
+        contextType: resolvedContextType,
         conversationId,
         conversationHistory: [...messagesRef.current, userMessage],
       };
@@ -270,6 +289,28 @@ export function ChatWindow({
                     </button>
                   ))}
                 </div>
+              )}
+
+              {message.role === "assistant" && index > 0 && (
+                <FeedbackButtons
+                  conversationId={conversationId}
+                  messageId={`msg-${index}-${message.timestamp}`}
+                  metadata={{
+                    userRole,
+                    contextType: resolvedContextType,
+                    projectId,
+                    phaseId,
+                    lotId,
+                  }}
+                  onFeedbackSubmitted={(rating) => {
+                    showToast(
+                      rating >= 4 ? "✅ Merci pour votre retour positif !" : "📝 Merci, nous allons améliorer nos réponses.",
+                      "success"
+                    );
+                  }}
+                  size="sm"
+                  className="mt-2"
+                />
               )}
             </div>
             {message.role === "user" && (

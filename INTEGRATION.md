@@ -33,16 +33,22 @@ Le schema a jour est fourni dans `supabase/schema.sql`. Les tables/vues utilisee
 - `pro_portfolio_projects`
 - `projects`
 - `project_members`
-- `project_messages`
+- `project_messages` (legacy)
+- `messages` (chat contextualise projet/phase/lot)
 - `project_tasks`
 - `task_learning_events`
+- `phases`
+- `lots`
+- `phase_members`
+- `tasks`
+- `documents` (contextualise projet/phase/lot)
+- `quotes`
+- `invoices`
 - `devis`
 - `devis_items`
 - `network_conversations`
 - `network_conversation_members`
 - `network_messages`
-
-Seed data (optional) is available in `supabase/seed.sql`. It creates 20 pro accounts plus 8 client accounts with a shared password: `Test1234!`.
 
 ### 4. Authentification
 

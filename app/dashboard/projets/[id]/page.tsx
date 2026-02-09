@@ -8,15 +8,19 @@ import { Input } from "@/components/ui/Input";
 import { ArrowLeft, Bot, Send } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { mapUserTypeToRole, useAuth } from "@/hooks/useAuth";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { deleteDevisWithItems, mapDevisRowToSummary } from "@/lib/devisDb";
 import { downloadQuotePdf } from "@/lib/quotePdf";
 import { deleteProjectCascade, inviteProjectMemberByEmail } from "@/lib/projectsDb";
+import { createPhase, fetchPhasesForProject, type PhaseSummary } from "@/lib/phasesDb";
 import type { QuoteSummary } from "@/lib/quotesStore";
 import { ChatMessageMarkdown } from "@/components/chat/ChatMessageMarkdown";
+import ChatBox from "@/components/chat/ChatBox";
+import DocumentsList from "@/components/documents/DocumentsList";
 import type { AssistantActionButton } from "@/components/assistant/ActionButton";
 import { ActionMenu } from "@/components/assistant/ActionMenu";
 import { formatAssistantReply, type AssistantUiMode } from "@/lib/assistantResponses";
+import { ProjectGuidePanel } from "@/components/guide/ProjectGuidePanel";
 
 type Project = {
   id: string;
@@ -44,14 +48,10 @@ type Member = {
   } | null;
 };
 
-type Message = {
-  id: string;
-  message: string;
-  created_at: string;
-  sender: {
-    full_name: string | null;
-    email: string | null;
-  } | null;
+const _firstOrNull = <T,>(value: T | T[] | null | undefined): T | null => {
+  if (!value) return null;
+  if (Array.isArray(value)) return (value[0] ?? null) as T | null;
+  return value as T;
 };
 
 type Task = {
@@ -85,16 +85,18 @@ type AssistantMessage = {
   requires_devis?: boolean;
 };
 
-type TabKey = "overview" | "chat" | "devis" | "planning" | "membres" | "assistant";
+type TabKey = "overview" | "phases" | "chat" | "devis" | "planning" | "membres" | "assistant" | "guide";
 type WorkflowStatus = "a_faire" | "envoye" | "valide" | "refuse";
 
 const tabItems: Array<{ key: TabKey; label: string; iconSrc: string }> = [
   { key: "overview", label: "Aperçu", iconSrc: "/images/grey/eye.png" },
+  { key: "phases", label: "Phases", iconSrc: "/images/grey/files.png" },
   { key: "chat", label: "Chat", iconSrc: "/images/grey/chat-teardrop-dots.png" },
   { key: "devis", label: "Devis", iconSrc: "/images/grey/files.png" },
   { key: "planning", label: "Planning", iconSrc: "/images/grey/calendar%20(1).png" },
   { key: "membres", label: "Membres", iconSrc: "/images/grey/users-three%20(1).png" },
   { key: "assistant", label: "Assistant IA", iconSrc: "/images/grey/robot.png" },
+  { key: "guide", label: "Guide", iconSrc: "/images/clipboard-text.png" },
 ];
 
 const startOfWeek = (date: Date) => {
@@ -311,6 +313,13 @@ const normalizeLabel = (value: string) =>
     .trim()
     .replace(/\s+/g, " ");
 
+function splitTaskDescription(description: string | null) {
+  if (!description) return { time: null, text: null };
+  const match = description.match(/^\[\[time:([^\]]+)\]\]\s*(.*)$/);
+  if (!match) return { time: null, text: description };
+  return { time: match[1], text: match[2] || "" };
+}
+
 const computeDurationHours = (task: Task) => {
   const parsed = splitTaskDescription(task.description);
   const timeRange = parseTimeRange(parsed.time ?? null);
@@ -358,7 +367,7 @@ const pickTaskColor = (label: string) => {
 };
 
 const hourRange = { start: 7, end: 20 };
-const planningRowHeight = 80;
+const planningRowHeight = 64;
 
 const formatHourLabel = (hour: number) => `${hour.toString().padStart(2, "0")}:00`;
 
@@ -369,22 +378,38 @@ export default function ProjectDetailPage() {
   const { user, profile } = useAuth();
   const roleParam = searchParams.get("role");
   const tabParam = searchParams.get("tab");
+  const contextPhaseId = searchParams.get("phaseId");
+  const contextLotId = searchParams.get("lotId");
+  const guideSectionParam = searchParams.get("section");
+  const guideQueryParam = searchParams.get("q");
+  const guideTermParam = searchParams.get("term");
   const role = roleParam === "professionnel" ? "professionnel" : "particulier";
   const userRole = profile ? mapUserTypeToRole(profile.user_type) : role;
   const projectId = typeof params.id === "string" ? params.id : "";
+  const assistantContextType = contextLotId ? "lot" : contextPhaseId ? "phase" : "project";
 
   const [project, setProject] = useState<Project | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [quotes, setQuotes] = useState<QuoteSummary[]>([]);
   const [availableQuotes, setAvailableQuotes] = useState<QuoteSummary[]>([]);
+  const [phases, setPhases] = useState<PhaseSummary[]>([]);
+  const [phasesLoading, setPhasesLoading] = useState(false);
+  const [phaseModalOpen, setPhaseModalOpen] = useState(false);
+  const [phaseSubmitting, setPhaseSubmitting] = useState(false);
+  const [phaseForm, setPhaseForm] = useState({
+    name: "",
+    description: "",
+    phaseOrder: "1",
+    startDate: "",
+    endDate: "",
+    budgetEstimated: "",
+  });
   const isTabKey = (value: string | null): value is TabKey =>
     !!value && tabItems.some((tab) => tab.key === value);
   const [activeTab, setActiveTab] = useState<TabKey>(() => (isTabKey(tabParam) ? tabParam : "overview"));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [messageInput, setMessageInput] = useState("");
   const [taskName, setTaskName] = useState("");
   const [taskDates, setTaskDates] = useState({ start: "", end: "" });
   const [taskDescription, setTaskDescription] = useState("");
@@ -438,6 +463,30 @@ export default function ProjectDetailPage() {
   const assistantSectionRef = useRef<HTMLDivElement | null>(null);
   const assistantMessagesContainerRef = useRef<HTMLDivElement | null>(null);
   const assistantMessagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  const updateQuery = (patch: Record<string, string | null | undefined>) => {
+    const next = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null || value === undefined || value === "") next.delete(key);
+      else next.set(key, value);
+    }
+    router.replace(`/dashboard/projets/${projectId}?${next.toString()}`, { scroll: false });
+  };
+
+  const openGuide = (section?: string, patch?: Record<string, string | null | undefined>) => {
+    updateQuery({
+      tab: "guide",
+      section: section ?? null,
+      term: null,
+      q: null,
+      ...(patch || {}),
+    });
+  };
+
+  const openAssistantTab = () => {
+    setActiveTab("assistant");
+    updateQuery({ tab: "assistant", section: null, q: null, term: null });
+  };
 
   const animateScrollTop = (
     element: { scrollTop: number },
@@ -523,7 +572,7 @@ export default function ProjectDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const [projectRes, membersRes, messagesRes, tasksRes, devisRes] = await Promise.all([
+      const [projectRes, membersRes, tasksRes, devisRes] = await Promise.all([
         supabase.from("projects").select("*").eq("id", projectId).maybeSingle(),
         supabase
           .from("project_members")
@@ -531,11 +580,6 @@ export default function ProjectDetailPage() {
             "id,role,status,invited_email,user:profiles!project_members_user_id_fkey(id,full_name,email,company_name)"
           )
           .eq("project_id", projectId),
-        supabase
-          .from("project_messages")
-          .select("id,message,created_at,sender:profiles!project_messages_sender_id_fkey(full_name,email)")
-          .eq("project_id", projectId)
-          .order("created_at", { ascending: true }),
         supabase
           .from("project_tasks")
           .select("id,name,status,start_date,end_date,description,completed_at")
@@ -550,13 +594,18 @@ export default function ProjectDetailPage() {
 
       if (projectRes.error) throw projectRes.error;
       if (membersRes.error) throw membersRes.error;
-      if (messagesRes.error) throw messagesRes.error;
       if (tasksRes.error) throw tasksRes.error;
       if (devisRes.error) throw devisRes.error;
 
       setProject((projectRes.data as Project) ?? null);
-      setMembers((membersRes.data as Member[]) ?? []);
-      setMessages((messagesRes.data as Message[]) ?? []);
+      const normalizedMembers: Member[] = (membersRes.data ?? []).map((row: any) => ({
+        id: String(row.id),
+        role: row.role ?? null,
+        status: row.status ?? null,
+        invited_email: row.invited_email ?? null,
+        user: _firstOrNull(row.user) as any,
+      }));
+      setMembers(normalizedMembers);
       setTasks((tasksRes.data as Task[]) ?? []);
       const mappedQuotes = (devisRes.data ?? []).map((row) => mapDevisRowToSummary(row as any));
       setQuotes(mappedQuotes);
@@ -580,9 +629,27 @@ export default function ProjectDetailPage() {
     setAvailableQuotes(mapped);
   };
 
+  const loadPhases = async () => {
+    if (!projectId) return;
+    setPhasesLoading(true);
+    try {
+      const data = await fetchPhasesForProject(projectId);
+      setPhases(data);
+    } catch {
+      setPhases([]);
+    } finally {
+      setPhasesLoading(false);
+    }
+  };
+
   useEffect(() => {
     void loadProject();
   }, [projectId, user?.id]);
+
+  useEffect(() => {
+    if (activeTab !== "phases") return;
+    void loadPhases();
+  }, [activeTab, projectId]);
 
   useEffect(() => {
     if (activeTab === "devis") {
@@ -596,20 +663,40 @@ export default function ProjectDetailPage() {
     }
   }, [activeTab]);
 
-  const handleSendMessage = async () => {
-    if (!messageInput.trim() || !user?.id) return;
-    const payload = {
-      project_id: projectId,
-      sender_id: user.id,
-      message: messageInput.trim(),
-    };
-    const { error: insertError } = await supabase.from("project_messages").insert(payload);
-    if (insertError) {
-      setError(insertError.message);
+  const handleCreatePhase = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canManageProject) {
+      setError("Accès refusé: vous ne pouvez pas créer une phase.");
       return;
     }
-    setMessageInput("");
-    await loadProject();
+    if (!projectId || !phaseForm.name.trim()) return;
+    setPhaseSubmitting(true);
+    setError(null);
+    try {
+      await createPhase(projectId, {
+        name: phaseForm.name,
+        description: phaseForm.description,
+        phaseOrder: Number(phaseForm.phaseOrder) || 1,
+        startDate: phaseForm.startDate || null,
+        endDate: phaseForm.endDate || null,
+        budgetEstimated: phaseForm.budgetEstimated ? Number(phaseForm.budgetEstimated) : 0,
+        status: "planifiee",
+      });
+      setPhaseForm({
+        name: "",
+        description: "",
+        phaseOrder: String((phases?.length ?? 0) + 1),
+        startDate: "",
+        endDate: "",
+        budgetEstimated: "",
+      });
+      setPhaseModalOpen(false);
+      await loadPhases();
+    } catch (err: any) {
+      setError(err?.message ?? "Impossible de créer la phase.");
+    } finally {
+      setPhaseSubmitting(false);
+    }
   };
 
   const buildTaskDescription = () => {
@@ -619,13 +706,6 @@ export default function ProjectDetailPage() {
     const timeLabel = `${taskTime.start || "--:--"}-${taskTime.end || "--:--"}`;
     const prefix = `[[time:${timeLabel}]]`;
     return notes ? `${prefix} ${notes}` : prefix;
-  };
-
-  const splitTaskDescription = (description: string | null) => {
-    if (!description) return { time: null, text: null };
-    const match = description.match(/^\[\[time:([^\]]+)\]\]\s*(.*)$/);
-    if (!match) return { time: null, text: description };
-    return { time: match[1], text: match[2] || "" };
   };
 
   const openTaskModal = (day: Date) => {
@@ -1001,6 +1081,9 @@ export default function ProjectDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           project_id: projectId,
+          phase_id: contextPhaseId ?? null,
+          lot_id: contextLotId ?? null,
+          context_type: assistantContextType,
           user_id: user.id,
           user_role: userRole,
           message: trimmed,
@@ -1010,15 +1093,89 @@ export default function ProjectDetailPage() {
       });
       const data = await response.json();
       const rawReply = (data.reply ?? "Je reviens vers vous avec une proposition.") as string;
-      const nextReply =
-        options?.uiMode
-          ? formatAssistantReply(options.uiMode, rawReply, {
-              projectName: project?.name ?? null,
-              projectType: project?.project_type ?? null,
-              totalBudgetTtc: totalBudget,
-              quotes,
-            })
-          : rawReply;
+      const guideBase = `/dashboard/projets/${projectId}?role=${role}&tab=guide`;
+
+      const inferGuideLink = (question: string) => {
+        const q = (question || "").trim();
+        const lowered = q.toLowerCase();
+        const pickTerm = () => {
+          const match =
+            q.match(/(?:c['’]est quoi|définition de|que signifie|ça veut dire)\s+(.+)/i) ||
+            q.match(/(?:terme|mot)\s+(.+)/i);
+          const term = (match?.[1] || "").trim().replace(/[?.!,;:]+$/g, "");
+          if (term && term.length <= 40) return term;
+          const lastToken = q
+            .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(-1)[0];
+          return lastToken && lastToken.length <= 24 ? lastToken : "";
+        };
+
+        if (/(ipn|dtu|tva|acompte|décennale|ragr[ée]age)/i.test(q) || lowered.includes("c'est quoi") || lowered.includes("définition")) {
+          return { section: "lexique", q: pickTerm() || q };
+        }
+        if (lowered.includes("délai") || lowered.includes("delai") || lowered.includes("combien de temps")) {
+          return { section: "delais-types" };
+        }
+        if (lowered.includes("risque") || lowered.includes("attention") || lowered.includes("amiante") || lowered.includes("humidité")) {
+          return { section: "points-attention" };
+        }
+        if (lowered.includes("budget") || lowered.includes("coût") || lowered.includes("prix") || lowered.includes("combien ça coûte")) {
+          return { section: "mon-budget" };
+        }
+        if (
+          lowered.includes("étapes") ||
+          lowered.includes("etapes") ||
+          lowered.includes("chronologie") ||
+          lowered.includes("planning")
+        ) {
+          return { section: "delais-types" };
+        }
+        if (lowered.includes("devis") || lowered.includes("inclus") || lowered.includes("poste")) {
+          return { section: "mon-devis" };
+        }
+        return null;
+      };
+
+      const withGuideLink = (text: string) => {
+        if (userRole !== "particulier") return text;
+        if (text.includes("#/guide?section=")) return text;
+        const inferred = inferGuideLink(trimmed);
+        if (!inferred) return text;
+        const params: string[] = [`section=${encodeURIComponent(inferred.section)}`];
+        if ("q" in inferred && inferred.q) {
+          const key = inferred.section === "lexique" ? "terme" : "q";
+          params.push(`${key}=${encodeURIComponent(inferred.q)}`);
+        }
+        const href = `#/guide?${params.join("&")}`;
+        const emojiBySection: Record<string, string> = {
+          lexique: "📚",
+          "delais-types": "⏰",
+          "points-attention": "⚠️",
+          "mon-devis": "📄",
+          "mon-budget": "💰",
+        };
+        const labelBySection: Record<string, string> = {
+          lexique: "Voir le lexique",
+          "delais-types": "Délais types",
+          "points-attention": "Points d'attention",
+          "mon-devis": "Explique mon devis",
+          "mon-budget": "Voir mon budget",
+        };
+        const emoji = emojiBySection[inferred.section] ?? "📚";
+        const label = labelBySection[inferred.section] ?? "Ouvrir le Guide";
+        return `${text}\n\nPour en savoir plus : [${emoji} ${label}](${href})`;
+      };
+
+      const nextReply = options?.uiMode
+        ? formatAssistantReply(options.uiMode, rawReply, {
+            projectName: project?.name ?? null,
+            projectType: project?.project_type ?? null,
+            totalBudgetTtc: totalBudget,
+            quotes,
+          })
+        : withGuideLink(rawReply);
       const assistantMessage: AssistantMessage = {
         role: "assistant",
         content: nextReply,
@@ -1152,7 +1309,7 @@ export default function ProjectDetailPage() {
         title: "Explique le devis",
         description: "Comprendre les postes et inclusions",
         color: "blue",
-        prompt: "Explique-moi le devis de ce projet en détail. Qu'est-ce qui est inclus ? Quels sont les postes principaux ?",
+        prompt: "",
         uiMode: "devis",
       },
       {
@@ -1161,7 +1318,7 @@ export default function ProjectDetailPage() {
         title: "Les étapes",
         description: "Chronologie des travaux",
         color: "green",
-        prompt: "Quelles sont les étapes principales de ce projet ? Comment va se dérouler le chantier ?",
+        prompt: "",
         uiMode: "steps",
       },
       {
@@ -1170,7 +1327,7 @@ export default function ProjectDetailPage() {
         title: "Le budget",
         description: "Coûts, paiements, imprévus",
         color: "purple",
-        prompt: "Quel est le budget estimé pour ce projet ? Y a-t-il des coûts supplémentaires à prévoir ?",
+        prompt: "",
         uiMode: "budget",
       },
       {
@@ -1179,7 +1336,7 @@ export default function ProjectDetailPage() {
         title: "Termes techniques",
         description: "Vocabulaire BTP simplifié",
         color: "orange",
-        prompt: "Peux-tu clarifier les termes techniques du devis ? Explique-moi les mots que je ne comprends pas.",
+        prompt: "",
         uiMode: "terms",
       },
       {
@@ -1188,7 +1345,7 @@ export default function ProjectDetailPage() {
         title: "Les délais",
         description: "Durée et jalons",
         color: "indigo",
-        prompt: "Quels sont les délais prévus pour ce projet ? Combien de temps va prendre chaque étape ?",
+        prompt: "",
         uiMode: "delays",
       },
       {
@@ -1197,15 +1354,27 @@ export default function ProjectDetailPage() {
         title: "Points d'attention",
         description: "Risques et précautions",
         color: "red",
-        prompt: "Y a-t-il des points d'attention ou des risques à connaître pour ce projet ?",
+        prompt: "",
         uiMode: "risks",
       },
     ];
 
-    return actions.map(({ prompt, uiMode, ...a }) => ({
+    const sectionByActionId: Record<string, string> = {
+      client_devis: "mon-devis",
+      client_steps: "delais-types",
+      client_budget: "mon-budget",
+      client_terms: "lexique",
+      client_delays: "delais-types",
+      client_risks: "points-attention",
+    };
+
+    return actions.map(({ uiMode, ...a }) => ({
       ...a,
       disabled: assistantLoading,
-      onClick: () => void sendAssistantMessage(prompt, { uiMode, actionId: a.id }),
+      onClick: () => {
+        const section = sectionByActionId[a.id] ?? "lexique";
+        openGuide(section);
+      },
     }));
   }, [assistantLoading, sendAssistantMessage, userRole]);
 
@@ -1366,7 +1535,7 @@ export default function ProjectDetailPage() {
   };
 
   const normalizeStoragePath = (bucket?: string, path?: string) => {
-    if (!bucket || !path) return path ?? null;
+    if (!bucket || !path) return path;
     return path.startsWith(`${bucket}/`) ? path.slice(bucket.length + 1) : path;
   };
 
@@ -1644,31 +1813,49 @@ export default function ProjectDetailPage() {
         {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
       </header>
 
-      <nav className="flex flex-wrap gap-2">
-        {tabItems.map((tab) => {
-          const isActive = activeTab === tab.key;
-          return (
-            <Button
-              key={tab.key}
-              variant={isActive ? "primary" : "outline"}
-              size="sm"
-              className="inline-flex items-center gap-2 whitespace-nowrap"
-              onClick={() => {
-                setActiveTab(tab.key);
-                const next = new URLSearchParams(searchParams.toString());
-                next.set("tab", tab.key);
-                router.replace(`/dashboard/projets/${projectId}?${next.toString()}`, { scroll: false });
-              }}
-            >
-              <img
-                src={tab.iconSrc}
-                alt={tab.label}
-                className={`w-4 h-4 object-contain ${isActive ? "brightness-0 invert" : "logo-blend"}`}
-              />
-              {tab.label}
-            </Button>
-          );
-        })}
+      <nav className="sticky top-3 z-30" aria-label="Navigation du projet">
+        <div className="flex flex-wrap gap-1 rounded-2xl border border-neutral-200 bg-white/70 p-1 shadow-[0_18px_55px_-45px_rgba(0,0,0,0.35)] backdrop-blur">
+          {tabItems.map((tab) => {
+            const isActive = activeTab === tab.key;
+            const isGuideOrAssistant = tab.key === "guide" || tab.key === "assistant";
+
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                aria-current={isActive ? "page" : undefined}
+                className={[
+                  "group inline-flex items-center gap-2 whitespace-nowrap",
+                  "rounded-xl px-3 py-2 text-sm font-medium",
+                  "transition duration-200 ease-out transform-gpu",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2",
+                  isActive
+                    ? "bg-primary-600 text-white shadow-[0_16px_40px_-28px_rgba(24,0,173,0.45)]"
+                    : "text-neutral-700 hover:bg-white hover:text-neutral-900",
+                  !isActive ? "hover:-translate-y-[1px]" : "",
+                ].join(" ")}
+                onClick={() => {
+                  setActiveTab(tab.key);
+                  updateQuery({ tab: tab.key, section: null, q: null, term: null });
+                }}
+              >
+                <img
+                  src={tab.iconSrc}
+                  alt=""
+                  aria-hidden
+                  className={`w-4 h-4 object-contain transition ${isActive ? "brightness-0 invert" : "logo-blend group-hover:scale-[1.02]"}`}
+                />
+                <span className="text-inherit">{tab.label}</span>
+                {isActive && isGuideOrAssistant ? (
+                  <span
+                    aria-hidden
+                    className="ml-1 inline-flex h-2 w-2 rounded-full bg-primary-200 shadow-[0_0_0_3px_rgba(24,0,173,0.18)]"
+                  />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
       </nav>
 
       {loading && <div className="text-sm text-gray-500">Chargement...</div>}
@@ -1891,45 +2078,84 @@ export default function ProjectDetailPage() {
         </section>
       )}
 
+      {!loading && activeTab === "phases" && (
+        <section className="space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Phases ({phases.length})</h2>
+              <p className="text-sm text-gray-500">Structure hiérarchique Projet → Phases → Lots.</p>
+            </div>
+            {canManageProject && (
+              <Button size="sm" onClick={() => setPhaseModalOpen(true)}>
+                + Ajouter une phase
+              </Button>
+            )}
+          </div>
+
+          {phasesLoading ? (
+            <div className="text-sm text-gray-500">Chargement des phases...</div>
+          ) : phases.length === 0 ? (
+            <Card>
+              <CardContent className="p-4 text-sm text-gray-600">
+                Aucune phase pour le moment. Créez une phase (ex: "Démolition", "Second œuvre", "Finitions") puis ajoutez
+                des lots.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              {phases.map((phase) => (
+                <Card
+                  key={phase.id}
+                  className="cursor-pointer hover:shadow-sm transition"
+                  onClick={() => router.push(`/dashboard/projets/${projectId}/phases/${phase.id}?role=${role}`)}
+                >
+                  <CardHeader>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="font-semibold text-gray-900">
+                        {phase.phaseOrder}. {phase.name}
+                      </div>
+                      <div className="text-xs text-gray-500">{phase.status}</div>
+                    </div>
+                    {phase.description && <div className="text-sm text-gray-500">{phase.description}</div>}
+                  </CardHeader>
+                  <CardContent className="text-sm text-gray-700 space-y-2">
+                    <div className="flex flex-wrap items-center gap-4">
+                      <div>
+                        <div className="text-xs uppercase tracking-wide text-gray-400">Lots</div>
+                        <div>{phase.lotsCount}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs uppercase tracking-wide text-gray-400">Budget</div>
+                        <div>
+                          {formatCurrency(phase.budgetActual)} / {formatCurrency(phase.budgetEstimated)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs uppercase tracking-wide text-gray-400">Dates</div>
+                        <div>
+                          {phase.startDate ? formatDate(phase.startDate) : "-"} →{" "}
+                          {phase.endDate ? formatDate(phase.endDate) : "-"}
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       {!loading && activeTab === "chat" && (
         <section className="grid gap-6 lg:grid-cols-[2fr_1fr] items-start">
-          <Card>
-            <CardHeader>
-              <div className="font-semibold text-gray-900">Discussion projet</div>
-              <div className="text-sm text-gray-500">Échange avec les participants.</div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {!canInviteMembers && (
-                <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
-                  Seuls les professionnels peuvent inviter des membres.
-                </div>
-              )}
-              <div className="space-y-3 max-h-[420px] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4">
-                {messages.length === 0 && (
-                  <div className="text-sm text-gray-500">Aucun message pour le moment.</div>
-                )}
-                {messages.map((msg) => (
-                  <div key={msg.id} className="rounded-lg border border-gray-200 p-3">
-                    <div className="text-xs text-gray-500">
-                      {msg.sender?.full_name || msg.sender?.email || "Utilisateur"} -{" "}
-                      {new Date(msg.created_at).toLocaleString("fr-FR")}
-                    </div>
-                    <div className="text-sm text-gray-800">{msg.message}</div>
-                  </div>
-                ))}
+          <div className="space-y-3">
+            {!canInviteMembers && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                Seuls les professionnels peuvent inviter des membres.
               </div>
-              <div className="flex gap-2">
-                <Input
-                  value={messageInput}
-                  onChange={(event) => setMessageInput(event.target.value)}
-                  placeholder="Écrire un message..."
-                />
-                <Button onClick={handleSendMessage} disabled={!messageInput.trim()}>
-                  Envoyer
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+            )}
+            <ChatBox context={{ projectId }} title="Discussion projet" />
+          </div>
 
           <Card>
             <CardHeader>
@@ -1960,6 +2186,7 @@ export default function ProjectDetailPage() {
               <div className="text-sm text-gray-500">Documents liés au chantier.</div>
             </CardHeader>
             <CardContent className="space-y-3">
+              <DocumentsList context={{ projectId }} title="Documents (projet)" showUpload={canManageProject} />
               {quotes.length === 0 && (
                 <div className="text-sm text-gray-500">Aucun devis lié au projet.</div>
               )}
@@ -2100,9 +2327,11 @@ export default function ProjectDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
-                <div className="min-w-[980px] rounded-lg border border-gray-200">
-                  <div className="grid grid-cols-[80px_repeat(7,minmax(0,1fr))] border-b border-gray-200">
-                    <div className="bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-500">Heure</div>
+                <div className="min-w-[1120px] rounded-lg border border-gray-200 bg-white">
+                  <div className="grid grid-cols-[80px_repeat(7,minmax(140px,1fr))] border-b border-gray-200">
+                    <div className="sticky left-0 z-30 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-500">
+                      Heure
+                    </div>
                     {weekDays.map((day) => {
                       const dayKey = toDateKey(day);
                       const isToday = dayKey === todayKey;
@@ -2126,8 +2355,8 @@ export default function ProjectDetailPage() {
                     })}
                   </div>
 
-                  <div className="grid grid-cols-[80px_repeat(7,minmax(0,1fr))] border-b border-gray-200">
-                    <div className="bg-gray-50 px-3 py-3 text-[11px] font-medium text-gray-500">
+                  <div className="grid grid-cols-[80px_repeat(7,minmax(140px,1fr))] border-b border-gray-200">
+                    <div className="sticky left-0 z-20 bg-gray-50 px-3 py-3 text-[11px] font-medium text-gray-500">
                       Toute la journée
                     </div>
                     {weekDays.map((day) => {
@@ -2158,16 +2387,20 @@ export default function ProjectDetailPage() {
                                   <div
                                     key={task.id}
                                     onClick={(event) => event.stopPropagation()}
-                                    className={`rounded-md border-l-4 border px-2 py-1 text-[11px] shadow-sm ${colorClass}`}
+                                    className={cn(
+                                      "min-w-0 overflow-hidden break-words",
+                                      "rounded-md border-l-4 border px-2 py-1 text-[11px] shadow-sm",
+                                      colorClass
+                                    )}
                                   >
-                                    <div className="font-semibold">{task.name}</div>
+                                    <div className="font-medium text-gray-900">{task.name}</div>
                                     {parsed.time && (
                                       <div className="text-[10px] font-medium text-gray-700">
                                         {parsed.time}
                                       </div>
                                     )}
                                     {parsed.text && (
-                                      <div className="text-[10px] text-gray-600">{parsed.text}</div>
+                                      <div className="text-[10px] text-gray-600 break-words">{parsed.text}</div>
                                     )}
                                   </div>
                                 );
@@ -2179,8 +2412,8 @@ export default function ProjectDetailPage() {
                     })}
                   </div>
 
-                  <div className="grid grid-cols-[80px_repeat(7,minmax(0,1fr))] border-t border-gray-200">
-                    <div className="bg-gray-50 border-r border-gray-200">
+                  <div className="grid grid-cols-[80px_repeat(7,minmax(140px,1fr))] border-t border-gray-200">
+                    <div className="sticky left-0 z-20 bg-gray-50 border-r border-gray-200">
                       {timeSlots.map((hour) => (
                         <div
                           key={hour}
@@ -2234,12 +2467,16 @@ export default function ProjectDetailPage() {
                                     openTaskDetails(block.task);
                                   }
                                 }}
-                                className={`absolute left-2 right-2 rounded-md border-l-4 border px-3 py-2 text-[11px] shadow-sm overflow-hidden ${block.colorClass}`}
+                                className={cn(
+                                  "absolute left-2 right-2 rounded-md border-l-4 border px-3 py-2 text-[11px]",
+                                  "shadow-sm overflow-hidden break-words",
+                                  block.colorClass
+                                )}
                                 style={{ top: `${block.top}px`, height: `${block.height}px` }}
                               >
                                 <div className="flex items-center justify-between gap-2">
                                   <span
-                                    className="font-semibold leading-tight"
+                                    className="min-w-0 font-medium leading-tight"
                                     style={{
                                       display: "-webkit-box",
                                       WebkitLineClamp: 2,
@@ -2257,7 +2494,7 @@ export default function ProjectDetailPage() {
                                 </div>
                                 {block.description && (
                                   <div
-                                    className="text-[10px] text-gray-600 mt-1"
+                                    className="text-[10px] text-gray-600 mt-1 break-words"
                                     style={{
                                       display: "-webkit-box",
                                       WebkitLineClamp: 3,
@@ -2337,6 +2574,21 @@ export default function ProjectDetailPage() {
               </form>
             </CardContent>
           </Card>
+        </section>
+      )}
+      {!loading && activeTab === "guide" && (
+        <section className="space-y-6">
+          <ProjectGuidePanel
+            section={guideSectionParam}
+            query={guideQueryParam}
+            term={guideTermParam}
+            onOpenGuide={openGuide}
+            onOpenAssistant={openAssistantTab}
+            totalBudget={totalBudget}
+            hasBudget={hasBudget}
+            quotes={quotes}
+            projectType={project?.project_type ?? null}
+          />
         </section>
       )}
       {!loading && activeTab === "assistant" && (
@@ -2609,6 +2861,85 @@ export default function ProjectDetailPage() {
                 </Button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {phaseModalOpen && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-lg w-full p-6">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-neutral-900">Nouvelle phase</h3>
+                <p className="text-sm text-neutral-600">Ajoutez une phase au projet, puis des lots.</p>
+              </div>
+              <Button variant="ghost" onClick={() => setPhaseModalOpen(false)}>
+                Fermer
+              </Button>
+            </div>
+            <form className="space-y-4" onSubmit={handleCreatePhase}>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Nom *</label>
+                <Input
+                  value={phaseForm.name}
+                  onChange={(event) => setPhaseForm({ ...phaseForm, name: event.target.value })}
+                  placeholder="Démolition & Gros œuvre"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Description</label>
+                <Input
+                  value={phaseForm.description}
+                  onChange={(event) => setPhaseForm({ ...phaseForm, description: event.target.value })}
+                  placeholder="Travaux préparatoires, structure…"
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Ordre *</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={phaseForm.phaseOrder}
+                    onChange={(event) => setPhaseForm({ ...phaseForm, phaseOrder: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Budget estimé (€)</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={phaseForm.budgetEstimated}
+                    onChange={(event) => setPhaseForm({ ...phaseForm, budgetEstimated: event.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Début</label>
+                  <Input
+                    type="date"
+                    value={phaseForm.startDate}
+                    onChange={(event) => setPhaseForm({ ...phaseForm, startDate: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Fin</label>
+                  <Input
+                    type="date"
+                    value={phaseForm.endDate}
+                    onChange={(event) => setPhaseForm({ ...phaseForm, endDate: event.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setPhaseModalOpen(false)}>
+                  Annuler
+                </Button>
+                <Button type="submit" disabled={phaseSubmitting || !canManageProject}>
+                  {phaseSubmitting ? "Création..." : "Créer la phase"}
+                </Button>
+              </div>
+            </form>
           </div>
         </div>
       )}
