@@ -10,6 +10,7 @@ export interface AIMessage {
   content: string;
   timestamp: string;
   quickActions?: QuickAction[];
+  suggestions?: string[];
 }
 
 export interface QuickAction {
@@ -57,6 +58,7 @@ type ProjectChatApiResponse = {
   reply?: string;
   proposal?: unknown | null;
   requires_devis?: boolean;
+  suggested_questions?: string[] | null;
 };
 
 function getAiApiUrl(): string {
@@ -149,6 +151,7 @@ export async function sendMessageToAI(
 
     return {
       message: data.reply ?? "Je reviens vers vous avec une réponse.",
+      suggestions: (data as any).suggested_questions ?? [],
     };
   }
 

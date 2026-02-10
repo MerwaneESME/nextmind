@@ -147,6 +147,7 @@ export function ChatWindow({
         role: "assistant",
         content: response.message,
         quickActions: response.quickActions ?? [],
+        suggestions: response.suggestions ?? [],
         timestamp: new Date().toISOString(),
       };
 
@@ -311,6 +312,22 @@ export function ChatWindow({
                   size="sm"
                   className="mt-2"
                 />
+              )}
+
+              {message.role === "assistant" && message.suggestions && message.suggestions.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {message.suggestions.map((q, i) => (
+                    <button
+                      key={i}
+                      onClick={() => sendMessage(q)}
+                      disabled={isLoading}
+                      type="button"
+                      className="text-xs px-3 py-1.5 rounded-full border border-primary-300 text-primary-500 bg-white hover:bg-primary-50 hover:border-primary-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      💡 {q}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
             {message.role === "user" && (
