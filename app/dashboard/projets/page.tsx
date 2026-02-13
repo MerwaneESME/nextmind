@@ -236,7 +236,7 @@ export default function ProjetsPage() {
               {filteredProjects.length === 0 ? (
                 <div className="rounded-xl border border-gray-200 bg-white p-8">
                   <EmptyState
-                    icon="🏗️"
+                    icon=""
                     title="Aucun projet pour le moment"
                     description={
                       canCreateProject
@@ -448,9 +448,8 @@ function ProjectCard({
           ) : null}
 
           <div className="flex items-center gap-4 text-sm text-gray-500 flex-wrap">
-            <span className="flex items-center gap-1">📋 {project.phasesCount ?? 0} phase(s)</span>
-            <span className="flex items-center gap-1">🏗️ {project.lotsCount ?? 0} lot(s)</span>
-            <span className="flex items-center gap-1">📅 {project.createdAt ? formatDate(project.createdAt) : "-"}</span>
+            <span className="flex items-center gap-1">{project.lotsCount ?? 0} intervention(s)</span>
+            <span className="flex items-center gap-1">{project.createdAt ? formatDate(project.createdAt) : "-"}</span>
           </div>
         </div>
 

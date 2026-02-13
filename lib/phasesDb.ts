@@ -94,6 +94,14 @@ export async function getPhaseById(phaseId: string): Promise<PhaseRow | null> {
 }
 
 export async function createPhase(projectId: string, input: CreatePhaseInput) {
+  // Si aucun phase_manager_id fourni, on assigne le user courant pour que
+  // le trigger ensure_phase_manager_membership crée l'entrée phase_members.
+  let managerId = input.phaseManagerId ?? null;
+  if (!managerId) {
+    const { data: { user } } = await supabase.auth.getUser();
+    managerId = user?.id ?? null;
+  }
+
   const payload = {
     project_id: projectId,
     name: input.name.trim(),
@@ -103,7 +111,7 @@ export async function createPhase(projectId: string, input: CreatePhaseInput) {
     end_date: input.endDate ?? null,
     budget_estimated: input.budgetEstimated ?? 0,
     status: input.status ?? "planifiee",
-    phase_manager_id: input.phaseManagerId ?? null,
+    phase_manager_id: managerId,
   };
 
   const { data, error } = await supabase.from("phases").insert(payload).select("id").single();

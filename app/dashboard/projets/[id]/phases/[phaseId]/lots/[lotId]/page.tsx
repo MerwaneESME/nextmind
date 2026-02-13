@@ -129,7 +129,7 @@ export default function LotPage() {
       setLot(lotRow);
       setTasks(taskRows);
     } catch (err: any) {
-      setError(err?.message ?? "Impossible de charger le lot.");
+      setError(err?.message ?? "Impossible de charger l'intervention.");
     } finally {
       setLoading(false);
     }
@@ -190,7 +190,7 @@ export default function LotPage() {
   if (!projectId || !phaseId || !lotId) {
     return (
       <div className="space-y-3">
-        <p className="text-sm text-gray-600">Lot introuvable.</p>
+        <p className="text-sm text-gray-600">Intervention introuvable.</p>
         <Button variant="outline" onClick={() => router.push(`/dashboard/projets?role=${role}`)}>
           <ArrowLeft className="w-4 h-4 mr-2" />
           Retour
@@ -207,7 +207,7 @@ export default function LotPage() {
             { label: "Projets", href: `/dashboard/projets?role=${role}` },
             { label: project?.name ?? "Projet", href: `/dashboard/projets/${projectId}?role=${role}&tab=phases` },
             { label: `Phase: ${phase?.name ?? phaseId}`, href: `/dashboard/projets/${projectId}/phases/${phaseId}?role=${role}` },
-            { label: `Lot: ${lot?.name ?? lotId}` },
+            { label: lot?.name ?? lotId },
           ]}
         />
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -215,7 +215,7 @@ export default function LotPage() {
             <div className="text-sm text-gray-500">
               Projet: {project?.name ?? projectId} • Phase: {phase?.name ?? phaseId}
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">Lot: {lot?.name ?? lotId}</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{lot?.name ?? lotId}</h1>
             <p className="text-gray-600">{lot?.company_name ? `Entreprise: ${lot.company_name}` : "Entreprise: -"}</p>
           </div>
           <div className="flex items-center gap-2">
@@ -254,7 +254,11 @@ export default function LotPage() {
             )}
           </div>
         </div>
-        {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 font-medium shadow-sm">
+            {error}
+          </div>
+        )}
       </header>
 
       <nav className="sticky top-3 z-30" aria-label="Navigation du lot">
@@ -303,7 +307,10 @@ export default function LotPage() {
       </nav>
 
       {loading ? (
-        <div className="text-sm text-gray-500">Chargement...</div>
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
+          Chargement...
+        </div>
       ) : (
         <>
           {activeTab === "overview" && (
@@ -363,11 +370,11 @@ export default function LotPage() {
                 <div className="space-y-6">
                   <Card>
                     <CardHeader>
-                      <div className="font-semibold text-gray-900">Documents (lot)</div>
-                      <div className="text-sm text-gray-500">Fichiers rattachés au lot.</div>
+                      <div className="font-semibold text-gray-900">Documents</div>
+                      <div className="text-sm text-gray-500">Fichiers rattachés à cette intervention.</div>
                     </CardHeader>
-                    <CardContent className="h-[360px] overflow-auto">
-                      <DocumentsList context={{ lotId }} title="Documents (lot)" showUpload={canEditThisLot} />
+                    <CardContent className="max-h-[400px] overflow-auto">
+                      <DocumentsList context={{ lotId }} title="Documents" showUpload={canEditThisLot} />
                     </CardContent>
                   </Card>
 
@@ -377,92 +384,14 @@ export default function LotPage() {
                       <div className="text-sm text-gray-500">Cloisonnement des échanges.</div>
                     </CardHeader>
                     <CardContent className="text-sm text-gray-700 space-y-2">
-                      <div>💬 Chat privé au lot (chef + entreprise assignée).</div>
-                      <div>💰 Budget (devis + factures) rattaché au lot.</div>
+                      <div>💬 Chat privé à l'intervention (chef + entreprise assignée).</div>
+                      <div>💰 Budget (devis + factures) rattaché à l'intervention.</div>
                     </CardContent>
                   </Card>
                 </div>
               </div>
               </section>
 
-            {false && (
-            <section className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            <Card className="border-l-4 border-l-blue-200 bg-blue-50/20">
-              <CardHeader className="border-b border-blue-100 bg-blue-50/60">
-                <div className="text-sm text-gray-600">Progression</div>
-              </CardHeader>
-              <CardContent className="text-xl font-semibold text-gray-900">
-                {progress.pct}% <span className="text-sm text-gray-500 font-normal">({progress.done}/{progress.total})</span>
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-emerald-200 bg-emerald-50/20">
-              <CardHeader className="border-b border-emerald-100 bg-emerald-50/60">
-                <div className="text-sm text-gray-600">Budget</div>
-              </CardHeader>
-              <CardContent className="text-xl font-semibold text-gray-900">
-                {formatCurrency(Number(lot?.budget_actual ?? 0))} / {formatCurrency(Number(lot?.budget_estimated ?? 0))}
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-slate-200 bg-slate-50/30">
-              <CardHeader className="border-b border-slate-100 bg-slate-50/60">
-                <div className="text-sm text-gray-600">Dates</div>
-              </CardHeader>
-              <CardContent className="text-sm text-gray-800">
-                {lot?.start_date ? formatDate(lot!.start_date!) : "-"} → {lot?.end_date ? formatDate(lot!.end_date!) : "-"}
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <div className="font-semibold text-gray-900">Checklist</div>
-              <div className="text-sm text-gray-500">Tâches du lot (todo / en cours / done).</div>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {tasks.length === 0 ? (
-                <div className="text-sm text-gray-500">Aucune tâche pour le moment.</div>
-              ) : (
-                tasks.map((t) => (
-                  <div
-                    key={t.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white p-3"
-                  >
-                    <div>
-                      <div className="font-medium text-gray-900">{t.title}</div>
-                      <div className="text-xs text-gray-500">
-                        Statut: {t.status}
-                        {t.dueDate ? ` • Échéance: ${formatDate(t.dueDate)}` : ""}
-                      </div>
-                      {t.description && <div className="text-xs text-gray-500 mt-1">{t.description}</div>}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={!canEditThisLot}
-                        onClick={() => void toggleTask(t)}
-                      >
-                        {t.status === "done" ? "Réouvrir" : "Terminer"}
-                      </Button>
-                      {canEditThisLot && (
-                        <Button variant="outline" size="sm" className="border-red-200 text-red-600" onClick={() => void removeTask(t)}>
-                          Supprimer
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-
-          <div className="grid gap-4 lg:grid-cols-2 items-start">
-            <ChatBox context={{ lotId }} title="Discussion (lot)" />
-            <DocumentsList context={{ lotId }} title="Documents (lot)" showUpload={canEditThisLot} />
-          </div>
-        </section>
-            )}
             </>
           )}
 
@@ -599,7 +528,10 @@ export default function LotPage() {
       )}
 
       {taskModalOpen && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+        <div
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setTaskModalOpen(false); }}
+        >
           <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-lg w-full p-6">
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>

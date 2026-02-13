@@ -30,13 +30,13 @@ export default function PhaseLotsList({
       <Card>
         <CardContent className="p-8">
           <EmptyState
-            icon="🏗️"
-            title="Aucun lot pour le moment"
-            description="Ajoutez des lots pour organiser les différents corps de métier de cette phase."
+            icon=""
+            title="Aucune intervention pour le moment"
+            description="Ajoutez des interventions pour organiser les différents corps de métier de cette phase."
             action={
               onAddLot
                 ? {
-                    label: "+ Ajouter votre premier lot",
+                    label: "+ Ajouter votre première intervention",
                     onClick: onAddLot,
                   }
                 : undefined
@@ -65,12 +65,12 @@ export default function PhaseLotsList({
     <Card>
       <CardHeader className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-lg font-semibold text-gray-900">Lots ({lots.length})</div>
-          <div className="text-sm text-gray-600">Suivi des lots rattachés à cette phase.</div>
+          <div className="text-lg font-semibold text-gray-900">Interventions ({lots.length})</div>
+          <div className="text-sm text-gray-600">Suivi des interventions de cette phase.</div>
         </div>
         {onAddLot ? (
           <Button size="sm" onClick={onAddLot}>
-            + Ajouter un lot
+            + Nouvelle intervention
           </Button>
         ) : null}
       </CardHeader>
@@ -94,7 +94,7 @@ export default function PhaseLotsList({
                     {lot.name}
                   </div>
                   <div className="text-sm text-gray-600 truncate">
-                    {lot.companyName ? lot.companyName : "Entreprise: -"}
+                    {lot.companyName ? `Entreprise: ${lot.companyName}` : "Entreprise non définie"}
                   </div>
                 </div>
                 <Badge type="lot" status={status.key}>

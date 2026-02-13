@@ -122,82 +122,157 @@ export async function getLotById(lotId: string): Promise<LotRow | null> {
 }
 
 export async function createLot(phaseId: string, input: CreateLotInput) {
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-  if (userError) throw userError;
-  if (!user) throw new Error("Vous devez etre connecte pour creer un lot.");
+  const { data, error } = await supabase.rpc("rpc_create_lot", {
+    p_phase_id: phaseId,
+    p_name: input.name.trim(),
+    p_description: input.description?.trim() || null,
+    p_lot_type: input.lotType?.trim() || null,
+    p_company_name: input.companyName?.trim() || null,
+    p_company_contact_name: input.companyContactName?.trim() || null,
+    p_company_contact_email: input.companyContactEmail?.trim() || null,
+    p_company_contact_phone: input.companyContactPhone?.trim() || null,
+    p_responsible_user_id: input.responsibleUserId ?? null,
+    p_start_date: input.startDate ?? null,
+    p_end_date: input.endDate ?? null,
+    p_budget_estimated: input.budgetEstimated ?? 0,
+    p_status: input.status ?? "planifie",
+  });
 
-  // Optional UX pre-check. If RPC fails, we still try the insert.
-  try {
-    const { data: allowed, error: permError } = await supabase.rpc("can_edit_phase", { p_phase_id: phaseId });
-    if (!permError && allowed === false) {
-      throw new Error("Acces refuse : vous n'avez pas les droits pour creer un lot dans cette phase.");
-    }
-  } catch {
-    // ignore
+  if (error) {
+    throw new Error(error.message || "Impossible de creer le lot.");
   }
 
-  const payload = {
-    phase_id: phaseId,
-    name: input.name.trim(),
-    description: input.description?.trim() || null,
-    lot_type: input.lotType?.trim() || null,
-    company_name: input.companyName?.trim() || null,
-    company_contact_name: input.companyContactName?.trim() || null,
-    company_contact_email: input.companyContactEmail?.trim() || null,
-    company_contact_phone: input.companyContactPhone?.trim() || null,
-    responsible_user_id: input.responsibleUserId ?? null,
-    start_date: input.startDate ?? null,
-    end_date: input.endDate ?? null,
-    budget_estimated: input.budgetEstimated ?? 0,
-    status: input.status ?? "planifie",
-  };
-
-  const { data, error } = await supabase.from("lots").insert(payload).select("id").single();
-  if (error || !data) {
-    const message = String((error as any)?.message ?? "").toLowerCase();
-    if (message.includes("row-level security") || message.includes("rls")) {
-      throw new Error(
-        "Creation refusee (RLS). Ton utilisateur (" +
-          user.id +
-          ") doit etre owner/collaborator (accepted/active) dans project_members du projet, OU phase_manager/can_edit=true dans phase_members pour la phase (" +
-          phaseId +
-          ")."
-      );
-    }
-    throw error ?? new Error("Lot non cree");
-  }
-
-  return data.id as string;
+  return data as string;
 }
 export async function updateLot(
   lotId: string,
   patch: Partial<CreateLotInput> & { budgetActual?: number | null; progressPercentage?: number | null }
 ) {
-  const payload: any = {};
-  if ("name" in patch && typeof patch.name === "string") payload.name = patch.name.trim();
-  if ("description" in patch) payload.description = patch.description?.trim() || null;
-  if ("lotType" in patch) payload.lot_type = patch.lotType?.trim() || null;
-  if ("companyName" in patch) payload.company_name = patch.companyName?.trim() || null;
-  if ("companyContactName" in patch) payload.company_contact_name = patch.companyContactName?.trim() || null;
-  if ("companyContactEmail" in patch) payload.company_contact_email = patch.companyContactEmail?.trim() || null;
-  if ("companyContactPhone" in patch) payload.company_contact_phone = patch.companyContactPhone?.trim() || null;
-  if ("responsibleUserId" in patch) payload.responsible_user_id = patch.responsibleUserId ?? null;
-  if ("startDate" in patch) payload.start_date = patch.startDate ?? null;
-  if ("endDate" in patch) payload.end_date = patch.endDate ?? null;
-  if ("budgetEstimated" in patch) payload.budget_estimated = patch.budgetEstimated ?? 0;
-  if ("budgetActual" in patch) payload.budget_actual = patch.budgetActual ?? 0;
-  if ("status" in patch && patch.status) payload.status = patch.status;
-  if ("progressPercentage" in patch) payload.progress_percentage = patch.progressPercentage ?? 0;
+  const params: Record<string, unknown> = { p_lot_id: lotId };
+  if ("name" in patch && typeof patch.name === "string") params.p_name = patch.name.trim();
+  if ("description" in patch) params.p_description = patch.description?.trim() || null;
+  if ("lotType" in patch) params.p_lot_type = patch.lotType?.trim() || null;
+  if ("companyName" in patch) params.p_company_name = patch.companyName?.trim() || null;
+  if ("companyContactName" in patch) params.p_company_contact_name = patch.companyContactName?.trim() || null;
+  if ("companyContactEmail" in patch) params.p_company_contact_email = patch.companyContactEmail?.trim() || null;
+  if ("companyContactPhone" in patch) params.p_company_contact_phone = patch.companyContactPhone?.trim() || null;
+  if ("responsibleUserId" in patch) params.p_responsible_user_id = patch.responsibleUserId ?? null;
+  if ("startDate" in patch) params.p_start_date = patch.startDate ?? null;
+  if ("endDate" in patch) params.p_end_date = patch.endDate ?? null;
+  if ("budgetEstimated" in patch) params.p_budget_estimated = patch.budgetEstimated ?? 0;
+  if ("budgetActual" in patch) params.p_budget_actual = patch.budgetActual ?? 0;
+  if ("status" in patch && patch.status) params.p_status = patch.status;
+  if ("progressPercentage" in patch) params.p_progress_percentage = patch.progressPercentage ?? 0;
 
-  const { error } = await supabase.from("lots").update(payload).eq("id", lotId);
-  if (error) throw error;
+  const { error } = await supabase.rpc("rpc_update_lot", params);
+  if (error) throw new Error(error.message || "Impossible de modifier le lot.");
 }
 
 export async function deleteLot(lotId: string) {
-  const { error } = await supabase.from("lots").delete().eq("id", lotId);
+  const { error } = await supabase.rpc("rpc_delete_lot", { p_lot_id: lotId });
+  if (error) throw new Error(error.message || "Impossible de supprimer le lot.");
+}
+
+/**
+ * Fetch all interventions (lots) for a project, across all phases.
+ * Used in the simplified Project → Intervention hierarchy.
+ */
+export async function fetchLotsForProject(projectId: string): Promise<LotSummary[]> {
+  const { data: phases, error: phaseError } = await supabase
+    .from("phases")
+    .select("id")
+    .eq("project_id", projectId);
+
+  if (phaseError) throw phaseError;
+  if (!phases || phases.length === 0) return [];
+
+  const phaseIds = phases.map((p: any) => p.id);
+
+  const { data, error } = await supabase
+    .from("lots")
+    .select(
+      "id,phase_id,name,description,lot_type,company_name,start_date,end_date,budget_estimated,budget_actual,status,progress_percentage,tasks:lot_tasks(status)"
+    )
+    .in("phase_id", phaseIds)
+    .order("created_at", { ascending: true });
+
   if (error) throw error;
+
+  return (
+    data?.map((row: any) => {
+      const tasks = Array.isArray(row.tasks) ? row.tasks : [];
+      const tasksTotal = tasks.length;
+      const tasksDone = tasks.filter((t: any) => String(t?.status || "").toLowerCase() === "done").length;
+      const progress =
+        typeof row.progress_percentage === "number"
+          ? row.progress_percentage
+          : tasksTotal > 0
+            ? Math.round((tasksDone / tasksTotal) * 100)
+            : 0;
+      return {
+        id: row.id,
+        phaseId: row.phase_id,
+        name: row.name,
+        description: row.description ?? null,
+        lotType: row.lot_type ?? null,
+        companyName: row.company_name ?? null,
+        startDate: row.start_date ?? null,
+        endDate: row.end_date ?? null,
+        budgetEstimated: toNumber(row.budget_estimated),
+        budgetActual: toNumber(row.budget_actual),
+        status: (row.status ?? "planifie") as LotStatus,
+        progressPercentage: Math.max(0, Math.min(100, Number(progress) || 0)),
+        tasksDone,
+        tasksTotal,
+      } as LotSummary;
+    }) ?? []
+  );
+}
+
+/**
+ * Get or create a default phase for a project.
+ * Used to transparently link interventions to a project without
+ * exposing the phase layer in the UI.
+ */
+export async function getOrCreateDefaultPhase(projectId: string): Promise<string> {
+  // Look for an existing phase for this project
+  const { data: existing, error: fetchError } = await supabase
+    .from("phases")
+    .select("id")
+    .eq("project_id", projectId)
+    .order("phase_order", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (fetchError) throw fetchError;
+  if (existing?.id) return existing.id;
+
+  // Create a default phase
+  const { data: { user } } = await supabase.auth.getUser();
+  const managerId = user?.id ?? null;
+
+  const { data, error } = await supabase
+    .from("phases")
+    .insert({
+      project_id: projectId,
+      name: "Principal",
+      phase_order: 1,
+      status: "en_cours",
+      phase_manager_id: managerId,
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) throw error ?? new Error("Impossible de créer la phase par défaut.");
+  return data.id as string;
+}
+
+/**
+ * Create an intervention (lot) directly under a project.
+ * Auto-resolves the default phase.
+ */
+export async function createLotForProject(projectId: string, input: CreateLotInput) {
+  const phaseId = await getOrCreateDefaultPhase(projectId);
+  return createLot(phaseId, input);
 }
 

@@ -41,7 +41,7 @@ type TabKey =
 
 const tabItems: Array<{ key: TabKey; label: string; iconSrc: string }> = [
   { key: "overview", label: "Aperçu", iconSrc: "/images/grey/eye.png" },
-  { key: "lots", label: "Lots", iconSrc: "/images/grey/files.png" },
+  { key: "lots", label: "Interventions", iconSrc: "/images/grey/files.png" },
   { key: "chat", label: "Chat", iconSrc: "/images/grey/chat-teardrop-dots.png" },
   { key: "devis", label: "Devis", iconSrc: "/images/grey/files.png" },
   { key: "documents", label: "Documents", iconSrc: "/images/grey/files.png" },
@@ -152,7 +152,7 @@ export default function PhasePage() {
   const handleCreateLot = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canEditThisPhase) {
-      setError("Accès refusé: vous ne pouvez pas créer un lot.");
+      setError("Accès refusé: vous ne pouvez pas créer une intervention.");
       return;
     }
     if (!phaseId || !lotForm.name.trim()) return;
@@ -181,7 +181,7 @@ export default function PhasePage() {
       setLotModalOpen(false);
       await load();
     } catch (err: any) {
-      setError(err?.message ?? "Impossible de créer le lot.");
+      setError(err?.message ?? "Impossible de créer l'intervention.");
     } finally {
       setLotSubmitting(false);
     }
@@ -240,12 +240,16 @@ export default function PhasePage() {
             </Button>
             {canEditThisPhase && activeTab === "lots" && (
               <Button size="sm" onClick={() => setLotModalOpen(true)}>
-                + Ajouter un lot
+                + Nouvelle intervention
               </Button>
             )}
           </div>
         </div>
-        {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 font-medium shadow-sm">
+            {error}
+          </div>
+        )}
       </header>
 
       <nav className="sticky top-3 z-30" aria-label="Navigation de la phase">
@@ -294,53 +298,70 @@ export default function PhasePage() {
       </nav>
 
       {loading ? (
-        <div className="text-sm text-gray-500">Chargement...</div>
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
+          Chargement...
+        </div>
       ) : (
         <>
           {activeTab === "overview" && (
-            <>
-              <section className="space-y-6">
+            <section className="space-y-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <StatCard
+                  icon="💰"
+                  iconBg="bg-blue-50"
+                  label="Budget phase"
+                  value={formatCurrency(Number(phase?.budget_actual ?? 0))}
+                  subtitle={`/ ${formatCurrency(Number(phase?.budget_estimated ?? 0))}`}
+                />
+                <StatCard
+                  icon="📅"
+                  iconBg="bg-green-50"
+                  label="Dates"
+                  value={phase?.start_date ? formatDate(phase!.start_date!) : "Non défini"}
+                  subtitle={phase?.end_date ? `→ ${formatDate(phase!.end_date!)}` : ""}
+                />
+                <StatCard
+                  icon="🏗️"
+                  iconBg="bg-purple-50"
+                  label="Interventions"
+                  value={lots.length}
+                  subtitle={`${lots.filter((l) => String(l.status ?? "").toLowerCase() === "termine").length} terminées`}
+                />
+                <StatCard
+                  icon="📊"
+                  iconBg="bg-amber-50"
+                  label="Statut"
+                  value={phase?.status === "en_cours" ? "En cours" : phase?.status === "terminee" ? "Terminée" : phase?.status === "validee" ? "Validée" : phase?.status === "planifiee" ? "Planifiée" : phase?.status ?? "-"}
+                />
+              </div>
+
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <StatCard
-                      icon="💰"
-                      iconBg="bg-blue-50"
-                      label="Budget phase"
-                      value={formatCurrency(Number(phase?.budget_actual ?? 0))}
-                      subtitle={`/ ${formatCurrency(Number(phase?.budget_estimated ?? 0))}`}
-                    />
-                    <StatCard
-                      icon="📅"
-                      iconBg="bg-green-50"
-                      label="Dates"
-                      value={phase?.start_date ? formatDate(phase!.start_date!) : "Non défini"}
-                      subtitle={phase?.end_date ? `→ ${formatDate(phase!.end_date!)}` : ""}
-                    />
-                    <StatCard
-                      icon="🏗️"
-                      iconBg="bg-purple-50"
-                      label="Lots"
-                      value={lots.length}
-                      subtitle={`${lots.filter((l) => String(l.status ?? "").toLowerCase() === "termine").length} terminés`}
-                    />
-                  </div>
-
                   <PhaseLotsList
                     projectId={projectId}
                     phaseId={phaseId}
-                    lots={lots}
+                    lots={lots.slice(0, 5)}
                     onAddLot={canEditThisPhase ? () => setLotModalOpen(true) : undefined}
                   />
+                  {lots.length > 5 && (
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => { setActiveTab("lots"); updateQuery({ tab: "lots" }); }}
+                    >
+                      Voir toutes les interventions ({lots.length})
+                    </Button>
+                  )}
                 </div>
 
                 <div className="space-y-6">
                   <Card>
                     <CardHeader>
-                      <div className="font-semibold text-gray-900">Documents (phase)</div>
+                      <div className="font-semibold text-gray-900">Documents</div>
                       <div className="text-sm text-gray-500">Fichiers rattachés à la phase.</div>
                     </CardHeader>
-                    <CardContent className="h-[360px] overflow-auto">
+                    <CardContent className="max-h-[300px] overflow-auto">
                       <DocumentsList
                         context={{ phaseId }}
                         title="Documents (phase)"
@@ -352,175 +373,16 @@ export default function PhasePage() {
                   <PhaseMembersPanel phaseId={phaseId} />
                 </div>
               </div>
-              </section>
-
-            {false && (
-            <section className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            <Card className="border-l-4 border-l-blue-200 bg-blue-50/20">
-              <CardHeader className="border-b border-blue-100 bg-blue-50/60">
-                <div className="text-sm text-gray-600">Budget phase</div>
-              </CardHeader>
-              <CardContent className="text-xl font-semibold text-gray-900">
-                {formatCurrency(Number(phase?.budget_actual ?? 0))} / {formatCurrency(Number(phase?.budget_estimated ?? 0))}
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-slate-200 bg-slate-50/30">
-              <CardHeader className="border-b border-slate-100 bg-slate-50/60">
-                <div className="text-sm text-gray-600">Dates</div>
-              </CardHeader>
-              <CardContent className="text-sm text-gray-800">
-                {phase?.start_date ? formatDate(phase!.start_date!) : "-"} →{" "}
-                {phase?.end_date ? formatDate(phase!.end_date!) : "-"}
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-emerald-200 bg-emerald-50/20">
-              <CardHeader className="border-b border-emerald-100 bg-emerald-50/60">
-                <div className="text-sm text-gray-600">Lots</div>
-              </CardHeader>
-              <CardContent className="text-xl font-semibold text-gray-900">{lots.length}</CardContent>
-            </Card>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <div className="font-semibold text-gray-900">Lots ({lots.length})</div>
-              <div className="text-sm text-gray-500">Chaque lot représente un corps d’état / entreprise.</div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {lots.length === 0 ? (
-                <div className="text-sm text-gray-500">Aucun lot pour le moment.</div>
-              ) : (
-                <div className="grid gap-3 md:grid-cols-2">
-                  {lots.map((lot) => (
-                    <Card
-                      key={lot.id}
-                      className="cursor-pointer hover:shadow-sm transition"
-                      onClick={() =>
-                        router.push(`/dashboard/projets/${projectId}/phases/${phaseId}/lots/${lot.id}?role=${role}`)
-                      }
-                    >
-                      <CardHeader>
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="font-semibold text-gray-900">{lot.name}</div>
-                          <div className="text-xs text-gray-500">{lot.status}</div>
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {lot.companyName ? `Entreprise: ${lot.companyName}` : "Entreprise: -"}
-                        </div>
-                      </CardHeader>
-                      <CardContent className="space-y-2 text-sm text-gray-700">
-                        <div className="flex flex-wrap items-center gap-4">
-                          <div>
-                            <div className="text-xs uppercase tracking-wide text-gray-400">Progression</div>
-                            <div>{lot.progressPercentage}%</div>
-                          </div>
-                          <div>
-                            <div className="text-xs uppercase tracking-wide text-gray-400">Budget</div>
-                            <div>
-                              {formatCurrency(lot.budgetActual)} / {formatCurrency(lot.budgetEstimated)}
-                            </div>
-                          </div>
-                          <div>
-                            <div className="text-xs uppercase tracking-wide text-gray-400">Tâches</div>
-                            <div>
-                              {lot.tasksDone}/{lot.tasksTotal}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {lot.startDate ? formatDate(lot.startDate) : "-"} → {lot.endDate ? formatDate(lot.endDate) : "-"}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <div className="grid gap-4 lg:grid-cols-2 items-start">
-            <ChatBox context={{ phaseId }} title="Discussion (phase)" />
-            <DocumentsList context={{ phaseId }} title="Documents (phase)" showUpload={canEditThisPhase} />
-          </div>
-        </section>
-            )}
-            </>
+            </section>
           )}
 
           {activeTab === "lots" && (
-            <>
-              <PhaseLotsList
-                projectId={projectId}
-                phaseId={phaseId}
-                lots={lots}
-                onAddLot={canEditThisPhase ? () => setLotModalOpen(true) : undefined}
-              />
-
-              {false && (
-            <section className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <div className="font-semibold text-gray-900">Lots ({lots.length})</div>
-                  <div className="text-sm text-gray-500">Chaque lot représente un corps d’état / entreprise.</div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {lots.length === 0 ? (
-                    <div className="text-sm text-gray-500">Aucun lot pour le moment.</div>
-                  ) : (
-                    <div className="grid gap-3 md:grid-cols-2">
-                      {lots.map((lot) => (
-                        <Card
-                          key={lot.id}
-                          className="cursor-pointer hover:shadow-sm transition"
-                          onClick={() =>
-                            router.push(
-                              `/dashboard/projets/${projectId}/phases/${phaseId}/lots/${lot.id}?role=${role}`
-                            )
-                          }
-                        >
-                          <CardHeader>
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="font-semibold text-gray-900">{lot.name}</div>
-                              <div className="text-xs text-gray-500">{lot.status}</div>
-                            </div>
-                            <div className="text-sm text-gray-500">
-                              {lot.companyName ? `Entreprise: ${lot.companyName}` : "Entreprise: -"}
-                            </div>
-                          </CardHeader>
-                          <CardContent className="space-y-2 text-sm text-gray-700">
-                            <div className="flex flex-wrap items-center gap-4">
-                              <div>
-                                <div className="text-xs uppercase tracking-wide text-gray-400">Progression</div>
-                                <div>{lot.progressPercentage}%</div>
-                              </div>
-                              <div>
-                                <div className="text-xs uppercase tracking-wide text-gray-400">Budget</div>
-                                <div>
-                                  {formatCurrency(lot.budgetActual)} / {formatCurrency(lot.budgetEstimated)}
-                                </div>
-                              </div>
-                              <div>
-                                <div className="text-xs uppercase tracking-wide text-gray-400">Tâches</div>
-                                <div>
-                                  {lot.tasksDone}/{lot.tasksTotal}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              {lot.startDate ? formatDate(lot.startDate) : "-"} →{" "}
-                              {lot.endDate ? formatDate(lot.endDate) : "-"}
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </section>
-              )}
-            </>
+            <PhaseLotsList
+              projectId={projectId}
+              phaseId={phaseId}
+              lots={lots}
+              onAddLot={canEditThisPhase ? () => setLotModalOpen(true) : undefined}
+            />
           )}
 
           {activeTab === "chat" && (
@@ -607,12 +469,15 @@ export default function PhasePage() {
       )}
 
       {lotModalOpen && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+        <div
+          className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setLotModalOpen(false); }}
+        >
           <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-lg w-full p-6">
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
-                <h3 className="text-lg font-semibold text-neutral-900">Nouveau lot</h3>
-                <p className="text-sm text-neutral-600">Créez un lot (ex: Électricité, Plomberie…).</p>
+                <h3 className="text-lg font-semibold text-neutral-900">Nouvelle intervention</h3>
+                <p className="text-sm text-neutral-600">Ajoutez une intervention (ex: Électricité, Plomberie, Peinture…).</p>
               </div>
               <Button variant="ghost" onClick={() => setLotModalOpen(false)}>
                 Fermer
@@ -624,7 +489,7 @@ export default function PhasePage() {
                 <Input value={lotForm.name} onChange={(e) => setLotForm({ ...lotForm, name: e.target.value })} />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Type de lot</label>
+                <label className="text-sm font-medium">Type d'intervention</label>
                 <Input
                   value={lotForm.lotType}
                   onChange={(e) => setLotForm({ ...lotForm, lotType: e.target.value })}
@@ -681,7 +546,7 @@ export default function PhasePage() {
                   Annuler
                 </Button>
                 <Button type="submit" disabled={lotSubmitting}>
-                  {lotSubmitting ? "Création..." : "Créer le lot"}
+                  {lotSubmitting ? "Création..." : "Créer l'intervention"}
                 </Button>
               </div>
             </form>

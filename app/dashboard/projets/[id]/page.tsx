@@ -12,7 +12,7 @@ import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { deleteDevisWithItems, mapDevisRowToSummary } from "@/lib/devisDb";
 import { downloadQuotePdf } from "@/lib/quotePdf";
 import { deleteProjectCascade, inviteProjectMemberByEmail } from "@/lib/projectsDb";
-import { createPhase, fetchPhasesForProject, type PhaseSummary } from "@/lib/phasesDb";
+import { fetchLotsForProject, createLotForProject, createLot, getOrCreateDefaultPhase, type LotSummary } from "@/lib/lotsDb";
 import type { QuoteSummary } from "@/lib/quotesStore";
 import { ChatMessageMarkdown } from "@/components/chat/ChatMessageMarkdown";
 import ChatBox from "@/components/chat/ChatBox";
@@ -21,6 +21,11 @@ import type { AssistantActionButton } from "@/components/assistant/ActionButton"
 import { ActionMenu } from "@/components/assistant/ActionMenu";
 import { formatAssistantReply, type AssistantUiMode } from "@/lib/assistantResponses";
 import { ProjectGuidePanel } from "@/components/guide/ProjectGuidePanel";
+import {
+  sendPlanningMessageToAI,
+  type PlanningProposal,
+} from "@/lib/ai-service";
+import { createLotTask } from "@/lib/lotTasksDb";
 
 type Project = {
   id: string;
@@ -77,20 +82,25 @@ type AssistantProposal = {
   tasks: AssistantTask[];
 };
 
+/** Extended proposal returned by the enriched planning engine */
+type AssistantPlanningProposal = PlanningProposal;
+
 type AssistantMessage = {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
   proposal?: AssistantProposal | null;
+  planningProposal?: AssistantPlanningProposal | null;
   requires_devis?: boolean;
+  suggestions?: string[];
 };
 
-type TabKey = "overview" | "phases" | "chat" | "devis" | "planning" | "membres" | "assistant" | "guide";
+type TabKey = "overview" | "interventions" | "chat" | "devis" | "planning" | "membres" | "assistant" | "guide";
 type WorkflowStatus = "a_faire" | "envoye" | "valide" | "refuse";
 
 const tabItems: Array<{ key: TabKey; label: string; iconSrc: string }> = [
-  { key: "overview", label: "Aperçu", iconSrc: "/images/grey/eye.png" },
-  { key: "phases", label: "Phases", iconSrc: "/images/grey/files.png" },
+  { key: "overview", label: "Apercu", iconSrc: "/images/grey/eye.png" },
+  { key: "interventions", label: "Interventions", iconSrc: "/images/grey/files.png" },
   { key: "chat", label: "Chat", iconSrc: "/images/grey/chat-teardrop-dots.png" },
   { key: "devis", label: "Devis", iconSrc: "/images/grey/files.png" },
   { key: "planning", label: "Planning", iconSrc: "/images/grey/calendar%20(1).png" },
@@ -185,26 +195,32 @@ const getWorkflowBadge = (status: WorkflowStatus) => {
   return styles[status];
 };
 
-const formatMemberRole = (role?: string | null) => {
-  if (!role) return "Membre";
+const formatMemberRole = (role?: string | null): { label: string; color: string } => {
+  if (!role) return { label: "Membre", color: "bg-gray-100 text-gray-700" };
   const normalized = role.toLowerCase();
-  if (normalized === "owner") return "Propriétaire";
-  if (normalized === "client" || normalized === "particulier") return "Client";
-  if (normalized === "pro" || normalized === "professionnel") return "Professionnel";
-  if (normalized === "collaborator" || normalized === "collaborateur") return "Collaborateur";
-  return role;
+  if (normalized === "owner")
+    return { label: "Chef de projet", color: "bg-indigo-100 text-indigo-700" };
+  if (normalized === "collaborator" || normalized === "collaborateur")
+    return { label: "Collaborateur", color: "bg-blue-100 text-blue-700" };
+  if (normalized === "client" || normalized === "particulier")
+    return { label: "Client", color: "bg-amber-100 text-amber-700" };
+  if (normalized === "pro" || normalized === "professionnel")
+    return { label: "Professionnel", color: "bg-emerald-100 text-emerald-700" };
+  return { label: role, color: "bg-gray-100 text-gray-700" };
 };
 
-const formatMemberStatus = (status?: string | null) => {
-  if (!status) return "En attente";
+const formatMemberStatus = (status?: string | null): { label: string; color: string } => {
+  if (!status) return { label: "En attente", color: "text-amber-600" };
   const normalized = status.toLowerCase();
-  if (normalized === "accepted") return "Accepté";
-  if (normalized === "pending") return "En attente";
-  if (normalized === "invited") return "Invité";
-  if (normalized === "declined" || normalized === "refused") return "Refusé";
-  if (normalized === "removed") return "Retiré";
-  if (normalized === "active") return "Actif";
-  return status;
+  if (normalized === "accepted" || normalized === "active")
+    return { label: "Actif", color: "text-green-600" };
+  if (normalized === "pending" || normalized === "invited")
+    return { label: "En attente", color: "text-amber-600" };
+  if (normalized === "declined" || normalized === "refused")
+    return { label: "Refusé", color: "text-red-500" };
+  if (normalized === "removed")
+    return { label: "Retiré", color: "text-gray-400" };
+  return { label: status, color: "text-gray-500" };
 };
 
 const TASK_STATUS_OPTIONS = [
@@ -393,14 +409,14 @@ export default function ProjectDetailPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [quotes, setQuotes] = useState<QuoteSummary[]>([]);
   const [availableQuotes, setAvailableQuotes] = useState<QuoteSummary[]>([]);
-  const [phases, setPhases] = useState<PhaseSummary[]>([]);
-  const [phasesLoading, setPhasesLoading] = useState(false);
-  const [phaseModalOpen, setPhaseModalOpen] = useState(false);
-  const [phaseSubmitting, setPhaseSubmitting] = useState(false);
-  const [phaseForm, setPhaseForm] = useState({
+  const [interventions, setInterventions] = useState<LotSummary[]>([]);
+  const [interventionsLoading, setInterventionsLoading] = useState(false);
+  const [interventionModalOpen, setInterventionModalOpen] = useState(false);
+  const [interventionSubmitting, setInterventionSubmitting] = useState(false);
+  const [interventionForm, setInterventionForm] = useState({
     name: "",
     description: "",
-    phaseOrder: "1",
+    companyName: "",
     startDate: "",
     endDate: "",
     budgetEstimated: "",
@@ -438,12 +454,12 @@ export default function ProjectDetailPage() {
   });
   const getAssistantIntro = (roleValue: string) =>
     roleValue === "professionnel"
-      ? "Bonjour ! Je peux analyser le devis du projet et proposer un planning de tâches. Décrivez ce que vous voulez."
-      : "Bonjour ! Je suis votre conseiller : je peux expliquer les étapes du projet, clarifier les termes du BTP et vous aider à comprendre un devis.";
+      ? "Bonjour ! Je connais votre projet, ses interventions, taches et membres. Demandez-moi l'avancement, le planning, le budget ou une analyse."
+      : "Bonjour ! Je suis votre conseiller projet. Je peux vous expliquer l'avancement, les prochaines etapes, le budget et repondre a vos questions.";
 
   const assistantIntroVariants = [
-    "Bonjour ! Je peux analyser le devis du projet et proposer un planning de tâches. Décrivez ce que vous voulez.",
-    "Bonjour ! Je suis votre conseiller : je peux expliquer les étapes du projet, clarifier les termes du BTP et vous aider à comprendre un devis.",
+    "Bonjour ! Je connais votre projet, ses interventions, taches et membres. Demandez-moi l'avancement, le planning, le budget ou une analyse.",
+    "Bonjour ! Je suis votre conseiller projet. Je peux vous expliquer l'avancement, les prochaines etapes, le budget et repondre a vos questions.",
   ];
 
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([
@@ -458,6 +474,7 @@ export default function ProjectDetailPage() {
   const [assistantError, setAssistantError] = useState<string | null>(null);
   const [assistantNotice, setAssistantNotice] = useState<string | null>(null);
   const [pendingProposal, setPendingProposal] = useState<AssistantProposal | null>(null);
+  const [pendingPlanningProposal, setPendingPlanningProposal] = useState<AssistantPlanningProposal | null>(null);
   const [assistantActiveAction, setAssistantActiveAction] = useState<AssistantActionButton["id"] | null>(null);
   const [applyLoading, setApplyLoading] = useState(false);
   const assistantSectionRef = useRef<HTMLDivElement | null>(null);
@@ -606,7 +623,51 @@ export default function ProjectDetailPage() {
         user: _firstOrNull(row.user) as any,
       }));
       setMembers(normalizedMembers);
-      setTasks((tasksRes.data as Task[]) ?? []);
+
+      // Fetch intervention (lot) tasks and merge with project tasks
+      let allTasks: Task[] = (tasksRes.data as Task[]) ?? [];
+      try {
+        const phasesRes = await supabase.from("phases").select("id").eq("project_id", projectId);
+        if (!phasesRes.error && phasesRes.data && phasesRes.data.length > 0) {
+          const phaseIds = phasesRes.data.map((p: any) => p.id);
+          const lotsRes = await supabase.from("lots").select("id,name").in("phase_id", phaseIds);
+          if (!lotsRes.error && lotsRes.data && lotsRes.data.length > 0) {
+            const lotIds = lotsRes.data.map((l: any) => l.id);
+            const lotNameMap = new Map<string, string>(lotsRes.data.map((l: any) => [l.id, l.name]));
+            const lotTasksRes = await supabase
+              .from("lot_tasks")
+              .select("id,lot_id,title,description,status,due_date,completed_at")
+              .in("lot_id", lotIds)
+              .order("due_date", { ascending: true });
+            if (!lotTasksRes.error && lotTasksRes.data) {
+              const interventionTasks: Task[] = lotTasksRes.data.map((row: any) => {
+                const lotName = lotNameMap.get(row.lot_id) ?? "";
+                const prefix = lotName ? `[${lotName}] ` : "";
+                return {
+                  id: `lot-${row.id}`,
+                  name: `${prefix}${row.title}`,
+                  status: row.status ?? "todo",
+                  start_date: row.due_date ?? null,
+                  end_date: row.due_date ?? null,
+                  description: row.description ?? null,
+                  completed_at: row.completed_at ?? null,
+                };
+              });
+              allTasks = [...allTasks, ...interventionTasks];
+            }
+          }
+        }
+      } catch {
+        // Silently fail - project tasks still work
+      }
+
+      allTasks.sort((a, b) => {
+        const aDate = a.start_date ?? "";
+        const bDate = b.start_date ?? "";
+        return aDate.localeCompare(bDate);
+      });
+
+      setTasks(allTasks);
       const mappedQuotes = (devisRes.data ?? []).map((row) => mapDevisRowToSummary(row as any));
       setQuotes(mappedQuotes);
     } catch (err: any) {
@@ -629,16 +690,16 @@ export default function ProjectDetailPage() {
     setAvailableQuotes(mapped);
   };
 
-  const loadPhases = async () => {
+  const loadInterventions = async () => {
     if (!projectId) return;
-    setPhasesLoading(true);
+    setInterventionsLoading(true);
     try {
-      const data = await fetchPhasesForProject(projectId);
-      setPhases(data);
+      const data = await fetchLotsForProject(projectId);
+      setInterventions(data);
     } catch {
-      setPhases([]);
+      setInterventions([]);
     } finally {
-      setPhasesLoading(false);
+      setInterventionsLoading(false);
     }
   };
 
@@ -647,8 +708,8 @@ export default function ProjectDetailPage() {
   }, [projectId, user?.id]);
 
   useEffect(() => {
-    if (activeTab !== "phases") return;
-    void loadPhases();
+    if (activeTab !== "interventions" && activeTab !== "overview") return;
+    void loadInterventions();
   }, [activeTab, projectId]);
 
   useEffect(() => {
@@ -663,39 +724,39 @@ export default function ProjectDetailPage() {
     }
   }, [activeTab]);
 
-  const handleCreatePhase = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleCreateIntervention = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canManageProject) {
-      setError("Accès refusé: vous ne pouvez pas créer une phase.");
+      setError("Acces refuse: vous ne pouvez pas creer une intervention.");
       return;
     }
-    if (!projectId || !phaseForm.name.trim()) return;
-    setPhaseSubmitting(true);
+    if (!projectId || !interventionForm.name.trim()) return;
+    setInterventionSubmitting(true);
     setError(null);
     try {
-      await createPhase(projectId, {
-        name: phaseForm.name,
-        description: phaseForm.description,
-        phaseOrder: Number(phaseForm.phaseOrder) || 1,
-        startDate: phaseForm.startDate || null,
-        endDate: phaseForm.endDate || null,
-        budgetEstimated: phaseForm.budgetEstimated ? Number(phaseForm.budgetEstimated) : 0,
-        status: "planifiee",
+      await createLotForProject(projectId, {
+        name: interventionForm.name,
+        description: interventionForm.description || null,
+        companyName: interventionForm.companyName || null,
+        startDate: interventionForm.startDate || null,
+        endDate: interventionForm.endDate || null,
+        budgetEstimated: interventionForm.budgetEstimated ? Number(interventionForm.budgetEstimated) : 0,
+        status: "planifie",
       });
-      setPhaseForm({
+      setInterventionForm({
         name: "",
         description: "",
-        phaseOrder: String((phases?.length ?? 0) + 1),
+        companyName: "",
         startDate: "",
         endDate: "",
         budgetEstimated: "",
       });
-      setPhaseModalOpen(false);
-      await loadPhases();
+      setInterventionModalOpen(false);
+      await loadInterventions();
     } catch (err: any) {
-      setError(err?.message ?? "Impossible de créer la phase.");
+      setError(err?.message ?? "Impossible de creer l'intervention.");
     } finally {
-      setPhaseSubmitting(false);
+      setInterventionSubmitting(false);
     }
   };
 
@@ -1002,6 +1063,90 @@ export default function ProjectDetailPage() {
     await loadProject();
   };
 
+  /**
+   * Apply the enriched planning proposal:
+   * - Add suggested tasks to existing interventions (lots)
+   * - Create new interventions (lots) with their tasks
+   */
+  const applyPlanningProposal = async () => {
+    if (!canUseAssistantPlanning) {
+      setAssistantNotice("Seuls les professionnels peuvent valider un planning.");
+      return;
+    }
+    if (!pendingPlanningProposal || !projectId || !user?.id) return;
+
+    const proposal = pendingPlanningProposal;
+    const hasSuggestedTasks = proposal.existing_interventions.some((i) => i.suggested_tasks.length > 0);
+    const hasNewInterventions = proposal.suggested_interventions.length > 0;
+
+    if (!hasSuggestedTasks && !hasNewInterventions) {
+      setAssistantNotice("Aucune suggestion à appliquer dans cette proposition.");
+      return;
+    }
+
+    const confirmMsg = hasNewInterventions
+      ? `Ce planning va créer ${proposal.suggested_interventions.length} nouvelle(s) intervention(s) et ajouter des tâches. Continuer ?`
+      : "Ce planning va ajouter des tâches aux interventions existantes. Continuer ?";
+
+    if (!window.confirm(confirmMsg)) return;
+
+    setApplyLoading(true);
+    setAssistantError(null);
+    setAssistantNotice(null);
+
+    try {
+      const defaultPhaseId = await getOrCreateDefaultPhase(projectId);
+
+      // 1. Add suggested tasks to existing interventions
+      for (const intervention of proposal.existing_interventions) {
+        if (!intervention.intervention_id || intervention.intervention_id === "__project_tasks__") continue;
+        for (const task of intervention.suggested_tasks) {
+          if (!task.title?.trim()) continue;
+          await createLotTask(intervention.intervention_id, {
+            title: task.title.trim(),
+            description: task.description?.trim() || null,
+            dueDate: task.end_date ?? task.start_date ?? null,
+            status: "todo",
+          });
+        }
+      }
+
+      // 2. Create new interventions with their tasks
+      for (const newIntervention of proposal.suggested_interventions) {
+        if (!newIntervention.name?.trim()) continue;
+
+        const lotId = await createLot(defaultPhaseId, {
+          name: newIntervention.name.trim(),
+          lotType: newIntervention.lot_type?.trim() || null,
+          description: newIntervention.reason?.trim() || null,
+          status: "planifie",
+        });
+
+        // Add tasks to the new lot
+        for (let idx = 0; idx < newIntervention.suggested_tasks.length; idx++) {
+          const task = newIntervention.suggested_tasks[idx];
+          if (!task.title?.trim()) continue;
+          await createLotTask(lotId, {
+            title: task.title.trim(),
+            description: task.description?.trim() || null,
+            dueDate: task.end_date ?? task.start_date ?? null,
+            orderIndex: idx,
+            status: "todo",
+          });
+        }
+      }
+
+      setPendingPlanningProposal(null);
+      setPendingProposal(null);
+      setAssistantNotice("Planning appliqué avec succès. Les interventions et tâches ont été créées.");
+      await loadProject();
+    } catch (err: any) {
+      setAssistantError(err?.message ?? "Impossible d'appliquer le planning.");
+    } finally {
+      setApplyLoading(false);
+    }
+  };
+
   const updateProposalSummary = (value: string) => {
     setPendingProposal((prev) => {
       if (!prev) return prev;
@@ -1071,9 +1216,69 @@ export default function ProjectDetailPage() {
 
       const history = [
         ...assistantMessages.slice(-5).map((item) => ({ role: item.role, content: item.content })),
-        { role: "user", content: trimmed },
+        { role: "user" as const, content: trimmed },
       ];
 
+      const isForcePlan = options?.forcePlan ?? false;
+
+      // ── Enriched planning path ──────────────────────────────────
+      if (isForcePlan) {
+        const planningResult = await sendPlanningMessageToAI(
+          trimmed,
+          {
+            userId: user.id,
+            userRole,
+            projectId,
+            phaseId: contextPhaseId ?? undefined,
+            lotId: contextLotId ?? undefined,
+            contextType: assistantContextType as "project" | "phase" | "lot",
+            forcePlan: true,
+          },
+          history
+        );
+
+        const assistantMessage: AssistantMessage = {
+          role: "assistant",
+          content: planningResult.message,
+          timestamp: new Date().toISOString(),
+          planningProposal: planningResult.proposal ?? null,
+          suggestions: planningResult.suggestions ?? [],
+        };
+        setAssistantMessages((prev) => [...prev, assistantMessage]);
+
+        if (planningResult.proposal) {
+          setPendingPlanningProposal(planningResult.proposal);
+          // Also set legacy proposal for backwards compatibility
+          const legacyTasks: AssistantTask[] = [
+            ...planningResult.proposal.existing_interventions.flatMap((i) =>
+              i.suggested_tasks.map((t) => ({
+                name: `[${i.intervention_name}] ${t.title}`,
+                description: t.description,
+                start_date: t.start_date,
+                end_date: t.end_date,
+              }))
+            ),
+            ...planningResult.proposal.suggested_interventions.flatMap((i) =>
+              i.suggested_tasks.map((t) => ({
+                name: `[${i.name}] ${t.title}`,
+                description: t.description,
+                start_date: t.start_date,
+                end_date: t.end_date,
+              }))
+            ),
+          ];
+          if (legacyTasks.length > 0) {
+            setPendingProposal({
+              summary: planningResult.proposal.summary,
+              tasks: legacyTasks,
+            });
+          }
+        }
+
+        return;
+      }
+
+      // ── Standard path (non-planning) ───────────────────────────
       const assistantEndpoint =
         userRole === "professionnel" ? "/project-chat" : "/project-chat-client";
       const response = await fetch(`${apiUrl}${assistantEndpoint}`, {
@@ -1088,19 +1293,18 @@ export default function ProjectDetailPage() {
           user_role: userRole,
           message: trimmed,
           history,
-          force_plan: options?.forcePlan ?? false,
+          force_plan: false,
         }),
       });
       const data = await response.json();
       const rawReply = (data.reply ?? "Je reviens vers vous avec une proposition.") as string;
-      const guideBase = `/dashboard/projets/${projectId}?role=${role}&tab=guide`;
 
       const inferGuideLink = (question: string) => {
         const q = (question || "").trim();
         const lowered = q.toLowerCase();
         const pickTerm = () => {
           const match =
-            q.match(/(?:c['’]est quoi|définition de|que signifie|ça veut dire)\s+(.+)/i) ||
+            q.match(/(?:c['']est quoi|définition de|que signifie|ça veut dire)\s+(.+)/i) ||
             q.match(/(?:terme|mot)\s+(.+)/i);
           const term = (match?.[1] || "").trim().replace(/[?.!,;:]+$/g, "");
           if (term && term.length <= 40) return term;
@@ -1150,11 +1354,11 @@ export default function ProjectDetailPage() {
         }
         const href = `#/guide?${params.join("&")}`;
         const emojiBySection: Record<string, string> = {
-          lexique: "📚",
-          "delais-types": "⏰",
-          "points-attention": "⚠️",
-          "mon-devis": "📄",
-          "mon-budget": "💰",
+          lexique: "",
+          "delais-types": "",
+          "points-attention": "",
+          "mon-devis": "",
+          "mon-budget": "",
         };
         const labelBySection: Record<string, string> = {
           lexique: "Voir le lexique",
@@ -1163,9 +1367,10 @@ export default function ProjectDetailPage() {
           "mon-devis": "Explique mon devis",
           "mon-budget": "Voir mon budget",
         };
-        const emoji = emojiBySection[inferred.section] ?? "📚";
+        const emoji = emojiBySection[inferred.section] ?? "";
         const label = labelBySection[inferred.section] ?? "Ouvrir le Guide";
-        return `${text}\n\nPour en savoir plus : [${emoji} ${label}](${href})`;
+        const prefix = emoji ? `${emoji} ` : "";
+        return `${text}\n\nPour en savoir plus : [${prefix}${label}](${href})`;
       };
 
       const nextReply = options?.uiMode
@@ -1182,6 +1387,7 @@ export default function ProjectDetailPage() {
         timestamp: new Date().toISOString(),
         proposal: data.proposal ?? null,
         requires_devis: Boolean(data.requires_devis),
+        suggestions: data.suggested_questions ?? [],
       };
       setAssistantMessages((prev) => [...prev, assistantMessage]);
       if (data.proposal) {
@@ -1213,54 +1419,54 @@ export default function ProjectDetailPage() {
       > = [
         {
           id: "pro_plan",
-          icon: "🗓️",
-          title: "Planning détaillé",
-          description: "Proposition de tâches + dates",
+          icon: "P",
+          title: "Planning",
+          description: "Proposition de taches + dates",
           color: "indigo",
-          prompt: "Propose un planning détaillé pour ce projet avec les tâches principales et les délais.",
+          prompt: "Propose un planning detaille pour ce projet avec les taches principales et les delais.",
           forcePlan: true,
         },
         {
           id: "pro_devis_analyze",
-          icon: "📄",
+          icon: "D",
           title: "Analyse devis",
-          description: "Postes principaux + cohérences",
+          description: "Postes principaux + coherences",
           color: "blue",
           prompt:
-            "Analyse le devis de ce projet. Quels sont les postes principaux ? Y a-t-il des incohérences ou des points à vérifier ?",
+            "Analyse le devis de ce projet. Quels sont les postes principaux ? Y a-t-il des incoherences ou des points a verifier ?",
           uiMode: "devis",
         },
         {
           id: "pro_devis_validate",
-          icon: "✅",
-          title: "Conformité",
+          icon: "C",
+          title: "Conformite",
           description: "TVA, mentions, totaux",
           color: "green",
           prompt:
-            "Vérifie la conformité du devis : TVA, mentions obligatoires, cohérence des totaux, et conformité réglementaire.",
+            "Verifie la conformite du devis : TVA, mentions obligatoires, coherence des totaux, et conformite reglementaire.",
         },
         {
           id: "pro_budget",
-          icon: "💰",
+          icon: "B",
           title: "Budget",
-          description: "Synthèse coûts + paiements",
+          description: "Synthese couts + paiements",
           color: "purple",
-          prompt: "Quel est le budget estimé pour ce projet ? Y a-t-il des coûts supplémentaires à prévoir ?",
+          prompt: "Quel est le budget estime pour ce projet ? Y a-t-il des couts supplementaires a prevoir ?",
           uiMode: "budget",
         },
         {
           id: "pro_risks",
-          icon: "⚠️",
+          icon: "R",
           title: "Risques",
-          description: "Points d’attention chantier",
+          description: "Points d'attention chantier",
           color: "red",
           prompt:
-            "Quels sont les risques et points d'attention pour ce projet ? Y a-t-il des éléments à surveiller particulièrement ?",
+            "Quels sont les risques et points d'attention pour ce projet ? Y a-t-il des elements a surveiller particulierement ?",
           uiMode: "risks",
         },
         {
           id: "pro_terms",
-          icon: "❓",
+          icon: "T",
           title: "Termes",
           description: "Lexique BTP (devis)",
           color: "orange",
@@ -1269,29 +1475,29 @@ export default function ProjectDetailPage() {
         },
         {
           id: "pro_margins",
-          icon: "📈",
+          icon: "M",
           title: "Marges",
-          description: "Rentabilité par poste",
+          description: "Rentabilite par poste",
           color: "purple",
-          prompt: "Calcule les marges et la rentabilité de ce projet. Quels sont les postes les plus rentables ?",
+          prompt: "Calcule les marges et la rentabilite de ce projet. Quels sont les postes les plus rentables ?",
         },
         {
           id: "pro_optimize",
-          icon: "⚡",
+          icon: "O",
           title: "Optimiser",
-          description: "Réduire sans dégrader",
+          description: "Reduire sans degrader",
           color: "blue",
           prompt:
-            "Optimise les coûts de ce projet. Y a-t-il des postes où on peut réduire les coûts sans impacter la qualité ?",
+            "Optimise les couts de ce projet. Y a-t-il des postes ou on peut reduire les couts sans impacter la qualite ?",
         },
         {
           id: "pro_improve",
-          icon: "✨",
-          title: "Améliorations",
+          icon: "A",
+          title: "Ameliorations",
           description: "Alternatives & options",
           color: "green",
           prompt:
-            "Propose des améliorations ou des alternatives pour ce projet. Y a-t-il des options plus performantes ou économiques ?",
+            "Propose des ameliorations ou des alternatives pour ce projet. Y a-t-il des options plus performantes ou economiques ?",
         },
       ];
 
@@ -1305,7 +1511,7 @@ export default function ProjectDetailPage() {
     const actions: Array<AssistantActionButton & { prompt: string; uiMode: AssistantUiMode }> = [
       {
         id: "client_devis",
-        icon: "📄",
+        icon: "D",
         title: "Explique le devis",
         description: "Comprendre les postes et inclusions",
         color: "blue",
@@ -1314,8 +1520,8 @@ export default function ProjectDetailPage() {
       },
       {
         id: "client_steps",
-        icon: "✓",
-        title: "Les étapes",
+        icon: "E",
+        title: "Les etapes",
         description: "Chronologie des travaux",
         color: "green",
         prompt: "",
@@ -1323,36 +1529,36 @@ export default function ProjectDetailPage() {
       },
       {
         id: "client_budget",
-        icon: "💰",
+        icon: "B",
         title: "Le budget",
-        description: "Coûts, paiements, imprévus",
+        description: "Couts, paiements, imprevus",
         color: "purple",
         prompt: "",
         uiMode: "budget",
       },
       {
         id: "client_terms",
-        icon: "❓",
+        icon: "T",
         title: "Termes techniques",
-        description: "Vocabulaire BTP simplifié",
+        description: "Vocabulaire BTP simplifie",
         color: "orange",
         prompt: "",
         uiMode: "terms",
       },
       {
         id: "client_delays",
-        icon: "⏰",
-        title: "Les délais",
-        description: "Durée et jalons",
+        icon: "H",
+        title: "Les delais",
+        description: "Duree et jalons",
         color: "indigo",
         prompt: "",
         uiMode: "delays",
       },
       {
         id: "client_risks",
-        icon: "⚠",
+        icon: "R",
         title: "Points d'attention",
-        description: "Risques et précautions",
+        description: "Risques et precautions",
         color: "red",
         prompt: "",
         uiMode: "risks",
@@ -2075,68 +2281,124 @@ export default function ProjectDetailPage() {
               })}
             </CardContent>
           </Card>
+
+          {interventions.length > 0 && (
+            <Card>
+              <CardHeader className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold text-gray-900">Interventions ({interventions.length})</div>
+                  <div className="text-sm text-gray-500">Progression des interventions du projet.</div>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => { setActiveTab("interventions"); updateQuery({ tab: "interventions" }); }}>
+                  Voir tout
+                </Button>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {interventions.slice(0, 4).map((intervention) => (
+                  <div
+                    key={intervention.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50 transition"
+                    onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${intervention.id}?role=${role}`)}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-gray-900">{intervention.name}</div>
+                      <div className="text-xs text-gray-500">
+                        {intervention.tasksDone}/{intervention.tasksTotal} taches
+                        {intervention.companyName ? ` - ${intervention.companyName}` : ""}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="w-24">
+                        <div className="h-2 rounded-full bg-gray-100">
+                          <div className="h-2 rounded-full bg-primary-600" style={{ width: `${intervention.progressPercentage}%` }} />
+                        </div>
+                      </div>
+                      <span className="text-xs font-medium text-gray-700 w-10 text-right">{intervention.progressPercentage}%</span>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </section>
       )}
 
-      {!loading && activeTab === "phases" && (
+      {!loading && activeTab === "interventions" && (
         <section className="space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">Phases ({phases.length})</h2>
-              <p className="text-sm text-gray-500">Structure hiérarchique Projet → Phases → Lots.</p>
+              <h2 className="text-lg font-semibold text-gray-900">Interventions ({interventions.length})</h2>
+              <p className="text-sm text-gray-500">Liste des interventions du projet.</p>
             </div>
             {canManageProject && (
-              <Button size="sm" onClick={() => setPhaseModalOpen(true)}>
-                + Ajouter une phase
+              <Button size="sm" onClick={() => setInterventionModalOpen(true)}>
+                + Nouvelle intervention
               </Button>
             )}
           </div>
 
-          {phasesLoading ? (
-            <div className="text-sm text-gray-500">Chargement des phases...</div>
-          ) : phases.length === 0 ? (
+          {interventionsLoading ? (
+            <div className="text-sm text-gray-500">Chargement des interventions...</div>
+          ) : interventions.length === 0 ? (
             <Card>
-              <CardContent className="p-4 text-sm text-gray-600">
-                Aucune phase pour le moment. Créez une phase (ex: "Démolition", "Second œuvre", "Finitions") puis ajoutez
-                des lots.
+              <CardContent className="p-6 text-center">
+                <div className="text-sm text-gray-600 mb-3">
+                  Aucune intervention pour le moment.
+                </div>
+                {canManageProject && (
+                  <Button size="sm" onClick={() => setInterventionModalOpen(true)}>
+                    + Creer une intervention
+                  </Button>
+                )}
               </CardContent>
             </Card>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
-              {phases.map((phase) => (
+              {interventions.map((intervention) => (
                 <Card
-                  key={phase.id}
-                  className="cursor-pointer hover:shadow-sm transition"
-                  onClick={() => router.push(`/dashboard/projets/${projectId}/phases/${phase.id}?role=${role}`)}
+                  key={intervention.id}
+                  className="cursor-pointer hover:shadow-md transition"
+                  onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${intervention.id}?role=${role}`)}
                 >
                   <CardHeader>
                     <div className="flex items-center justify-between gap-3">
-                      <div className="font-semibold text-gray-900">
-                        {phase.phaseOrder}. {phase.name}
-                      </div>
-                      <div className="text-xs text-gray-500">{phase.status}</div>
+                      <div className="font-semibold text-gray-900">{intervention.name}</div>
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                        intervention.status === "en_cours" ? "bg-blue-100 text-blue-700" :
+                        intervention.status === "termine" || intervention.status === "valide" ? "bg-emerald-100 text-emerald-700" :
+                        "bg-gray-100 text-gray-700"
+                      }`}>
+                        {intervention.status?.replace(/_/g, " ") ?? "Planifie"}
+                      </span>
                     </div>
-                    {phase.description && <div className="text-sm text-gray-500">{phase.description}</div>}
+                    {intervention.description && <div className="text-sm text-gray-500 mt-1">{intervention.description}</div>}
                   </CardHeader>
-                  <CardContent className="text-sm text-gray-700 space-y-2">
+                  <CardContent className="text-sm text-gray-700">
                     <div className="flex flex-wrap items-center gap-4">
                       <div>
-                        <div className="text-xs uppercase tracking-wide text-gray-400">Lots</div>
-                        <div>{phase.lotsCount}</div>
+                        <div className="text-xs uppercase tracking-wide text-gray-400">Taches</div>
+                        <div>{intervention.tasksDone}/{intervention.tasksTotal}</div>
                       </div>
                       <div>
                         <div className="text-xs uppercase tracking-wide text-gray-400">Budget</div>
-                        <div>
-                          {formatCurrency(phase.budgetActual)} / {formatCurrency(phase.budgetEstimated)}
-                        </div>
+                        <div>{formatCurrency(intervention.budgetEstimated)}</div>
                       </div>
                       <div>
                         <div className="text-xs uppercase tracking-wide text-gray-400">Dates</div>
                         <div>
-                          {phase.startDate ? formatDate(phase.startDate) : "-"} →{" "}
-                          {phase.endDate ? formatDate(phase.endDate) : "-"}
+                          {intervention.startDate ? formatDate(intervention.startDate) : "-"} →{" "}
+                          {intervention.endDate ? formatDate(intervention.endDate) : "-"}
                         </div>
                       </div>
+                      {intervention.companyName && (
+                        <div>
+                          <div className="text-xs uppercase tracking-wide text-gray-400">Entreprise</div>
+                          <div>{intervention.companyName}</div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-3 h-2 rounded-full bg-gray-100">
+                      <div className="h-2 rounded-full bg-primary-600" style={{ width: `${intervention.progressPercentage}%` }} />
                     </div>
                   </CardContent>
                 </Card>
@@ -2162,17 +2424,29 @@ export default function ProjectDetailPage() {
               <div className="font-semibold text-gray-900">Participants</div>
               <div className="text-sm text-gray-500">Membres du projet</div>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {members.map((member) => (
-                <div key={member.id} className="text-sm text-gray-700">
-                  <div className="font-medium">
-                    {member.user?.full_name || member.user?.email || member.invited_email || "Invité"}
+            <CardContent className="space-y-2">
+              {members.map((member) => {
+                const roleInfo = formatMemberRole(member.role);
+                const statusInfo = formatMemberStatus(member.status);
+                return (
+                  <div key={member.id} className="flex items-center gap-2 text-sm">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-100 text-xs font-semibold text-primary-700">
+                      {(member.user?.full_name || member.user?.email || "?").charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-gray-900 truncate">
+                        {member.user?.full_name || member.user?.email || member.invited_email || "Invité"}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${roleInfo.color}`}>
+                          {roleInfo.label}
+                        </span>
+                        <span className={`text-[10px] ${statusInfo.color}`}>{statusInfo.label}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500">
-                    {formatMemberRole(member.role)} - {formatMemberStatus(member.status)}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </CardContent>
           </Card>
         </section>
@@ -2524,39 +2798,56 @@ export default function ProjectDetailPage() {
           <Card>
             <CardHeader>
               <div className="font-semibold text-gray-900">Membres du projet</div>
-              <div className="text-sm text-gray-500">Clients et collaborateurs.</div>
+              <div className="text-sm text-gray-500">Gestion des accès et permissions.</div>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {members.map((member) => (
-                <div key={member.id} className="rounded-lg border border-gray-200 p-4">
-                  <div className="font-semibold text-gray-900">
-                    {member.user?.full_name || member.user?.email || member.invited_email || "Invité"}
+            <CardContent className="space-y-2">
+              {members.map((member) => {
+                const roleInfo = formatMemberRole(member.role);
+                const statusInfo = formatMemberStatus(member.status);
+                return (
+                  <div key={member.id} className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary-700">
+                      {(member.user?.full_name || member.user?.email || "?").charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-gray-900 truncate">
+                        {member.user?.full_name || member.user?.email || member.invited_email || "Invité"}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${roleInfo.color}`}>
+                          {roleInfo.label}
+                        </span>
+                        <span className={`text-xs ${statusInfo.color}`}>{statusInfo.label}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500">
-                    {formatMemberRole(member.role)} - {formatMemberStatus(member.status)}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
               <div className="font-semibold text-gray-900">Inviter un membre</div>
-              <div className="text-sm text-gray-500">Ajoute un client ou collaborateur.</div>
+              <div className="text-sm text-gray-500">Ajoutez un collaborateur ou un client au projet.</div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <label className="text-sm font-medium">Role</label>
                 <select
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                   value={inviteRole}
                   disabled={!canInviteMembers}
                   onChange={(event) => setInvitéRole(event.target.value)}
                 >
-                  <option value="client">Client</option>
-                  <option value="collaborator">Collaborateur</option>
+                  <option value="collaborator">Collaborateur (peut modifier)</option>
+                  <option value="client">Client (lecture seule)</option>
                 </select>
+                <p className="text-xs text-gray-400">
+                  {inviteRole === "client"
+                    ? "Le client pourra consulter le projet sans le modifier."
+                    : "Le collaborateur pourra modifier le projet et les interventions."}
+                </p>
               </div>
 
               <form className="space-y-2" onSubmit={handleInvitéByEmail}>
@@ -2564,7 +2855,7 @@ export default function ProjectDetailPage() {
                 <Input
                   value={inviteEmail}
                   onChange={(event) => setInvitéEmail(event.target.value)}
-                  placeholder="client@email.com"
+                  placeholder="email@exemple.com"
                   type="email"
                   disabled={!canInviteMembers}
                 />
@@ -2649,6 +2940,21 @@ export default function ProjectDetailPage() {
                         }`}
                       >
                         <ChatMessageMarkdown content={msg.content} />
+                        {msg.role === "assistant" && msg.suggestions && msg.suggestions.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-neutral-200">
+                            {msg.suggestions.map((q, i) => (
+                              <button
+                                key={i}
+                                onClick={() => sendAssistantMessage(q)}
+                                disabled={assistantLoading}
+                                type="button"
+                                className="text-xs px-3 py-1.5 rounded-full border border-primary-300 text-primary-500 bg-white hover:bg-primary-50 hover:border-primary-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {q}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -2705,16 +3011,147 @@ export default function ProjectDetailPage() {
             <Card>
               <CardHeader>
                 <div className="font-semibold text-gray-900">Proposition de planning</div>
-                <div className="text-sm text-gray-500">À valider avant insertion des tâches.</div>
+                <div className="text-sm text-gray-500">À valider avant insertion des tâches et interventions.</div>
               </CardHeader>
               <CardContent className="space-y-4">
-                {!pendingProposal && (
+                {!pendingProposal && !pendingPlanningProposal && (
                   <div className="text-sm text-gray-500">
                     Aucune proposition pour le moment. Demandez un planning à l'assistant.
                   </div>
                 )}
 
-                {pendingProposal && (
+                {/* ── Enriched planning proposal (interventions + tasks) ── */}
+                {pendingPlanningProposal && (
+                  <div className="space-y-4">
+                    {pendingPlanningProposal.summary && (
+                      <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                        {pendingPlanningProposal.summary}
+                      </div>
+                    )}
+
+                    {pendingPlanningProposal.warnings.length > 0 && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 space-y-1">
+                        {pendingPlanningProposal.warnings.map((w, i) => (
+                          <div key={i}>{w}</div>
+                        ))}
+                      </div>
+                    )}
+
+                    {pendingPlanningProposal.existing_interventions.length > 0 && (
+                      <div className="space-y-3">
+                        <div className="text-sm font-semibold text-gray-800">Interventions existantes</div>
+                        {pendingPlanningProposal.existing_interventions.map((intervention) => (
+                          <div key={intervention.intervention_id} className="rounded-lg border border-gray-200 p-3 bg-white space-y-2">
+                            <div className="font-medium text-gray-900">{intervention.intervention_name}</div>
+                            {intervention.existing_tasks.length > 0 && (
+                              <div className="space-y-1">
+                                {intervention.existing_tasks.map((task) => (
+                                  <div key={task.task_id} className="text-xs text-gray-600 flex items-center gap-2">
+                                    <span className={cn(
+                                      "inline-block w-2 h-2 rounded-full",
+                                      task.status === "done" ? "bg-green-500" : task.status === "in_progress" ? "bg-blue-500" : "bg-gray-400"
+                                    )} />
+                                    {task.title}
+                                    {task.note && <span className="text-amber-600">({task.note})</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {intervention.suggested_tasks.length > 0 && (
+                              <div className="space-y-1 border-t border-dashed border-gray-200 pt-2">
+                                <div className="text-xs font-medium text-indigo-700">Tâches suggérées :</div>
+                                {intervention.suggested_tasks.map((task, idx) => (
+                                  <div key={idx} className="text-xs text-gray-700 pl-2 border-l-2 border-indigo-300">
+                                    <span className="font-medium">{task.title}</span>
+                                    {task.start_date && task.end_date && (
+                                      <span className="text-gray-500 ml-1">({task.start_date} → {task.end_date})</span>
+                                    )}
+                                    {task.description && <div className="text-gray-500 italic">{task.description}</div>}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {pendingPlanningProposal.suggested_interventions.length > 0 && (
+                      <div className="space-y-3">
+                        <div className="text-sm font-semibold text-emerald-800">Nouvelles interventions suggérées</div>
+                        {pendingPlanningProposal.suggested_interventions.map((intervention, iIdx) => (
+                          <div key={iIdx} className="rounded-lg border border-emerald-200 bg-emerald-50/30 p-3 space-y-2">
+                            <div className="font-medium text-gray-900">
+                              {intervention.name}
+                              {intervention.lot_type && (
+                                <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">{intervention.lot_type}</span>
+                              )}
+                            </div>
+                            {intervention.reason && (
+                              <div className="text-xs text-gray-600 italic">{intervention.reason}</div>
+                            )}
+                            {intervention.suggested_tasks.length > 0 && (
+                              <div className="space-y-1">
+                                {intervention.suggested_tasks.map((task, tIdx) => (
+                                  <div key={tIdx} className="text-xs text-gray-700 pl-2 border-l-2 border-emerald-300">
+                                    <span className="font-medium">{task.title}</span>
+                                    {task.start_date && task.end_date && (
+                                      <span className="text-gray-500 ml-1">({task.start_date} → {task.end_date})</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {pendingPlanningProposal.next_week_priorities.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-sm font-semibold text-gray-800">Priorités de la semaine</div>
+                        {pendingPlanningProposal.next_week_priorities.map((p, i) => (
+                          <div key={i} className="text-xs text-gray-700">{i + 1}. {p}</div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                      Valider ajoutera les interventions et tâches suggérées au projet.
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        onClick={applyPlanningProposal}
+                        disabled={applyLoading || !canUseAssistantPlanning}
+                      >
+                        {applyLoading ? "Application..." : "Valider le planning"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setPendingPlanningProposal(null);
+                          setPendingProposal(null);
+                          sendAssistantMessage("Refais un autre planning, plus adapté.", { forcePlan: true });
+                        }}
+                        disabled={assistantLoading || !canUseAssistantPlanning}
+                      >
+                        Refaire
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setPendingPlanningProposal(null);
+                          setPendingProposal(null);
+                        }}
+                      >
+                        Annuler
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Legacy flat proposal (backwards compat) ── */}
+                {pendingProposal && !pendingPlanningProposal && (
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-gray-800">Résumé du planning</label>
@@ -2864,79 +3301,79 @@ export default function ProjectDetailPage() {
           </div>
         </div>
       )}
-      {phaseModalOpen && (
+      {interventionModalOpen && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-lg w-full p-6">
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
-                <h3 className="text-lg font-semibold text-neutral-900">Nouvelle phase</h3>
-                <p className="text-sm text-neutral-600">Ajoutez une phase au projet, puis des lots.</p>
+                <h3 className="text-lg font-semibold text-neutral-900">Nouvelle intervention</h3>
+                <p className="text-sm text-neutral-600">Ajoutez une intervention au projet.</p>
               </div>
-              <Button variant="ghost" onClick={() => setPhaseModalOpen(false)}>
+              <Button variant="ghost" onClick={() => setInterventionModalOpen(false)}>
                 Fermer
               </Button>
             </div>
-            <form className="space-y-4" onSubmit={handleCreatePhase}>
+            <form className="space-y-4" onSubmit={handleCreateIntervention}>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Nom *</label>
                 <Input
-                  value={phaseForm.name}
-                  onChange={(event) => setPhaseForm({ ...phaseForm, name: event.target.value })}
-                  placeholder="Démolition & Gros œuvre"
+                  value={interventionForm.name}
+                  onChange={(event) => setInterventionForm({ ...interventionForm, name: event.target.value })}
+                  placeholder="Demolition, Electricite, Plomberie..."
                 />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Description</label>
                 <Input
-                  value={phaseForm.description}
-                  onChange={(event) => setPhaseForm({ ...phaseForm, description: event.target.value })}
-                  placeholder="Travaux préparatoires, structure…"
+                  value={interventionForm.description}
+                  onChange={(event) => setInterventionForm({ ...interventionForm, description: event.target.value })}
+                  placeholder="Details de l'intervention"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Entreprise</label>
+                <Input
+                  value={interventionForm.companyName}
+                  onChange={(event) => setInterventionForm({ ...interventionForm, companyName: event.target.value })}
+                  placeholder="Nom de l'entreprise (optionnel)"
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Ordre *</label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={phaseForm.phaseOrder}
-                    onChange={(event) => setPhaseForm({ ...phaseForm, phaseOrder: event.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Budget estimé (€)</label>
+                  <label className="text-sm font-medium">Budget estime</label>
                   <Input
                     type="number"
                     min={0}
-                    value={phaseForm.budgetEstimated}
-                    onChange={(event) => setPhaseForm({ ...phaseForm, budgetEstimated: event.target.value })}
+                    value={interventionForm.budgetEstimated}
+                    onChange={(event) => setInterventionForm({ ...interventionForm, budgetEstimated: event.target.value })}
+                    placeholder="0"
                   />
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Début</label>
+                  <label className="text-sm font-medium">Debut</label>
                   <Input
                     type="date"
-                    value={phaseForm.startDate}
-                    onChange={(event) => setPhaseForm({ ...phaseForm, startDate: event.target.value })}
+                    value={interventionForm.startDate}
+                    onChange={(event) => setInterventionForm({ ...interventionForm, startDate: event.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Fin</label>
                   <Input
                     type="date"
-                    value={phaseForm.endDate}
-                    onChange={(event) => setPhaseForm({ ...phaseForm, endDate: event.target.value })}
+                    value={interventionForm.endDate}
+                    onChange={(event) => setInterventionForm({ ...interventionForm, endDate: event.target.value })}
                   />
                 </div>
               </div>
               <div className="flex items-center justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setPhaseModalOpen(false)}>
+                <Button type="button" variant="outline" onClick={() => setInterventionModalOpen(false)}>
                   Annuler
                 </Button>
-                <Button type="submit" disabled={phaseSubmitting || !canManageProject}>
-                  {phaseSubmitting ? "Création..." : "Créer la phase"}
+                <Button type="submit" disabled={interventionSubmitting || !canManageProject}>
+                  {interventionSubmitting ? "Creation..." : "Creer l'intervention"}
                 </Button>
               </div>
             </form>

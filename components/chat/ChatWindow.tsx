@@ -13,6 +13,7 @@ import {
 import { UserRole } from "@/types";
 import { ChatMessageMarkdown } from "./ChatMessageMarkdown";
 import { FeedbackButtons } from "@/components/feedback";
+import { useToast } from "@/hooks/useToast";
 
 interface ChatWindowProps {
   onClose?: () => void;
@@ -34,6 +35,7 @@ export function ChatWindow({
   contextType,
   autoScroll = true,
 }: ChatWindowProps) {
+  const { showToast } = useToast();
   const [messages, setMessages] = useState<AIMessage[]>([
     {
       role: "assistant",
@@ -393,20 +395,3 @@ function generateUUID(): string {
   });
 }
 
-function showToast(message: string, type: "success" | "error") {
-  if (typeof window === "undefined") return;
-
-  const toast = document.createElement("div");
-  toast.className = `toast toast-${type}`;
-  toast.textContent = message;
-  document.body.appendChild(toast);
-
-  setTimeout(() => {
-    toast.classList.add("toast-show");
-  }, 10);
-
-  setTimeout(() => {
-    toast.classList.remove("toast-show");
-    setTimeout(() => toast.remove(), 300);
-  }, 3000);
-}

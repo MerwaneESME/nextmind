@@ -183,21 +183,30 @@ export const createProject = async (userId: string, input: CreateProjectInput) =
     throw error ?? new Error("Failed to create project");
   }
 
+  // Ajouter le créateur comme owner dans project_members.
+  // Si ça échoue (ex: vieille contrainte UNIQUE), on ne bloque pas
+  // car is_project_manager() a un fallback via projects.created_by.
+  // On retry une fois en cas de conflit.
+  const memberPayload = {
+    project_id: data.id,
+    user_id: userId,
+    role: "owner",
+    status: "accepted",
+    invited_by: userId,
+    accepted_at: new Date().toISOString(),
+  };
   const { error: memberError } = await supabase
     .from("project_members")
-    .upsert(
-      {
-        project_id: data.id,
-        user_id: userId,
-        role: "owner",
-        status: "accepted",
-        invited_by: userId,
-        accepted_at: new Date().toISOString(),
-      },
-      { onConflict: "project_id,user_id" }
-    );
+    .upsert(memberPayload, { onConflict: "project_id,user_id" });
   if (memberError) {
-    throw memberError;
+    // Fallback: tenter un simple insert si upsert échoue
+    const { error: memberError2 } = await supabase
+      .from("project_members")
+      .insert(memberPayload);
+    // Ne pas throw - le projet est créé, is_project_manager fonctionne via created_by
+    if (memberError2) {
+      console.warn("project_members insert failed (non-blocking):", memberError2.message);
+    }
   }
 
   return data.id as string;

@@ -46,7 +46,7 @@ export function RiskWarning({
           {description && <p className="text-sm text-neutral-800 mb-3">{description}</p>}
           {actions && actions.length > 0 && (
             <div className="bg-white/70 rounded-lg p-3">
-              <p className="text-sm font-semibold text-neutral-900 mb-2">✅ Actions concrètes :</p>
+              <p className="text-sm font-semibold text-neutral-900 mb-2">Actions concretes :</p>
               <ul className="text-sm text-neutral-800 space-y-1 list-disc pl-5">
                 {actions.map((action, idx) => (
                   <li key={idx}>{action}</li>

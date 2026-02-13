@@ -33,7 +33,7 @@ export function TimelinePhase({
         {phase.description && <p className="text-sm text-neutral-700 mb-3">{phase.description}</p>}
         {phase.dates && (
           <div className="flex items-center gap-2 text-sm text-neutral-600">
-            <span aria-hidden>📅</span>
+            <span aria-hidden className="text-xs font-medium text-neutral-400">Date:</span>
             <span>{phase.dates}</span>
           </div>
         )}
