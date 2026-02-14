@@ -45,6 +45,35 @@ type UserLocation = { lat: number; lng: number };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
+const normalizeSearchText = (value: string) =>
+  value
+    .toString()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const toTagKey = (value: string) => normalizeSearchText(value);
+
+const TAG_LABEL_OVERRIDES: Record<string, string> = {
+  electricite: "Électricité",
+  etancheite: "Étanchéité",
+  maconnerie: "Maçonnerie",
+  "gros oeuvre": "Gros œuvre",
+  plomberie: "Plomberie",
+  renovation: "Rénovation",
+};
+
+const toTagLabel = (value: string) => {
+  const key = toTagKey(value);
+  if (!key) return "";
+  const mapped = TAG_LABEL_OVERRIDES[key] ?? key;
+  return mapped.charAt(0).toLocaleUpperCase("fr-FR") + mapped.slice(1);
+};
+
 const extractNumber = (value: unknown) => {
   const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
   return Number.isFinite(n) ? n : null;
@@ -115,7 +144,7 @@ export default function ProfessionnelsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [showFilters, setShowFilters] = useState(true);
+  const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>({ city: "", postalCode: "", specialty: "" });
   const [agentMode, setAgentMode] = useState(false);
   const [agentQuery, setAgentQuery] = useState("");
@@ -133,6 +162,7 @@ export default function ProfessionnelsPage() {
   const [sortBy, setSortBy] = useState<"distance" | "note" | "popularite">("distance");
   const [selectedProId, setSelectedProId] = useState<string | null>(null);
   const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
+  const [geocodedCoords, setGeocodedCoords] = useState<Record<string, UserLocation>>({});
   const [mobileListOpen, setMobileListOpen] = useState(false);
   const listRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -309,6 +339,12 @@ export default function ProfessionnelsPage() {
     router.push(`/dashboard/messages?${params.toString()}`);
   };
 
+  const profileById = useMemo(() => {
+    const map = new Map<string, ProProfile>();
+    profiles.forEach((p) => map.set(p.pro_id, p));
+    return map;
+  }, [profiles]);
+
   const filterSummary = useMemo(() => {
     const parts = [];
     if (filters.city.trim()) parts.push(`Ville: ${filters.city}`);
@@ -322,14 +358,30 @@ export default function ProfessionnelsPage() {
       new Set(Object.values(specialties).flat().map((t) => t.trim()).filter(Boolean))
     );
     const agentTags = (agentInfo?.tags ?? []).map((t) => t.trim()).filter(Boolean);
-    return Array.from(new Set([...agentTags, ...specTags])).sort((a, b) => a.localeCompare(b));
+
+    const map = new Map<string, string>();
+    for (const raw of [...agentTags, ...specTags]) {
+      const key = toTagKey(raw);
+      if (!key) continue;
+      if (!map.has(key)) map.set(key, toTagLabel(raw));
+    }
+
+    return Array.from(map.entries())
+      .map(([key, label]) => ({ key, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, "fr"));
   }, [agentInfo?.tags, specialties]);
+
+  const isAreaSearchActive = useMemo(() => {
+    const cityOrPostal = Boolean(filters.city.trim() || filters.postalCode.trim());
+    const agentCityOrPostal = Boolean(agentInfo?.city || agentInfo?.postal_code);
+    return cityOrPostal || (agentMode && agentCityOrPostal);
+  }, [agentInfo?.city, agentInfo?.postal_code, agentMode, filters.city, filters.postalCode]);
 
   const normalizedProfiles = useMemo(() => {
     return profiles.map((p) => {
       const title = p.company_name || p.display_name || "Professionnel";
       const proSpecialties = specialties[p.pro_id] ?? [];
-      const coords = extractLatLng(p);
+      const coords = extractLatLng(p) ?? geocodedCoords[p.pro_id] ?? null;
       const rating = getRating(p);
       const description = (p.company_description ?? "").toString();
       return {
@@ -347,10 +399,10 @@ export default function ProfessionnelsPage() {
         rating,
       };
     });
-  }, [profiles, specialties]);
+  }, [geocodedCoords, profiles, specialties]);
 
   const filteredAndSorted = useMemo(() => {
-    const tags = selectedTags.map((t) => t.toLowerCase());
+    const tags = selectedTags;
     const hasTags = tags.length > 0;
 
     const rows = normalizedProfiles
@@ -360,13 +412,14 @@ export default function ProfessionnelsPage() {
       })
       .filter((p) => {
         if (!hasTags) return true;
-        const hay = `${p.title} ${p.company_description} ${(p.specialties ?? []).join(" ")}`.toLowerCase();
+        const hay = normalizeSearchText(`${p.title} ${p.company_description} ${(p.specialties ?? []).join(" ")}`);
         return tags.every((t) => hay.includes(t));
       })
       .filter((p) => {
         if (!userLocation) return true;
+        if (isAreaSearchActive) return true;
         if (!distanceKm) return true;
-        if (p.distance === null) return false;
+        if (p.distance === null) return true;
         return p.distance <= distanceKm;
       });
 
@@ -400,10 +453,17 @@ export default function ProfessionnelsPage() {
     }
 
     return rows;
-  }, [distanceKm, normalizedProfiles, selectedTags, sortBy, userLocation]);
+  }, [distanceKm, isAreaSearchActive, normalizedProfiles, selectedTags, sortBy, userLocation]);
 
   const [visibleCount, setVisibleCount] = useState(18);
   useEffect(() => setVisibleCount(18), [search, filters, agentMode, selectedTags, distanceKm, sortBy]);
+
+  const distanceMin = 5;
+  const distanceMax = 150;
+  const distancePct = useMemo(() => {
+    const clamped = Math.min(distanceMax, Math.max(distanceMin, distanceKm));
+    return ((clamped - distanceMin) / (distanceMax - distanceMin)) * 100;
+  }, [distanceKm]);
 
   const visibleRows = useMemo(
     () => filteredAndSorted.slice(0, visibleCount),
@@ -508,16 +568,22 @@ export default function ProfessionnelsPage() {
               <div className="flex items-center gap-2">
                 <Button
                   variant={agentMode ? "primary" : "outline"}
-                  className="h-[46px] w-full md:w-auto rounded-2xl"
+                  className={`h-[46px] w-full md:w-auto rounded-2xl ${agentMode ? "!text-white" : ""}`}
                   onClick={() => {
                     setAgentMode((v) => !v);
                     setAgentError(null);
                   }}
                   title={agentMode ? "Recherche intelligente activée" : "Activer la recherche intelligente"}
                 >
-                  <span className="inline-flex items-center gap-2">
-                    {agentLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
-                    <span className="whitespace-nowrap">Recherche intelligente</span>
+                  <span className={`inline-flex items-center gap-2 ${agentMode ? "!text-white" : ""}`}>
+                    {agentLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Bot className="h-4 w-4" />
+                    )}
+                    <span className={`whitespace-nowrap ${agentMode ? "!text-white" : ""}`}>
+                      Recherche intelligente
+                    </span>
                   </span>
                 </Button>
                 {agentMode && (
@@ -628,14 +694,16 @@ export default function ProfessionnelsPage() {
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {tagOptions.slice(0, 24).map((tag) => {
-                    const active = selectedTags.includes(tag);
+                    const active = selectedTags.includes(tag.key);
                     return (
                       <button
-                        key={tag}
+                        key={tag.key}
                         type="button"
                         onClick={() =>
                           setSelectedTags((prev) =>
-                            prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+                            prev.includes(tag.key)
+                              ? prev.filter((t) => t !== tag.key)
+                              : [...prev, tag.key]
                           )
                         }
                         className={[
@@ -645,7 +713,7 @@ export default function ProfessionnelsPage() {
                             : "bg-white text-neutral-800 border-neutral-200 hover:bg-neutral-50",
                         ].join(" ")}
                       >
-                        {tag}
+                        {tag.label}
                       </button>
                     );
                   })}
@@ -657,25 +725,75 @@ export default function ProfessionnelsPage() {
 
               <div>
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-sm font-semibold text-neutral-900">Distance</div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm font-semibold text-neutral-900">Distance</div>
+                    <span className="rounded-full border border-neutral-200 bg-white px-2 py-0.5 text-[11px] text-neutral-700">
+                      Autour de moi
+                    </span>
+                  </div>
                   <div className="text-xs text-neutral-600">
-                    {userLocation ? `${distanceKm} km` : "Géoloc. requise"}
+                    {!userLocation
+                      ? "Géoloc. requise"
+                      : isAreaSearchActive
+                        ? "Désactivé (ville/CP)"
+                        : `${distanceKm} km`}
                   </div>
                 </div>
-                <input
-                  type="range"
-                  min={5}
-                  max={150}
-                  step={5}
-                  value={distanceKm}
-                  onChange={(e) => setDistanceKm(Number(e.target.value))}
-                  disabled={!userLocation}
-                  className="mt-2 w-full accent-[color:rgb(40_91_214)]"
-                />
+
+                <div className="mt-3 grid gap-3">
+                  <input
+                    type="range"
+                    min={distanceMin}
+                    max={distanceMax}
+                    step={5}
+                    value={distanceKm}
+                    onChange={(e) => setDistanceKm(Number(e.target.value))}
+                    disabled={!userLocation || isAreaSearchActive}
+                    className={[
+                      "w-full h-2 rounded-full appearance-none cursor-pointer",
+                      "disabled:cursor-not-allowed disabled:opacity-60",
+                    ].join(" ")}
+                    style={{
+                      background: `linear-gradient(to right, rgb(40 91 214) 0%, rgb(40 91 214) ${distancePct}%, rgb(213 215 220) ${distancePct}%, rgb(213 215 220) 100%)`,
+                    }}
+                  />
+
+                  <div className="flex items-center justify-between text-[11px] text-neutral-500">
+                    <span>{distanceMin} km</span>
+                    <span>{distanceMax} km</span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {[10, 25, 50, 100, 150].map((v) => {
+                      const active = distanceKm === v;
+                      const disabled = !userLocation || isAreaSearchActive;
+                      return (
+                        <button
+                          key={v}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => setDistanceKm(v)}
+                          className={[
+                            "px-3 py-1 rounded-full text-xs border transition",
+                            disabled ? "opacity-60 cursor-not-allowed" : "hover:bg-neutral-50",
+                            active
+                              ? "bg-primary-600 text-white border-primary-600"
+                              : "bg-white text-neutral-800 border-neutral-200",
+                          ].join(" ")}
+                        >
+                          {v} km
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <div className="mt-2 text-xs text-neutral-600">
-                  {userLocation
-                    ? "Filtre les pros autour de votre position."
-                    : "Activez la localisation dans votre navigateur pour trier/filtrer par distance."}
+                  {!userLocation
+                    ? "Activez la localisation dans votre navigateur pour trier/filtrer par distance."
+                    : isAreaSearchActive
+                      ? "Distance désactivée car une ville ou un code postal est renseigné."
+                      : "Filtre les pros autour de votre position."}
                 </div>
               </div>
             </div>
@@ -724,6 +842,19 @@ export default function ProfessionnelsPage() {
                 if (typeof window !== "undefined" && window.innerWidth < 1024) setMobileListOpen(true);
               }}
               onUserLocation={(loc) => setUserLocation(loc)}
+              onGeocoded={(proId, loc) =>
+                setGeocodedCoords((prev) => (prev[proId] ? prev : { ...prev, [proId]: loc }))
+              }
+              onOpenProfile={(proId) => {
+                const pro = profileById.get(proId);
+                if (!pro) return;
+                handleOpenProfile(pro);
+              }}
+              onContact={(proId) => {
+                const pro = profileById.get(proId);
+                if (!pro) return;
+                handleContact(pro);
+              }}
               className="h-full"
             />
           </div>
@@ -796,10 +927,10 @@ export default function ProfessionnelsPage() {
                               <div className="mt-3 flex flex-wrap gap-2">
                                 {p.specialties.slice(0, 6).map((service) => (
                                   <span
-                                    key={`${p.pro_id}-${service}`}
+                                    key={`${p.pro_id}-${toTagKey(service) || service}`}
                                     className="px-3 py-1 rounded-full bg-neutral-100 text-neutral-800 text-xs border border-neutral-200"
                                   >
-                                    {service}
+                                    {toTagLabel(service) || service}
                                   </span>
                                 ))}
                               </div>
@@ -947,10 +1078,10 @@ export default function ProfessionnelsPage() {
                             <div className="mt-3 flex flex-wrap gap-2">
                               {p.specialties.slice(0, 6).map((service) => (
                                 <span
-                                  key={`${p.pro_id}-${service}`}
+                                  key={`${p.pro_id}-${toTagKey(service) || service}`}
                                   className="px-3 py-1 rounded-full bg-neutral-100 text-neutral-800 text-xs border border-neutral-200"
                                 >
-                                  {service}
+                                  {toTagLabel(service) || service}
                                 </span>
                               ))}
                             </div>
