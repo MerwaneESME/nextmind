@@ -194,8 +194,9 @@ export default function ProjetsPage() {
         </div>
       )}
 
-      <Card>
-        <CardContent className="p-4">
+      <Card className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <CardContent className="relative z-10 p-4">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex-1 relative min-w-[220px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -222,13 +223,14 @@ export default function ProjetsPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
+      <Card className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <CardHeader className="relative z-10">
           <h2 className="text-lg font-semibold text-gray-900">
             Liste des projets ({filteredProjects.length})
           </h2>
         </CardHeader>
-        <CardContent>
+        <CardContent className="relative z-10">
           {loading ? (
             <p className="text-sm text-gray-500">Chargement des projets...</p>
           ) : (
@@ -424,7 +426,7 @@ function ProjectCard({
 }) {
   return (
     <div
-      className="group border rounded-xl hover:shadow-lg transition-all bg-white p-6 cursor-pointer"
+      className="group relative overflow-hidden border rounded-xl hover:shadow-lg transition-all cursor-pointer"
       onClick={onOpen}
       role="button"
       tabIndex={0}
@@ -432,6 +434,8 @@ function ProjectCard({
         if (e.key === "Enter" || e.key === " ") onOpen();
       }}
     >
+      <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+      <div className="relative z-10 p-6">
       <div className="flex items-start justify-between mb-4 gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 mb-2 flex-wrap">
@@ -448,7 +452,9 @@ function ProjectCard({
           ) : null}
 
           <div className="flex items-center gap-4 text-sm text-gray-500 flex-wrap">
-            <span className="flex items-center gap-1">{project.lotsCount ?? 0} intervention(s)</span>
+            <span className="flex items-center gap-1" title="Sous-traitants ou équipe interne">
+              {project.lotsCount ?? 0} intervention{((project.lotsCount ?? 0) !== 1) ? "s" : ""}
+            </span>
             <span className="flex items-center gap-1">{project.createdAt ? formatDate(project.createdAt) : "-"}</span>
           </div>
         </div>
@@ -469,6 +475,7 @@ function ProjectCard({
             ? `${project.budgetTotal.toLocaleString("fr-FR")} €`
             : "-"}
         </span>
+      </div>
       </div>
     </div>
   );

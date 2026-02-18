@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useAuth } from "@/hooks/useAuth";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, isValidDateRange, normalizeDateValue } from "@/lib/utils";
 import { canEditLot } from "@/lib/accessControl";
 import { getMyPhaseMembership } from "@/lib/phaseMembersDb";
 import { getLotById, type LotRow } from "@/lib/lotsDb";
@@ -63,6 +63,7 @@ export default function LotBudgetPage() {
   }, [quotes, invoices, lot?.budget_estimated]);
 
   const [quoteFormOpen, setQuoteFormOpen] = useState(false);
+  const [quoteFormError, setQuoteFormError] = useState<string | null>(null);
   const [quoteSubmitting, setQuoteSubmitting] = useState(false);
   const [quoteForm, setQuoteForm] = useState({
     quoteNumber: "",
@@ -75,6 +76,7 @@ export default function LotBudgetPage() {
   });
 
   const [invoiceFormOpen, setInvoiceFormOpen] = useState(false);
+  const [invoiceFormError, setInvoiceFormError] = useState<string | null>(null);
   const [invoiceSubmitting, setInvoiceSubmitting] = useState(false);
   const [invoiceForm, setInvoiceForm] = useState({
     invoiceNumber: "",
@@ -132,8 +134,12 @@ export default function LotBudgetPage() {
     event.preventDefault();
     if (!canEditThisLot) return;
     if (!quoteForm.title.trim() || !quoteForm.amount) return;
+    if (!isValidDateRange(quoteForm.issuedDate, quoteForm.validUntil)) {
+      setQuoteFormError("La date « Valide jusqu'au » doit être supérieure ou égale à la date d'émission.");
+      return;
+    }
     setQuoteSubmitting(true);
-    setError(null);
+    setQuoteFormError(null);
     try {
       await createQuote({
         lotId,
@@ -157,7 +163,7 @@ export default function LotBudgetPage() {
       });
       await load();
     } catch (err: any) {
-      setError(err?.message ?? "Impossible de créer le devis.");
+      setQuoteFormError(err?.message ?? "Impossible de créer le devis.");
     } finally {
       setQuoteSubmitting(false);
     }
@@ -167,8 +173,12 @@ export default function LotBudgetPage() {
     event.preventDefault();
     if (!canEditThisLot) return;
     if (!invoiceForm.title.trim() || !invoiceForm.amount) return;
+    if (!isValidDateRange(invoiceForm.issuedDate, invoiceForm.dueDate)) {
+      setInvoiceFormError("La date d'échéance doit être supérieure ou égale à la date d'émission.");
+      return;
+    }
     setInvoiceSubmitting(true);
-    setError(null);
+    setInvoiceFormError(null);
     try {
       await createInvoice({
         lotId,
@@ -192,7 +202,7 @@ export default function LotBudgetPage() {
       });
       await load();
     } catch (err: any) {
-      setError(err?.message ?? "Impossible de créer la facture.");
+      setInvoiceFormError(err?.message ?? "Impossible de créer la facture.");
     } finally {
       setInvoiceSubmitting(false);
     }
@@ -300,7 +310,7 @@ export default function LotBudgetPage() {
                     <div className="text-sm text-gray-500">Devis rattachés à ce lot.</div>
                   </div>
                   {canEditThisLot && (
-                    <Button size="sm" onClick={() => setQuoteFormOpen((v) => !v)}>
+                    <Button size="sm" onClick={() => { setQuoteFormError(null); setQuoteFormOpen((v) => !v); }}>
                       {quoteFormOpen ? "Fermer" : "+ Ajouter"}
                     </Button>
                   )}
@@ -309,6 +319,11 @@ export default function LotBudgetPage() {
               <CardContent className="space-y-3">
                 {quoteFormOpen && canEditThisLot && (
                   <form onSubmit={handleCreateQuote} className="space-y-3 rounded-lg border border-gray-200 bg-white p-3">
+                    {quoteFormError && (
+                      <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                        {quoteFormError}
+                      </div>
+                    )}
                     <div className="grid gap-3 md:grid-cols-2">
                       <div className="space-y-1">
                         <label className="text-xs text-gray-600">Numéro</label>
@@ -349,11 +364,11 @@ export default function LotBudgetPage() {
                     <div className="grid gap-3 md:grid-cols-2">
                       <div className="space-y-1">
                         <label className="text-xs text-gray-600">Date d’émission</label>
-                        <Input type="date" value={quoteForm.issuedDate} onChange={(e) => setQuoteForm({ ...quoteForm, issuedDate: e.target.value })} />
+                        <Input type="date" value={quoteForm.issuedDate} onChange={(e) => setQuoteForm({ ...quoteForm, issuedDate: normalizeDateValue(e.target.value) || e.target.value })} />
                       </div>
                       <div className="space-y-1">
                         <label className="text-xs text-gray-600">Valide jusqu’au</label>
-                        <Input type="date" value={quoteForm.validUntil} onChange={(e) => setQuoteForm({ ...quoteForm, validUntil: e.target.value })} />
+                        <Input type="date" value={quoteForm.validUntil} onChange={(e) => setQuoteForm({ ...quoteForm, validUntil: normalizeDateValue(e.target.value) || e.target.value })} />
                       </div>
                     </div>
                     <div className="flex items-center justify-end gap-2">
@@ -437,7 +452,7 @@ export default function LotBudgetPage() {
                     <div className="text-sm text-gray-500">Factures rattachées à ce lot.</div>
                   </div>
                   {canEditThisLot && (
-                    <Button size="sm" onClick={() => setInvoiceFormOpen((v) => !v)}>
+                    <Button size="sm" onClick={() => { setInvoiceFormError(null); setInvoiceFormOpen((v) => !v); }}>
                       {invoiceFormOpen ? "Fermer" : "+ Ajouter"}
                     </Button>
                   )}
@@ -446,6 +461,11 @@ export default function LotBudgetPage() {
               <CardContent className="space-y-3">
                 {invoiceFormOpen && canEditThisLot && (
                   <form onSubmit={handleCreateInvoice} className="space-y-3 rounded-lg border border-gray-200 bg-white p-3">
+                    {invoiceFormError && (
+                      <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                        {invoiceFormError}
+                      </div>
+                    )}
                     <div className="grid gap-3 md:grid-cols-2">
                       <div className="space-y-1">
                         <label className="text-xs text-gray-600">Numéro</label>
@@ -489,11 +509,11 @@ export default function LotBudgetPage() {
                     <div className="grid gap-3 md:grid-cols-2">
                       <div className="space-y-1">
                         <label className="text-xs text-gray-600">Date d’émission</label>
-                        <Input type="date" value={invoiceForm.issuedDate} onChange={(e) => setInvoiceForm({ ...invoiceForm, issuedDate: e.target.value })} />
+                        <Input type="date" value={invoiceForm.issuedDate} onChange={(e) => setInvoiceForm({ ...invoiceForm, issuedDate: normalizeDateValue(e.target.value) || e.target.value })} />
                       </div>
                       <div className="space-y-1">
                         <label className="text-xs text-gray-600">Échéance</label>
-                        <Input type="date" value={invoiceForm.dueDate} onChange={(e) => setInvoiceForm({ ...invoiceForm, dueDate: e.target.value })} />
+                        <Input type="date" value={invoiceForm.dueDate} onChange={(e) => setInvoiceForm({ ...invoiceForm, dueDate: normalizeDateValue(e.target.value) || e.target.value })} />
                       </div>
                     </div>
                     <div className="flex items-center justify-end gap-2">

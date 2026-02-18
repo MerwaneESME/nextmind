@@ -19,7 +19,7 @@ import { TermsSearch } from "@/components/TermsSearch";
 import { DelaisTypesList } from "@/components/guide/DelaisTypesList";
 import { PointsAttentionList } from "@/components/guide/PointsAttentionList";
 import { useAuth } from "@/hooks/useAuth";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, isValidDateRange, normalizeDateValue } from "@/lib/utils";
 import { canEditPhase } from "@/lib/accessControl";
 import { getMyPhaseMembership } from "@/lib/phaseMembersDb";
 import { createLot, fetchLotsForPhase, type LotSummary } from "@/lib/lotsDb";
@@ -73,6 +73,7 @@ export default function PhasePage() {
   const [projectMemberRole, setProjectMemberRole] = useState<string | null>(null);
 
   const [lotModalOpen, setLotModalOpen] = useState(false);
+  const [lotFormError, setLotFormError] = useState<string | null>(null);
   const [lotSubmitting, setLotSubmitting] = useState(false);
   const [lotForm, setLotForm] = useState({
     name: "",
@@ -156,7 +157,12 @@ export default function PhasePage() {
       return;
     }
     if (!phaseId || !lotForm.name.trim()) return;
+    if (!isValidDateRange(lotForm.startDate, lotForm.endDate)) {
+      setLotFormError("La date de fin doit être supérieure ou égale à la date de début.");
+      return;
+    }
     setLotSubmitting(true);
+    setLotFormError(null);
     setError(null);
     try {
       await createLot(phaseId, {
@@ -181,7 +187,7 @@ export default function PhasePage() {
       setLotModalOpen(false);
       await load();
     } catch (err: any) {
-      setError(err?.message ?? "Impossible de créer l'intervention.");
+      setLotFormError(err?.message ?? "Impossible de créer l'intervention.");
     } finally {
       setLotSubmitting(false);
     }
@@ -239,7 +245,7 @@ export default function PhasePage() {
               Assistant IA
             </Button>
             {canEditThisPhase && activeTab === "lots" && (
-              <Button size="sm" onClick={() => setLotModalOpen(true)}>
+              <Button size="sm" onClick={() => { setLotFormError(null); setLotModalOpen(true); }}>
                 + Nouvelle intervention
               </Button>
             )}
@@ -342,7 +348,7 @@ export default function PhasePage() {
                     projectId={projectId}
                     phaseId={phaseId}
                     lots={lots.slice(0, 5)}
-                    onAddLot={canEditThisPhase ? () => setLotModalOpen(true) : undefined}
+                    onAddLot={canEditThisPhase ? () => { setLotFormError(null); setLotModalOpen(true); } : undefined}
                   />
                   {lots.length > 5 && (
                     <Button
@@ -381,7 +387,7 @@ export default function PhasePage() {
               projectId={projectId}
               phaseId={phaseId}
               lots={lots}
-              onAddLot={canEditThisPhase ? () => setLotModalOpen(true) : undefined}
+              onAddLot={canEditThisPhase ? () => { setLotFormError(null); setLotModalOpen(true); } : undefined}
             />
           )}
 
@@ -471,7 +477,7 @@ export default function PhasePage() {
       {lotModalOpen && (
         <div
           className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4"
-          onClick={(e) => { if (e.target === e.currentTarget) setLotModalOpen(false); }}
+          onClick={(e) => { if (e.target === e.currentTarget) { setLotModalOpen(false); setLotFormError(null); } }}
         >
           <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-lg w-full p-6">
             <div className="flex items-start justify-between gap-3 mb-4">
@@ -479,10 +485,15 @@ export default function PhasePage() {
                 <h3 className="text-lg font-semibold text-neutral-900">Nouvelle intervention</h3>
                 <p className="text-sm text-neutral-600">Ajoutez une intervention (ex: Électricité, Plomberie, Peinture…).</p>
               </div>
-              <Button variant="ghost" onClick={() => setLotModalOpen(false)}>
+              <Button variant="ghost" onClick={() => { setLotModalOpen(false); setLotFormError(null); }}>
                 Fermer
               </Button>
             </div>
+            {lotFormError && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {lotFormError}
+              </div>
+            )}
             <form className="space-y-4" onSubmit={handleCreateLot}>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Nom *</label>
@@ -529,7 +540,7 @@ export default function PhasePage() {
                   <Input
                     type="date"
                     value={lotForm.startDate}
-                    onChange={(e) => setLotForm({ ...lotForm, startDate: e.target.value })}
+                    onChange={(e) => setLotForm({ ...lotForm, startDate: normalizeDateValue(e.target.value) || e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -537,12 +548,12 @@ export default function PhasePage() {
                   <Input
                     type="date"
                     value={lotForm.endDate}
-                    onChange={(e) => setLotForm({ ...lotForm, endDate: e.target.value })}
+                    onChange={(e) => setLotForm({ ...lotForm, endDate: normalizeDateValue(e.target.value) || e.target.value })}
                   />
                 </div>
               </div>
               <div className="flex items-center justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setLotModalOpen(false)}>
+                <Button type="button" variant="outline" onClick={() => { setLotModalOpen(false); setLotFormError(null); }}>
                   Annuler
                 </Button>
                 <Button type="submit" disabled={lotSubmitting}>

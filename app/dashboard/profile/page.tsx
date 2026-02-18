@@ -133,11 +133,12 @@ export default function ProfilePage() {
         </div>
       )}
 
-      <Card>
-        <CardHeader>
+      <Card className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <CardHeader className="relative z-10">
           <h2 className="text-lg font-semibold text-neutral-900">Informations personnelles</h2>
         </CardHeader>
-        <CardContent>
+        <CardContent className="relative z-10">
           <div className="grid md:grid-cols-2 gap-4">
             <Input
               label="Nom complet"
@@ -181,11 +182,12 @@ export default function ProfilePage() {
       </Card>
 
       {isPro && (
-        <Card>
-          <CardHeader>
+        <Card className="relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardHeader className="relative z-10">
             <h2 className="text-lg font-semibold text-neutral-900">Informations entreprise</h2>
           </CardHeader>
-          <CardContent>
+          <CardContent className="relative z-10">
             <p className="text-sm text-neutral-600 mb-4">
               Les informations suivantes (entreprise, ville, adresse, site, téléphone, email) sont visibles sur votre
               profil professionnel public.
@@ -247,11 +249,12 @@ export default function ProfilePage() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
+      <Card className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <CardHeader className="relative z-10">
           <h2 className="text-lg font-semibold text-neutral-900">Preferences</h2>
         </CardHeader>
-        <CardContent>
+        <CardContent className="relative z-10">
           <div className="space-y-3">
             <label className="flex items-center justify-between">
               <span className="text-neutral-800">Notifications email</span>

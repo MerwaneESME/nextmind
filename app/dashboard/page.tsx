@@ -17,7 +17,12 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { createProject, fetchProjectsForUser, ProjectSummary } from "@/lib/projectsDb";
+import {
+  createProjectAsParticulier,
+  fetchProjectsForUser,
+  ProjectSummary,
+  type CreateProjectParticulierInput,
+} from "@/lib/projectsDb";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { QuoteSummary } from "@/lib/quotesStore";
@@ -397,8 +402,9 @@ function ProfessionalDashboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 mb-1">Projets en cours</p>
@@ -411,8 +417,9 @@ function ProfessionalDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 mb-1">Projets achevés</p>
@@ -425,8 +432,9 @@ function ProfessionalDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 mb-1">Devis à faire</p>
@@ -439,8 +447,9 @@ function ProfessionalDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 mb-1">Alertes</p>
@@ -456,8 +465,9 @@ function ProfessionalDashboard() {
 
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2 overflow-hidden border border-primary-100 bg-gradient-to-br from-white via-primary-50/60 to-white shadow-sm">
-          <CardHeader className="border-primary-100/80">
+        <Card className="relative lg:col-span-2 overflow-hidden border border-primary-100 shadow-sm">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardHeader className="relative z-10 border-primary-100/80">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-sm text-neutral-500">Evolution du CA</p>
@@ -493,7 +503,7 @@ function ProfessionalDashboard() {
               </div>
             </div>
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="relative z-10 space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-neutral-500">Total</p>
@@ -652,7 +662,8 @@ function ProfessionalDashboard() {
         </Card>
 
         <Card className="relative overflow-hidden">
-          <CardHeader className="relative border-neutral-100">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardHeader className="relative z-10 border-neutral-100">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-neutral-500">Taux de conversion client</p>
@@ -665,7 +676,7 @@ function ProfessionalDashboard() {
               />
             </div>
           </CardHeader>
-          <CardContent className="relative space-y-6">
+          <CardContent className="relative z-10 space-y-6">
             <div className="flex items-center gap-4">
               <div className="relative h-24 w-24">
                 <div
@@ -711,8 +722,9 @@ function ProfessionalDashboard() {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
+      <Card className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <CardHeader className="relative z-10">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900">Projets récents</h2>
             <Button variant="outline" size="sm" onClick={openProjects}>
@@ -720,7 +732,7 @@ function ProfessionalDashboard() {
             </Button>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="relative z-10">
           {projectsError && (
             <div className="text-sm text-red-600 mb-3">{projectsError}</div>
           )}
@@ -778,8 +790,9 @@ function ProfessionalDashboard() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
+      <Card className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <CardHeader className="relative z-10">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900">Devis récents</h2>
             <div className="flex items-center gap-2">
@@ -792,7 +805,7 @@ function ProfessionalDashboard() {
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="relative z-10">
           {quotesError && (
             <div className="text-sm text-red-600 mb-3">{quotesError}</div>
           )}
@@ -871,6 +884,35 @@ function ProfessionalDashboard() {
   );
 }
 
+const PROJECT_TYPES_PARTICULIER = [
+  { value: "", label: "Sélectionnez le type de travaux" },
+  { value: "renovation", label: "Rénovation globale" },
+  { value: "construction", label: "Construction neuve" },
+  { value: "extension", label: "Extension" },
+  { value: "plomberie", label: "Plomberie" },
+  { value: "electricite", label: "Électricité" },
+  { value: "peinture", label: "Peinture" },
+  { value: "carrelage", label: "Carrelage / Faïence" },
+  { value: "menuiserie", label: "Menuiserie" },
+  { value: "chauffage", label: "Chauffage / Climatisation" },
+  { value: "toiture", label: "Toiture / Zinguerie" },
+  { value: "isolation", label: "Isolation" },
+  { value: "autre", label: "Autre" },
+];
+
+const initialParticulierForm: CreateProjectParticulierInput & { budgetMinStr: string; budgetMaxStr: string; surfaceSqmStr: string } = {
+  name: "",
+  description: "",
+  projectType: "",
+  address: "",
+  city: "",
+  postalCode: "",
+  budgetMinStr: "",
+  budgetMaxStr: "",
+  surfaceSqmStr: "",
+  desiredStartDate: "",
+};
+
 function ParticulierDashboard() {
   const router = useRouter();
   const { user } = useAuth();
@@ -879,7 +921,7 @@ function ParticulierDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formData, setFormData] = useState({ name: "", description: "" });
+  const [formData, setFormData] = useState(initialParticulierForm);
 
   const loadProjects = async () => {
     if (!user?.id) return;
@@ -914,11 +956,22 @@ function ParticulierDashboard() {
     setIsSubmitting(true);
     setError(null);
     try {
-      await createProject(user.id, {
+      const budgetMin = formData.budgetMinStr ? Number(formData.budgetMinStr.replace(/\s/g, "")) : undefined;
+      const budgetMax = formData.budgetMaxStr ? Number(formData.budgetMaxStr.replace(/\s/g, "")) : undefined;
+      const surfaceSqm = formData.surfaceSqmStr ? Number(formData.surfaceSqmStr.replace(/\s/g, "").replace(",", ".")) : undefined;
+      await createProjectAsParticulier(user.id, {
         name: formData.name,
-        description: formData.description,
+        description: formData.description || undefined,
+        projectType: formData.projectType || undefined,
+        address: formData.address || undefined,
+        city: formData.city || undefined,
+        postalCode: formData.postalCode || undefined,
+        budgetMin: Number.isFinite(budgetMin) ? budgetMin : undefined,
+        budgetMax: Number.isFinite(budgetMax) ? budgetMax : undefined,
+        desiredStartDate: formData.desiredStartDate || undefined,
+        surfaceSqm: Number.isFinite(surfaceSqm) ? surfaceSqm : undefined,
       });
-      setFormData({ name: "", description: "" });
+      setFormData(initialParticulierForm);
       setIsCreating(false);
       await loadProjects();
     } catch (err: any) {
@@ -952,8 +1005,9 @@ function ParticulierDashboard() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 mb-1">Projets en cours</p>
@@ -966,8 +1020,9 @@ function ParticulierDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 mb-1">Projets terminés</p>
@@ -980,8 +1035,9 @@ function ParticulierDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 mb-1">Devis reçus</p>
@@ -993,11 +1049,12 @@ function ParticulierDashboard() {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
+      <Card className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <CardHeader className="relative z-10">
           <h2 className="text-lg font-semibold text-gray-900">Mes projets</h2>
         </CardHeader>
-        <CardContent>
+        <CardContent className="relative z-10">
           {loading ? (
             <p className="text-sm text-gray-500">Chargement des projets...</p>
           ) : (
@@ -1036,33 +1093,104 @@ function ParticulierDashboard() {
       </Card>
 
       {isCreating && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-lg w-full p-6">
-            <h3 className="text-lg font-semibold text-neutral-900 mb-4">Créer un nouveau projet</h3>
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4 overflow-y-auto py-8">
+          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-2xl w-full p-6 my-auto">
+            <h3 className="text-lg font-semibold text-neutral-900 mb-1">Nouvelle demande de projet</h3>
+            <p className="text-sm text-neutral-500 mb-4">
+              Remplissez ce formulaire. Les informations seront envoyées de manière identique aux artisans compatibles.
+            </p>
             <form className="space-y-4" onSubmit={handleCreateProject}>
+              <div>
+                <label htmlFor="particulier-project-type" className="block text-sm font-medium text-neutral-800 mb-1">Type de travaux *</label>
+                <select
+                  id="particulier-project-type"
+                  aria-label="Type de travaux"
+                  value={formData.projectType}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, projectType: e.target.value }))}
+                  className="w-full px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  required
+                >
+                  {PROJECT_TYPES_PARTICULIER.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
               <Input
-                label="Titre du projet"
+                label="Titre du projet *"
                 value={formData.name}
                 onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                placeholder="Ex. Rénovation cuisine"
                 required
               />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="sm:col-span-2">
+                  <Input
+                    label="Adresse du chantier"
+                    value={formData.address}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
+                    placeholder="Numéro et rue"
+                  />
+                </div>
+                <div>
+                  <Input
+                    label="Code postal"
+                    value={formData.postalCode}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, postalCode: e.target.value }))}
+                    placeholder="75001"
+                  />
+                </div>
+              </div>
+              <Input
+                label="Ville"
+                value={formData.city}
+                onChange={(e) => setFormData((prev) => ({ ...prev, city: e.target.value }))}
+                placeholder="Paris"
+              />
               <div>
-                <label className="block text-sm font-medium text-neutral-800 mb-1">
-                  Description
-                </label>
+                <label className="block text-sm font-medium text-neutral-800 mb-1">Description détaillée *</label>
                 <textarea
                   value={formData.description}
                   onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
                   className="w-full min-h-[120px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  placeholder="Decrivez votre projet (dimensions, pieces concernees, budget estime, delais...)"
+                  placeholder="Décrivez votre projet : dimensions, pièces concernées, contraintes, délais souhaités..."
+                  required
                 />
               </div>
-              <div className="flex items-center justify-end gap-3 pt-2">
+              <Input
+                label="Surface à rénover / refaire (m²)"
+                type="number"
+                min={0}
+                step={0.01}
+                value={formData.surfaceSqmStr}
+                onChange={(e) => setFormData((prev) => ({ ...prev, surfaceSqmStr: e.target.value }))}
+                placeholder="Ex. 25"
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Input
+                  label="Budget min (€)"
+                  value={formData.budgetMinStr}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, budgetMinStr: e.target.value }))}
+                  placeholder="Ex. 5000"
+                />
+                <Input
+                  label="Budget max (€)"
+                  value={formData.budgetMaxStr}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, budgetMaxStr: e.target.value }))}
+                  placeholder="Ex. 15000"
+                />
+              </div>
+              <Input
+                label="Date de début souhaitée"
+                type="date"
+                value={formData.desiredStartDate}
+                onChange={(e) => setFormData((prev) => ({ ...prev, desiredStartDate: e.target.value }))}
+              />
+              <div className="flex items-center justify-end gap-3 pt-2 border-t border-neutral-200">
                 <Button type="button" variant="ghost" onClick={() => setIsCreating(false)}>
                   Annuler
                 </Button>
                 <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? "Création..." : "Créer le projet"}
+                  {isSubmitting ? "Création..." : "Créer la demande"}
                 </Button>
               </div>
             </form>

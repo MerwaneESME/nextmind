@@ -89,11 +89,12 @@ export async function fetchLotsForPhase(phaseId: string): Promise<LotSummary[]> 
       const tasks = Array.isArray(row.tasks) ? row.tasks : [];
       const tasksTotal = tasks.length;
       const tasksDone = tasks.filter((t: any) => String(t?.status || "").toLowerCase() === "done").length;
+      // Toujours dériver la progression des tâches quand on a des tâches, pour rester cohérent avec la page intervention
       const progress =
-        typeof row.progress_percentage === "number"
-          ? row.progress_percentage
-          : tasksTotal > 0
-            ? Math.round((tasksDone / tasksTotal) * 100)
+        tasksTotal > 0
+          ? Math.round((tasksDone / tasksTotal) * 100)
+          : typeof row.progress_percentage === "number"
+            ? row.progress_percentage
             : 0;
       return {
         id: row.id,
@@ -203,11 +204,12 @@ export async function fetchLotsForProject(projectId: string): Promise<LotSummary
       const tasks = Array.isArray(row.tasks) ? row.tasks : [];
       const tasksTotal = tasks.length;
       const tasksDone = tasks.filter((t: any) => String(t?.status || "").toLowerCase() === "done").length;
+      // Toujours dériver la progression des tâches quand on a des tâches (cohérent avec la page intervention et l'aperçu)
       const progress =
-        typeof row.progress_percentage === "number"
-          ? row.progress_percentage
-          : tasksTotal > 0
-            ? Math.round((tasksDone / tasksTotal) * 100)
+        tasksTotal > 0
+          ? Math.round((tasksDone / tasksTotal) * 100)
+          : typeof row.progress_percentage === "number"
+            ? row.progress_percentage
             : 0;
       return {
         id: row.id,

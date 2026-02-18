@@ -1,14 +1,14 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { ArrowLeft, Bot, Send } from "lucide-react";
+import { ArrowLeft, Bot, Plus, Send } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { mapUserTypeToRole, useAuth } from "@/hooks/useAuth";
-import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, isValidDateRange, normalizeDateValue } from "@/lib/utils";
 import { deleteDevisWithItems, mapDevisRowToSummary } from "@/lib/devisDb";
 import { downloadQuotePdf } from "@/lib/quotePdf";
 import { deleteProjectCascade, inviteProjectMemberByEmail } from "@/lib/projectsDb";
@@ -26,6 +26,7 @@ import {
   type PlanningProposal,
 } from "@/lib/ai-service";
 import { createLotTask } from "@/lib/lotTasksDb";
+import { Badge } from "@/components/ui/Badge";
 
 type Project = {
   id: string;
@@ -431,6 +432,7 @@ export default function ProjectDetailPage() {
   const [taskDescription, setTaskDescription] = useState("");
   const [taskTime, setTaskTime] = useState({ start: "", end: "" });
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [taskDetailOpen, setTaskDetailOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -718,11 +720,33 @@ export default function ProjectDetailPage() {
     }
   }, [activeTab]);
 
+  const planningDateParam = searchParams.get("planningDate");
+  const planningTaskIdParam = searchParams.get("planningTaskId");
+
   useEffect(() => {
     if (activeTab === "planning") {
-      setWeekStart(startOfWeek(new Date()));
+      if (planningDateParam) {
+        const d = new Date(`${planningDateParam}T00:00:00`);
+        if (!Number.isNaN(d.getTime())) setWeekStart(startOfWeek(d));
+      } else {
+        setWeekStart(startOfWeek(new Date()));
+      }
     }
-  }, [activeTab]);
+  }, [activeTab, planningDateParam]);
+
+  // Scroll vers l'événement ciblé quand on arrive sur le planning via "Voir planning"
+  useEffect(() => {
+    if (activeTab !== "planning" || !planningTaskIdParam) return;
+    const t = window.setTimeout(() => {
+      const el = document.querySelector(`[data-task-id="${planningTaskIdParam}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.add("ring-2", "ring-primary-500", "ring-offset-2");
+        window.setTimeout(() => el.classList.remove("ring-2", "ring-primary-500", "ring-offset-2"), 2500);
+      }
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [activeTab, planningTaskIdParam]);
 
   const handleCreateIntervention = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -731,7 +755,12 @@ export default function ProjectDetailPage() {
       return;
     }
     if (!projectId || !interventionForm.name.trim()) return;
+    if (!isValidDateRange(interventionForm.startDate, interventionForm.endDate)) {
+      setFormError("La date de fin doit être supérieure ou égale à la date de début.");
+      return;
+    }
     setInterventionSubmitting(true);
+    setFormError(null);
     setError(null);
     try {
       await createLotForProject(projectId, {
@@ -754,7 +783,7 @@ export default function ProjectDetailPage() {
       setInterventionModalOpen(false);
       await loadInterventions();
     } catch (err: any) {
-      setError(err?.message ?? "Impossible de creer l'intervention.");
+      setFormError(err?.message ?? "Impossible de creer l'intervention.");
     } finally {
       setInterventionSubmitting(false);
     }
@@ -780,6 +809,7 @@ export default function ProjectDetailPage() {
     setTaskDates({ start: dayKey, end: dayKey });
     setTaskTime({ start: "", end: "" });
     setTaskDescription("");
+    setFormError(null);
     setIsTaskModalOpen(true);
   };
 
@@ -789,6 +819,10 @@ export default function ProjectDetailPage() {
       return;
     }
     if (!taskName.trim()) return;
+    if (!isValidDateRange(taskDates.start, taskDates.end)) {
+      setFormError("La date de fin doit être supérieure ou égale à la date de début.");
+      return;
+    }
     const payloadBase = {
       project_id: projectId,
       name: taskName.trim(),
@@ -813,7 +847,7 @@ export default function ProjectDetailPage() {
       }
     }
     if (insertError) {
-      setError(insertError.message ?? "Impossible d'ajouter la tâche.");
+      setFormError(insertError.message ?? "Impossible d'ajouter la tâche.");
       return;
     }
     setIsTaskModalOpen(false);
@@ -1025,6 +1059,14 @@ export default function ProjectDetailPage() {
       return;
     }
     if (!pendingProposal || !projectId || !user?.id) return;
+    for (const task of pendingProposal.tasks) {
+      const start = (task.start_date ?? "").trim();
+      const end = (task.end_date ?? task.start_date ?? "").trim();
+      if (start && end && !isValidDateRange(start, end)) {
+        setAssistantError("Chaque tâche doit avoir une date de fin supérieure ou égale à la date de début.");
+        return;
+      }
+    }
     const shouldReplace = window.confirm(
       "Valider ce planning va remplacer les tâches actuelles du projet. Voulez-vous continuer ?"
     );
@@ -1082,6 +1124,27 @@ export default function ProjectDetailPage() {
     if (!hasSuggestedTasks && !hasNewInterventions) {
       setAssistantNotice("Aucune suggestion à appliquer dans cette proposition.");
       return;
+    }
+
+    for (const intervention of proposal.existing_interventions) {
+      for (const task of intervention.suggested_tasks) {
+        const start = (task.start_date ?? "").trim();
+        const end = (task.end_date ?? task.start_date ?? "").trim();
+        if (start && end && !isValidDateRange(start, end)) {
+          setAssistantError("Chaque tâche doit avoir une date de fin supérieure ou égale à la date de début.");
+          return;
+        }
+      }
+    }
+    for (const newIntervention of proposal.suggested_interventions) {
+      for (const task of newIntervention.suggested_tasks) {
+        const start = (task.start_date ?? "").trim();
+        const end = (task.end_date ?? task.start_date ?? "").trim();
+        if (start && end && !isValidDateRange(start, end)) {
+          setAssistantError("Chaque tâche doit avoir une date de fin supérieure ou égale à la date de début.");
+          return;
+        }
+      }
     }
 
     const confirmMsg = hasNewInterventions
@@ -1792,13 +1855,21 @@ export default function ProjectDetailPage() {
 
   const lateTasks = useMemo(() => tasks.filter((task) => isTaskLate(task)), [tasks]);
 
-  const totalBudget = useMemo(
+  const interventionsBudgetTotal = useMemo(
+    () => interventions.reduce((sum, i) => sum + (Number(i.budgetEstimated) || 0), 0),
+    [interventions]
+  );
+  const quotesBudgetTotal = useMemo(
     () => quotes.reduce((sum, quote) => sum + (quote.totalTtc ?? 0), 0),
     [quotes]
   );
+  const totalBudget = useMemo(
+    () => interventionsBudgetTotal + quotesBudgetTotal,
+    [interventionsBudgetTotal, quotesBudgetTotal]
+  );
   const hasBudget = useMemo(
-    () => quotes.some((quote) => typeof quote.totalTtc === "number"),
-    [quotes]
+    () => interventionsBudgetTotal > 0 || quotes.some((quote) => typeof quote.totalTtc === "number"),
+    [interventionsBudgetTotal, quotes]
   );
   const quoteStatusSummary = useMemo(() => {
     if (!quotes.length) return null;
@@ -2076,7 +2147,13 @@ export default function ProjectDetailPage() {
               <CardContent className="text-2xl font-semibold text-gray-900">
                 {hasBudget ? formatCurrency(totalBudget) : "-"}
                 <div className="text-xs text-gray-500 mt-1">
-                  {quotes.length} devis lié{quotes.length > 1 ? "s" : ""}
+                  {interventions.length > 0 && (
+                    <span>{interventions.length} intervention{interventions.length > 1 ? "s" : ""}</span>
+                  )}
+                  {interventions.length > 0 && quotes.length > 0 && " · "}
+                  {quotes.length > 0 && (
+                    <span>{quotes.length} devis lié{quotes.length > 1 ? "s" : ""}</span>
+                  )}
                 </div>
                 {quoteStatusSummary && (
                   <div className="text-xs text-gray-500 mt-1">{quoteStatusSummary}</div>
@@ -2192,7 +2269,18 @@ export default function ProjectDetailPage() {
                         <div className="text-xs text-gray-500 mt-1">{item.description}</div>
                       )}
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => setActiveTab("planning")}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setActiveTab("planning");
+                        updateQuery({
+                          tab: "planning",
+                          planningDate: toDateKey(item.date),
+                          planningTaskId: item.id,
+                        });
+                      }}
+                    >
                       Voir planning
                     </Button>
                   </div>
@@ -2328,10 +2416,10 @@ export default function ProjectDetailPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Interventions ({interventions.length})</h2>
-              <p className="text-sm text-gray-500">Liste des interventions du projet.</p>
+              <p className="text-sm text-gray-500">Sous-traitants ou équipe interne — chaque intervention génère des tâches sur le chantier.</p>
             </div>
             {canManageProject && (
-              <Button size="sm" onClick={() => setInterventionModalOpen(true)}>
+              <Button size="sm" onClick={() => { setFormError(null); setInterventionModalOpen(true); }}>
                 + Nouvelle intervention
               </Button>
             )}
@@ -2346,63 +2434,71 @@ export default function ProjectDetailPage() {
                   Aucune intervention pour le moment.
                 </div>
                 {canManageProject && (
-                  <Button size="sm" onClick={() => setInterventionModalOpen(true)}>
+                  <Button size="sm" onClick={() => { setFormError(null); setInterventionModalOpen(true); }}>
                     + Creer une intervention
                   </Button>
                 )}
               </CardContent>
             </Card>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {interventions.map((intervention) => (
-                <Card
-                  key={intervention.id}
-                  className="cursor-pointer hover:shadow-md transition"
-                  onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${intervention.id}?role=${role}`)}
-                >
-                  <CardHeader>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-semibold text-gray-900">{intervention.name}</div>
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                        intervention.status === "en_cours" ? "bg-blue-100 text-blue-700" :
-                        intervention.status === "termine" || intervention.status === "valide" ? "bg-emerald-100 text-emerald-700" :
-                        "bg-gray-100 text-gray-700"
-                      }`}>
-                        {intervention.status?.replace(/_/g, " ") ?? "Planifie"}
-                      </span>
-                    </div>
-                    {intervention.description && <div className="text-sm text-gray-500 mt-1">{intervention.description}</div>}
-                  </CardHeader>
-                  <CardContent className="text-sm text-gray-700">
-                    <div className="flex flex-wrap items-center gap-4">
-                      <div>
-                        <div className="text-xs uppercase tracking-wide text-gray-400">Taches</div>
-                        <div>{intervention.tasksDone}/{intervention.tasksTotal}</div>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
+              {interventions.map((intervention) => {
+                const lotStatus = intervention.status === "en_cours" ? "en_cours" : intervention.status === "termine" || intervention.status === "valide" ? "termine" : intervention.status === "devis_en_cours" || intervention.status === "devis_valide" ? intervention.status : "planifie";
+                return (
+                  <Card
+                    key={intervention.id}
+                    className="cursor-pointer hover:shadow-lg hover:border-primary-200 transition-all duration-200"
+                    onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${intervention.id}?role=${role}`)}
+                  >
+                    <CardHeader className="pb-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-gray-900 truncate">{intervention.name}</div>
+                          {intervention.description && (
+                            <div className="text-sm text-gray-500 mt-0.5 line-clamp-2">{intervention.description}</div>
+                          )}
+                        </div>
+                        <Badge type="lot" status={lotStatus} size="sm" className="shrink-0">
+                          {intervention.status === "en_cours" ? "En cours" : intervention.status === "termine" || intervention.status === "valide" ? "Terminé" : intervention.status?.replace(/_/g, " ") ?? "Planifié"}
+                        </Badge>
                       </div>
-                      <div>
-                        <div className="text-xs uppercase tracking-wide text-gray-400">Budget</div>
-                        <div>{formatCurrency(intervention.budgetEstimated)}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs uppercase tracking-wide text-gray-400">Dates</div>
+                    </CardHeader>
+                    <CardContent className="text-sm text-gray-700 pt-0">
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                         <div>
-                          {intervention.startDate ? formatDate(intervention.startDate) : "-"} →{" "}
-                          {intervention.endDate ? formatDate(intervention.endDate) : "-"}
+                          <div className="text-xs uppercase tracking-wide text-gray-400">Tâches</div>
+                          <div className="font-medium">{intervention.tasksDone}/{intervention.tasksTotal}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs uppercase tracking-wide text-gray-400">Budget</div>
+                          <div className="font-medium">{formatCurrency(intervention.budgetEstimated)}</div>
+                        </div>
+                        <div className="col-span-2">
+                          <div className="text-xs uppercase tracking-wide text-gray-400">Période</div>
+                          <div>
+                            {intervention.startDate ? formatDate(intervention.startDate) : "-"} → {intervention.endDate ? formatDate(intervention.endDate) : "-"}
+                          </div>
+                        </div>
+                        {intervention.companyName && (
+                          <div className="col-span-2">
+                            <div className="text-xs uppercase tracking-wide text-gray-400">Entreprise / responsable</div>
+                            <div>{intervention.companyName}</div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-3">
+                        <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                          <span>Avancement</span>
+                          <span className="font-semibold text-gray-700">{intervention.progressPercentage}%</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                          <div className="h-full rounded-full bg-primary-600 transition-all" style={{ width: `${intervention.progressPercentage}%` }} />
                         </div>
                       </div>
-                      {intervention.companyName && (
-                        <div>
-                          <div className="text-xs uppercase tracking-wide text-gray-400">Entreprise</div>
-                          <div>{intervention.companyName}</div>
-                        </div>
-                      )}
-                    </div>
-                    <div className="mt-3 h-2 rounded-full bg-gray-100">
-                      <div className="h-2 rounded-full bg-primary-600" style={{ width: `${intervention.progressPercentage}%` }} />
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </section>
@@ -2590,6 +2686,16 @@ export default function ProjectDetailPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {canEditPlanning && (
+                    <Button
+                      size="sm"
+                      className="inline-flex items-center gap-2"
+                      onClick={() => openTaskModal(new Date())}
+                    >
+                      <Plus className="w-4 h-4" />
+                      Ajouter un événement
+                    </Button>
+                  )}
                   <Button variant="outline" size="sm" onClick={() => setWeekStart(addDays(weekStart, -7))}>
                     Semaine précédente
                   </Button>
@@ -2660,9 +2766,10 @@ export default function ProjectDetailPage() {
                                 return (
                                   <div
                                     key={task.id}
+                                    data-task-id={task.id}
                                     onClick={(event) => event.stopPropagation()}
                                     className={cn(
-                                      "min-w-0 overflow-hidden break-words",
+                                      "min-w-0 overflow-hidden break-words transition-shadow",
                                       "rounded-md border-l-4 border px-2 py-1 text-[11px] shadow-sm",
                                       colorClass
                                     )}
@@ -2743,10 +2850,11 @@ export default function ProjectDetailPage() {
                                 }}
                                 className={cn(
                                   "absolute left-2 right-2 rounded-md border-l-4 border px-3 py-2 text-[11px]",
-                                  "shadow-sm overflow-hidden break-words",
+                                  "shadow-sm overflow-hidden break-words transition-shadow",
                                   block.colorClass
                                 )}
                                 style={{ top: `${block.top}px`, height: `${block.height}px` }}
+                                data-task-id={block.task.id}
                               >
                                 <div className="flex items-center justify-between gap-2">
                                   <span
@@ -3191,13 +3299,13 @@ export default function ProjectDetailPage() {
                               label="Debut"
                               type="date"
                               value={task.start_date ?? ""}
-                              onChange={(event) => updateProposalTask(index, { start_date: event.target.value })}
+                              onChange={(event) => updateProposalTask(index, { start_date: normalizeDateValue(event.target.value) || event.target.value })}
                             />
                             <Input
                               label="Fin"
                               type="date"
                               value={task.end_date ?? ""}
-                              onChange={(event) => updateProposalTask(index, { end_date: event.target.value })}
+                              onChange={(event) => updateProposalTask(index, { end_date: normalizeDateValue(event.target.value) || event.target.value })}
                             />
                             <Input
                               label="Creneau"
@@ -3309,10 +3417,15 @@ export default function ProjectDetailPage() {
                 <h3 className="text-lg font-semibold text-neutral-900">Nouvelle intervention</h3>
                 <p className="text-sm text-neutral-600">Ajoutez une intervention au projet.</p>
               </div>
-              <Button variant="ghost" onClick={() => setInterventionModalOpen(false)}>
+              <Button variant="ghost" onClick={() => { setInterventionModalOpen(false); setFormError(null); }}>
                 Fermer
               </Button>
             </div>
+            {formError && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {formError}
+              </div>
+            )}
             <form className="space-y-4" onSubmit={handleCreateIntervention}>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Nom *</label>
@@ -3356,7 +3469,7 @@ export default function ProjectDetailPage() {
                   <Input
                     type="date"
                     value={interventionForm.startDate}
-                    onChange={(event) => setInterventionForm({ ...interventionForm, startDate: event.target.value })}
+                    onChange={(event) => setInterventionForm({ ...interventionForm, startDate: normalizeDateValue(event.target.value) || event.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -3364,12 +3477,12 @@ export default function ProjectDetailPage() {
                   <Input
                     type="date"
                     value={interventionForm.endDate}
-                    onChange={(event) => setInterventionForm({ ...interventionForm, endDate: event.target.value })}
+                    onChange={(event) => setInterventionForm({ ...interventionForm, endDate: normalizeDateValue(event.target.value) || event.target.value })}
                   />
                 </div>
               </div>
               <div className="flex items-center justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setInterventionModalOpen(false)}>
+                <Button type="button" variant="outline" onClick={() => { setInterventionModalOpen(false); setFormError(null); }}>
                   Annuler
                 </Button>
                 <Button type="submit" disabled={interventionSubmitting || !canManageProject}>
@@ -3390,10 +3503,15 @@ export default function ProjectDetailPage() {
                   <p className="text-sm text-neutral-600">Jour: {formatDate(selectedDay)}</p>
                 )}
               </div>
-              <Button variant="ghost" onClick={() => setIsTaskModalOpen(false)}>
+              <Button variant="ghost" onClick={() => { setIsTaskModalOpen(false); setFormError(null); }}>
                 Fermer
               </Button>
             </div>
+            {formError && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {formError}
+              </div>
+            )}
             <div className="space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Nom *</label>
@@ -3409,7 +3527,7 @@ export default function ProjectDetailPage() {
                   <Input
                     type="date"
                     value={taskDates.start}
-                    onChange={(event) => setTaskDates({ ...taskDates, start: event.target.value })}
+                    onChange={(event) => setTaskDates({ ...taskDates, start: normalizeDateValue(event.target.value) || event.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -3427,7 +3545,7 @@ export default function ProjectDetailPage() {
                   <Input
                     type="date"
                     value={taskDates.end}
-                    onChange={(event) => setTaskDates({ ...taskDates, end: event.target.value })}
+                    onChange={(event) => setTaskDates({ ...taskDates, end: normalizeDateValue(event.target.value) || event.target.value })}
                   />
                 </div>
                 <div className="space-y-2">

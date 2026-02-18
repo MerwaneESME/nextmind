@@ -700,8 +700,9 @@ export default function MessagesPage() {
       )}
 
       <div className="grid lg:grid-cols-3 gap-6">
-        <Card>
-          <CardContent className="p-0">
+        <Card className="relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardContent className="relative z-10 p-0">
             <div className="p-4 border-b border-gray-200">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -761,8 +762,9 @@ export default function MessagesPage() {
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-2">
-          <CardContent className="p-0 flex flex-col h-[600px]">
+        <Card className="relative overflow-hidden lg:col-span-2">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardContent className="relative z-10 p-0 flex flex-col h-[600px]">
             <div className="p-4 border-b border-gray-200 flex items-center justify-between gap-3">
               <div>
                 <h3 className="font-semibold text-gray-900">

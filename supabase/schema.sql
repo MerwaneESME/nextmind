@@ -1,4 +1,4 @@
-﻿-- ============================================================================
+-- ============================================================================
 -- NextMind Supabase schema (single file)
 -- This file is intended to be run in Supabase SQL Editor (admin role).
 -- Generated from former supabase/migrations/*.sql on 2026-02-09 11:52:02
@@ -154,10 +154,7 @@ drop policy if exists projects_insert on public.projects;
 create policy projects_insert
 on public.projects
 for insert
-with check (
-  public.is_pro()
-  and created_by = auth.uid()
-);
+with check (created_by = auth.uid());
 
 drop policy if exists projects_update on public.projects;
 create policy projects_update

@@ -272,8 +272,9 @@ export default function DevisPage() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFilter("a_faire")} role="button">
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFilter("a_faire")} role="button">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 mb-1">En étude</p>
@@ -284,8 +285,9 @@ export default function DevisPage() {
           </CardContent>
         </Card>
 
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFilter("envoye")} role="button">
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFilter("envoye")} role="button">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 mb-1">Envoyés</p>
@@ -296,8 +298,9 @@ export default function DevisPage() {
           </CardContent>
         </Card>
 
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFilter("valide")} role="button">
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFilter("valide")} role="button">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 mb-1">Validés</p>
@@ -308,8 +311,9 @@ export default function DevisPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 mb-1">Total</p>
@@ -323,8 +327,9 @@ export default function DevisPage() {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
+      <Card className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <CardHeader className="relative z-10">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900">
               Liste des devis ({filteredQuotes.length})
@@ -336,7 +341,7 @@ export default function DevisPage() {
             )}
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="relative z-10">
           {loading ? (
             <p className="text-sm text-gray-500">Chargement des devis...</p>
           ) : (

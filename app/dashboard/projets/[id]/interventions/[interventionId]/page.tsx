@@ -13,7 +13,7 @@ import Breadcrumb from "@/components/ui/Breadcrumb";
 import LotBudgetPanel from "@/components/lot/LotBudgetPanel";
 import ProgressBar from "@/components/ui/ProgressBar";
 import { useAuth, mapUserTypeToRole } from "@/hooks/useAuth";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, isValidDateRange, normalizeDateValue } from "@/lib/utils";
 import { fetchLotTasks, createLotTask, updateLotTask, deleteLotTask, type LotTask } from "@/lib/lotTasksDb";
 import { getLotById, type LotRow } from "@/lib/lotsDb";
 import { supabase } from "@/lib/supabaseClient";
@@ -558,6 +558,14 @@ export default function InterventionPage() {
 
   const applyAssistantProposal = async () => {
     if (!canManageProject || !pendingProposal || !interventionId) return;
+    for (const task of pendingProposal.tasks) {
+      const start = (task.start_date ?? "").trim();
+      const end = (task.end_date ?? task.start_date ?? "").trim();
+      if (start && end && !isValidDateRange(start, end)) {
+        setAssistantError("Chaque tâche doit avoir une date de fin supérieure ou égale à la date de début.");
+        return;
+      }
+    }
     const shouldReplace = window.confirm(
       "Valider ce planning va remplacer les taches actuelles de l'intervention. Voulez-vous continuer ?"
     );
@@ -1396,13 +1404,13 @@ export default function InterventionPage() {
                               label="Debut"
                               type="date"
                               value={task.start_date ?? ""}
-                              onChange={(e) => updateProposalTask(index, { start_date: e.target.value })}
+                              onChange={(e) => updateProposalTask(index, { start_date: normalizeDateValue(e.target.value) || e.target.value })}
                             />
                             <Input
                               label="Fin"
                               type="date"
                               value={task.end_date ?? ""}
-                              onChange={(e) => updateProposalTask(index, { end_date: e.target.value })}
+                              onChange={(e) => updateProposalTask(index, { end_date: normalizeDateValue(e.target.value) || e.target.value })}
                             />
                             <Input
                               label="Creneau"
@@ -1466,7 +1474,7 @@ export default function InterventionPage() {
                   <Input
                     type="date"
                     value={taskForm.dueDate}
-                    onChange={(e) => setTaskForm({ ...taskForm, dueDate: e.target.value })}
+                    onChange={(e) => setTaskForm({ ...taskForm, dueDate: normalizeDateValue(e.target.value) || e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -1551,7 +1559,7 @@ export default function InterventionPage() {
                   <Input
                     type="date"
                     value={editForm.dueDate}
-                    onChange={(e) => setEditForm({ ...editForm, dueDate: e.target.value })}
+                    onChange={(e) => setEditForm({ ...editForm, dueDate: normalizeDateValue(e.target.value) || e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
