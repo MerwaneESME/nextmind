@@ -153,6 +153,68 @@ async function postJson<TResponse>(url: string, body: unknown): Promise<TRespons
   return data;
 }
 
+async function consumeSSE(
+  url: string,
+  body: unknown,
+  onToken: (token: string) => void
+): Promise<{ reply: string; quickActions?: QuickAction[]; conversationId?: string }> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok || !response.body) {
+    throw new Error(`Erreur AI API (${response.status}).`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let doneData: any = null;
+  let buffer = "";
+
+  const processChunk = (chunk: string) => {
+    buffer += chunk;
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
+
+    for (const block of events) {
+      const lines = block.split("\n");
+      let eventName = "";
+      const dataLines: string[] = [];
+
+      for (const line of lines) {
+        if (line.startsWith("event: ")) {
+          eventName = line.slice(7).trim();
+        } else if (line.startsWith("data: ")) {
+          dataLines.push(line.slice(6));
+        }
+      }
+
+      if (eventName === "delta" && dataLines.length > 0) {
+        onToken(dataLines.join("\n"));
+      } else if (eventName === "done" && dataLines.length > 0) {
+        try {
+          doneData = JSON.parse(dataLines.join("\n"));
+        } catch {}
+      }
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    processChunk(decoder.decode(value, { stream: true }));
+  }
+  if (buffer.trim()) processChunk("\n\n");
+
+  return {
+    reply: doneData?.reply ?? "",
+    quickActions: doneData?.quick_actions ?? [],
+    conversationId: doneData?.conversation_id,
+  };
+}
+
 /**
  * Envoie un message à l'agent IA
  * 
@@ -226,8 +288,80 @@ export async function sendMessageToAI(
 }
 
 /**
+ * Envoie un message avec streaming token-par-token.
+ * - /chat : SSE natif (tokens en temps réel)
+ * - /project-chat : réponse JSON puis simulation mot-par-mot
+ */
+export async function streamMessageToAI(
+  message: string,
+  context: AIContext,
+  onToken: (token: string) => void
+): Promise<AIResponse> {
+  const apiUrl = getAiApiUrl();
+  const history = buildHistory(context.conversationHistory, 10);
+  const contextType =
+    context.contextType ??
+    (context.lotId ? "lot" : context.phaseId ? "phase" : context.projectId ? "project" : undefined);
+
+  // Project-chat : pas de SSE natif → simulation mot-par-mot
+  if (context.projectId) {
+    const endpoint =
+      context.userRole === "professionnel" ? "/project-chat" : "/project-chat-client";
+    const data = await postJson<ProjectChatApiResponse>(`${apiUrl}${endpoint}`, {
+      project_id: context.projectId,
+      phase_id: context.phaseId ?? null,
+      lot_id: context.lotId ?? null,
+      context_type: contextType ?? "project",
+      user_id: context.userId,
+      user_role: context.userRole,
+      message,
+      history,
+    });
+
+    const fullText = data.reply ?? "Je reviens vers vous avec une réponse.";
+    const words = fullText.split(" ");
+    for (let i = 0; i < words.length; i++) {
+      onToken(words[i] + (i < words.length - 1 ? " " : ""));
+      await new Promise<void>((r) => setTimeout(r, 20));
+    }
+
+    return {
+      message: fullText,
+      suggestions: (data as any).suggested_questions ?? [],
+    };
+  }
+
+  // /chat : SSE natif
+  const { reply, quickActions, conversationId } = await consumeSSE(
+    `${apiUrl}/chat`,
+    {
+      message,
+      stream: true,
+      thread_id: `${context.userRole}:${context.userId}`,
+      conversation_id: context.conversationId,
+      history,
+      metadata: {
+        user_id: context.userId,
+        user_role: context.userRole,
+        context_type: contextType ?? null,
+        project_id: context.projectId ?? null,
+        phase_id: context.phaseId ?? null,
+        lot_id: context.lotId ?? null,
+      },
+    },
+    onToken
+  );
+
+  return {
+    message: reply,
+    quickActions: quickActions ?? [],
+    conversationId: conversationId ?? context.conversationId,
+  };
+}
+
+/**
  * Génère un projet via l'IA
- * 
+ *
  * TODO: Remplacer par un appel réel à votre API IA
  */
 export async function generateChecklistPdf(payload: {

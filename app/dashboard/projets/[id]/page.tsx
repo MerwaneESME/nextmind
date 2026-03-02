@@ -456,12 +456,12 @@ export default function ProjectDetailPage() {
   });
   const getAssistantIntro = (roleValue: string) =>
     roleValue === "professionnel"
-      ? "Bonjour ! Je connais votre projet, ses interventions, taches et membres. Demandez-moi l'avancement, le planning, le budget ou une analyse."
-      : "Bonjour ! Je suis votre conseiller projet. Je peux vous expliquer l'avancement, les prochaines etapes, le budget et repondre a vos questions.";
+      ? "Bonjour ! Je suis votre assistant IA BTP. J'ai accès à l'ensemble de votre projet : interventions, tâches, équipe et budget. Posez-moi vos questions sur l'avancement, les délais ou la planification."
+      : "Bonjour ! Je suis votre assistant IA BTP. Je suis au courant de l'avancement de votre projet et je peux répondre à toutes vos questions sur les travaux, les étapes et le budget.";
 
   const assistantIntroVariants = [
-    "Bonjour ! Je connais votre projet, ses interventions, taches et membres. Demandez-moi l'avancement, le planning, le budget ou une analyse.",
-    "Bonjour ! Je suis votre conseiller projet. Je peux vous expliquer l'avancement, les prochaines etapes, le budget et repondre a vos questions.",
+    "Bonjour ! Je suis votre assistant IA BTP. J'ai accès à l'ensemble de votre projet : interventions, tâches, équipe et budget. Posez-moi vos questions sur l'avancement, les délais ou la planification.",
+    "Bonjour ! Je suis votre assistant IA BTP. Je suis au courant de l'avancement de votre projet et je peux répondre à toutes vos questions sur les travaux, les étapes et le budget.",
   ];
 
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([
@@ -473,6 +473,7 @@ export default function ProjectDetailPage() {
   ]);
   const [assistantInput, setAssistantInput] = useState("");
   const [assistantLoading, setAssistantLoading] = useState(false);
+  const [assistantStreamingContent, setAssistantStreamingContent] = useState<string | null>(null);
   const [assistantError, setAssistantError] = useState<string | null>(null);
   const [assistantNotice, setAssistantNotice] = useState<string | null>(null);
   const [pendingProposal, setPendingProposal] = useState<AssistantProposal | null>(null);
@@ -1248,6 +1249,14 @@ export default function ProjectDetailPage() {
     });
   };
 
+  const streamText = async (text: string) => {
+    const words = text.split(" ");
+    for (let i = 0; i < words.length; i++) {
+      setAssistantStreamingContent((prev) => (prev ?? "") + words[i] + (i < words.length - 1 ? " " : ""));
+      await new Promise<void>((r) => setTimeout(r, 20));
+    }
+  };
+
   const sendAssistantMessage = async (
     content: string,
     options?: { forcePlan?: boolean; uiMode?: AssistantUiMode; actionId?: string }
@@ -1270,6 +1279,7 @@ export default function ProjectDetailPage() {
     setAssistantMessages((prev) => [...prev, userMessage]);
     setAssistantInput("");
     setAssistantLoading(true);
+    setAssistantStreamingContent("");
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_AI_API_URL;
@@ -1299,6 +1309,8 @@ export default function ProjectDetailPage() {
           },
           history
         );
+
+        await streamText(planningResult.message);
 
         const assistantMessage: AssistantMessage = {
           role: "assistant",
@@ -1444,6 +1456,9 @@ export default function ProjectDetailPage() {
             quotes,
           })
         : withGuideLink(rawReply);
+
+      await streamText(nextReply);
+
       const assistantMessage: AssistantMessage = {
         role: "assistant",
         content: nextReply,
@@ -1468,6 +1483,7 @@ export default function ProjectDetailPage() {
       ]);
     } finally {
       setAssistantLoading(false);
+      setAssistantStreamingContent(null);
     }
   };
 
@@ -3066,7 +3082,7 @@ export default function ProjectDetailPage() {
                       </div>
                     </div>
                   ))}
-                  {assistantLoading && (
+                  {assistantLoading && !assistantStreamingContent && (
                     <div className="flex gap-3 justify-start">
                       <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
                         <img
@@ -3080,6 +3096,23 @@ export default function ProjectDetailPage() {
                           <div className="w-2 h-2 bg-neutral-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></div>
                           <div className="w-2 h-2 bg-neutral-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></div>
                           <div className="w-2 h-2 bg-neutral-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {assistantStreamingContent && (
+                    <div className="flex gap-3 justify-start">
+                      <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <img
+                          src="/images/grey/robot.png"
+                          alt="Assistant IA"
+                          className="w-5 h-5 object-contain logo-blend"
+                        />
+                      </div>
+                      <div className="max-w-[80%]">
+                        <div className="bg-neutral-100 border border-neutral-200 rounded-lg px-4 py-3 shadow-sm text-sm text-neutral-900 whitespace-pre-wrap">
+                          {assistantStreamingContent}
+                          <span className="inline-block w-0.5 h-4 bg-neutral-500 animate-pulse ml-0.5 align-middle" />
                         </div>
                       </div>
                     </div>
