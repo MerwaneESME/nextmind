@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { ArrowLeft, Bot, Plus, Send } from "lucide-react";
+import { ArrowLeft, Bot, Paperclip, Plus, Send, X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { mapUserTypeToRole, useAuth } from "@/hooks/useAuth";
 import { cn, formatCurrency, formatDate, isValidDateRange, normalizeDateValue } from "@/lib/utils";
@@ -86,6 +86,13 @@ type AssistantProposal = {
 /** Extended proposal returned by the enriched planning engine */
 type AssistantPlanningProposal = PlanningProposal;
 
+type ProjectQuickAction = {
+  id: string;
+  label: string;
+  prompt: string;
+  icon?: string;
+};
+
 type AssistantMessage = {
   role: "user" | "assistant";
   content: string;
@@ -94,6 +101,8 @@ type AssistantMessage = {
   planningProposal?: AssistantPlanningProposal | null;
   requires_devis?: boolean;
   suggestions?: string[];
+  quickActions?: ProjectQuickAction[];
+  attachedFileName?: string | null;
 };
 
 type TabKey = "overview" | "interventions" | "chat" | "devis" | "planning" | "membres" | "assistant" | "guide";
@@ -480,6 +489,8 @@ export default function ProjectDetailPage() {
   const [pendingPlanningProposal, setPendingPlanningProposal] = useState<AssistantPlanningProposal | null>(null);
   const [assistantActiveAction, setAssistantActiveAction] = useState<AssistantActionButton["id"] | null>(null);
   const [applyLoading, setApplyLoading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const assistantSectionRef = useRef<HTMLDivElement | null>(null);
   const assistantMessagesContainerRef = useRef<HTMLDivElement | null>(null);
   const assistantMessagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -1259,11 +1270,20 @@ export default function ProjectDetailPage() {
 
   const sendAssistantMessage = async (
     content: string,
-    options?: { forcePlan?: boolean; uiMode?: AssistantUiMode; actionId?: string }
+    options?: { forcePlan?: boolean; uiMode?: AssistantUiMode; actionId?: string; file?: File }
   ) => {
     if (!user?.id || !projectId) return;
-    const trimmed = content.trim();
-    if (!trimmed || assistantLoading) return;
+    if (assistantLoading) return;
+
+    // Capture file before clearing state
+    const attachedFile = options?.file ?? selectedFile ?? null;
+    const attachedFileName = attachedFile?.name ?? null;
+
+    // Allow sending with file only — generate a default message
+    const rawTrimmed = content.trim();
+    const trimmed = rawTrimmed || (attachedFile ? `Analyse ce document : ${attachedFile.name}` : "");
+    if (!trimmed) return;
+
     setAssistantError(null);
     setAssistantNotice(null);
 
@@ -1273,11 +1293,13 @@ export default function ProjectDetailPage() {
 
     const userMessage: AssistantMessage = {
       role: "user",
-      content: trimmed,
+      content: rawTrimmed || `📎 ${attachedFile?.name ?? "fichier joint"}`,
       timestamp: new Date().toISOString(),
+      attachedFileName,
     };
     setAssistantMessages((prev) => [...prev, userMessage]);
     setAssistantInput("");
+    setSelectedFile(null);
     setAssistantLoading(true);
     setAssistantStreamingContent("");
 
@@ -1354,23 +1376,39 @@ export default function ProjectDetailPage() {
       }
 
       // ── Standard path (non-planning) ───────────────────────────
-      const assistantEndpoint =
-        userRole === "professionnel" ? "/project-chat" : "/project-chat-client";
-      const response = await fetch(`${apiUrl}${assistantEndpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project_id: projectId,
-          phase_id: contextPhaseId ?? null,
-          lot_id: contextLotId ?? null,
-          context_type: assistantContextType,
-          user_id: user.id,
-          user_role: userRole,
-          message: trimmed,
-          history,
-          force_plan: false,
-        }),
-      });
+      let response: Response;
+      if (attachedFile && userRole === "professionnel") {
+        // Multipart quand un fichier est joint (pros uniquement)
+        const formData = new FormData();
+        formData.append("project_id", projectId);
+        formData.append("user_id", user.id);
+        formData.append("user_role", userRole);
+        formData.append("message", trimmed);
+        formData.append("force_plan", "false");
+        formData.append("file", attachedFile, attachedFile.name);
+        response = await fetch(`${apiUrl}/project-chat-file`, {
+          method: "POST",
+          body: formData,
+        });
+      } else {
+        const assistantEndpoint =
+          userRole === "professionnel" ? "/project-chat" : "/project-chat-client";
+        response = await fetch(`${apiUrl}${assistantEndpoint}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            project_id: projectId,
+            phase_id: contextPhaseId ?? null,
+            lot_id: contextLotId ?? null,
+            context_type: assistantContextType,
+            user_id: user.id,
+            user_role: userRole,
+            message: trimmed,
+            history,
+            force_plan: false,
+          }),
+        });
+      }
       const data = await response.json();
       const rawReply = (data.reply ?? "Je reviens vers vous avec une proposition.") as string;
 
@@ -1448,14 +1486,16 @@ export default function ProjectDetailPage() {
         return `${text}\n\nPour en savoir plus : [${prefix}${label}](${href})`;
       };
 
-      const nextReply = options?.uiMode
-        ? formatAssistantReply(options.uiMode, rawReply, {
-            projectName: project?.name ?? null,
-            projectType: project?.project_type ?? null,
-            totalBudgetTtc: totalBudget,
-            quotes,
-          })
-        : withGuideLink(rawReply);
+      // formatAssistantReply génère des cartes "Guide" — réservé aux particuliers
+      const nextReply =
+        options?.uiMode && userRole !== "professionnel"
+          ? formatAssistantReply(options.uiMode, rawReply, {
+              projectName: project?.name ?? null,
+              projectType: project?.project_type ?? null,
+              totalBudgetTtc: totalBudget,
+              quotes,
+            })
+          : withGuideLink(rawReply);
 
       await streamText(nextReply);
 
@@ -1466,6 +1506,7 @@ export default function ProjectDetailPage() {
         proposal: data.proposal ?? null,
         requires_devis: Boolean(data.requires_devis),
         suggestions: data.suggested_questions ?? [],
+        quickActions: data.quick_actions ?? [],
       };
       setAssistantMessages((prev) => [...prev, assistantMessage]);
       if (data.proposal) {
@@ -1754,6 +1795,31 @@ export default function ProjectDetailPage() {
     setSelectedQuoteId("");
     await loadProject();
     await loadAvailableQuotes();
+
+    // Extraction du total PDF en arrière-plan (le devis lié peut être un PDF sans montant)
+    const apiUrl = process.env.NEXT_PUBLIC_AI_API_URL;
+    if (apiUrl && user?.id) {
+      fetch(`${apiUrl}/project-refresh-budget`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: projectId, user_id: user.id }),
+      })
+        .then((res) => res.json())
+        .then((result: { devis?: Array<{ id: string; total: number | null }> }) => {
+          if (result.devis) {
+            setQuotes((prev) =>
+              prev.map((q) => {
+                const updated = result.devis!.find((d) => d.id === q.id);
+                if (updated && updated.total != null && q.totalTtc == null) {
+                  return { ...q, totalTtc: updated.total };
+                }
+                return q;
+              })
+            );
+          }
+        })
+        .catch(() => {/* silencieux */});
+    }
   };
 
   const handleUpdateQuoteWorkflow = async (quote: QuoteSummary, nextStatus: WorkflowStatus) => {
@@ -3063,6 +3129,12 @@ export default function ProjectDetailPage() {
                             : "bg-neutral-100 text-neutral-900 border border-neutral-200 shadow-sm"
                         }`}
                       >
+                        {msg.role === "user" && msg.attachedFileName && (
+                          <div className="flex items-center gap-1.5 mb-1.5 text-xs text-primary-100 opacity-90">
+                            <Paperclip className="w-3 h-3" />
+                            <span className="truncate max-w-[160px]">{msg.attachedFileName}</span>
+                          </div>
+                        )}
                         <ChatMessageMarkdown content={msg.content} />
                         {msg.role === "assistant" && msg.suggestions && msg.suggestions.length > 0 && (
                           <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-neutral-200">
@@ -3075,6 +3147,22 @@ export default function ProjectDetailPage() {
                                 className="text-xs px-3 py-1.5 rounded-full border border-primary-300 text-primary-500 bg-white hover:bg-primary-50 hover:border-primary-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 {q}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {msg.role === "assistant" && msg.quickActions && msg.quickActions.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-neutral-200">
+                            {msg.quickActions.map((action) => (
+                              <button
+                                key={action.id}
+                                onClick={() => sendAssistantMessage(action.prompt)}
+                                disabled={assistantLoading}
+                                type="button"
+                                className="text-xs px-3 py-1.5 rounded-full border border-primary-400 text-primary-600 bg-primary-50 hover:bg-primary-100 hover:border-primary-500 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {action.icon && <span className="mr-1">{action.icon}</span>}
+                                {action.label}
                               </button>
                             ))}
                           </div>
@@ -3119,7 +3207,45 @@ export default function ProjectDetailPage() {
                   )}
                   <div ref={assistantMessagesEndRef} />
                 </div>
+                {/* Chip fichier sélectionné */}
+                {selectedFile && (
+                  <div className="flex items-center gap-2 px-3 py-1.5 mb-1 bg-primary-50 border border-primary-200 rounded-lg text-sm text-primary-700 w-fit max-w-full">
+                    <Paperclip className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate max-w-[200px]">{selectedFile.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFile(null)}
+                      className="ml-1 hover:text-red-500 transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
                 <div className="flex gap-2 pb-2">
+                  {/* Input fichier caché */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.docx,.png,.jpg,.jpeg,.txt"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      setSelectedFile(f);
+                      e.target.value = "";
+                    }}
+                  />
+                  {/* Bouton trombone — pros uniquement */}
+                  {userRole === "professionnel" && (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={assistantLoading}
+                      title="Joindre un fichier (PDF, DOCX, image…)"
+                      className="h-14 w-11 flex items-center justify-center border border-neutral-300 rounded-lg bg-white hover:bg-neutral-50 hover:border-primary-400 text-neutral-500 hover:text-primary-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                    >
+                      <Paperclip className="w-4 h-4" />
+                    </button>
+                  )}
                   <input
                     type="text"
                     value={assistantInput}
@@ -3139,7 +3265,7 @@ export default function ProjectDetailPage() {
                   />
                   <Button
                     onClick={() => sendAssistantMessage(assistantInput)}
-                    disabled={assistantLoading || !assistantInput.trim()}
+                    disabled={assistantLoading || (!assistantInput.trim() && !selectedFile)}
                     className="h-14"
                   >
                     <Send className="w-4 h-4" />
