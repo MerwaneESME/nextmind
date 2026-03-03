@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle, Search, X } from "lucide-react";
+import { AlertTriangle, CheckCircle, X } from "lucide-react";
 import { User } from "@/types";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -40,6 +40,10 @@ export function Header({ user }: HeaderProps) {
   const router = useRouter();
   const [openNotif, setOpenNotif] = useState(false);
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
+
+  const goToDashboard = () => {
+    router.push(user?.role ? `/dashboard?role=${user.role}` : "/dashboard");
+  };
   const [notifLoading, setNotifLoading] = useState(false);
   const [notifError, setNotifError] = useState<string | null>(null);
   const notifRef = useRef<HTMLDivElement | null>(null);
@@ -149,18 +153,15 @@ export function Header({ user }: HeaderProps) {
   }, [openNotif]);
 
   return (
-    <header className="h-16 bg-white border-b border-neutral-200 flex items-center justify-between px-6 relative">
-      <div className="flex-1 max-w-xl">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-neutral-400 w-5 h-5" />
-          <input
-            type="text"
-            placeholder="Rechercher..."
-            className="w-full pl-10 pr-4 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          />
-        </div>
-      </div>
-
+    <header className="h-16 bg-white border-b border-neutral-200 flex items-center justify-end px-6 relative">
+      <button
+        type="button"
+        onClick={goToDashboard}
+        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 rounded"
+        aria-label="Retour au tableau de bord"
+      >
+        <img src="/images/nextmind.png" alt="NextMind" className="h-8 w-auto" />
+      </button>
       <div className="flex items-center gap-4 relative">
         <div className="relative" ref={notifRef}>
           <button

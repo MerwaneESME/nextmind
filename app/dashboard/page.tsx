@@ -900,15 +900,14 @@ const PROJECT_TYPES_PARTICULIER = [
   { value: "autre", label: "Autre" },
 ];
 
-const initialParticulierForm: CreateProjectParticulierInput & { budgetMinStr: string; budgetMaxStr: string; surfaceSqmStr: string } = {
+const initialParticulierForm: CreateProjectParticulierInput & { budgetStr: string; surfaceSqmStr: string } = {
   name: "",
   description: "",
   projectType: "",
   address: "",
   city: "",
   postalCode: "",
-  budgetMinStr: "",
-  budgetMaxStr: "",
+  budgetStr: "",
   surfaceSqmStr: "",
   desiredStartDate: "",
 };
@@ -956,8 +955,7 @@ function ParticulierDashboard() {
     setIsSubmitting(true);
     setError(null);
     try {
-      const budgetMin = formData.budgetMinStr ? Number(formData.budgetMinStr.replace(/\s/g, "")) : undefined;
-      const budgetMax = formData.budgetMaxStr ? Number(formData.budgetMaxStr.replace(/\s/g, "")) : undefined;
+      const budget = formData.budgetStr ? Number(formData.budgetStr.replace(/\s/g, "")) : undefined;
       const surfaceSqm = formData.surfaceSqmStr ? Number(formData.surfaceSqmStr.replace(/\s/g, "").replace(",", ".")) : undefined;
       await createProjectAsParticulier(user.id, {
         name: formData.name,
@@ -966,8 +964,7 @@ function ParticulierDashboard() {
         address: formData.address || undefined,
         city: formData.city || undefined,
         postalCode: formData.postalCode || undefined,
-        budgetMin: Number.isFinite(budgetMin) ? budgetMin : undefined,
-        budgetMax: Number.isFinite(budgetMax) ? budgetMax : undefined,
+        budget: Number.isFinite(budget) ? budget : undefined,
         desiredStartDate: formData.desiredStartDate || undefined,
         surfaceSqm: Number.isFinite(surfaceSqm) ? surfaceSqm : undefined,
       });
@@ -1165,20 +1162,14 @@ function ParticulierDashboard() {
                 onChange={(e) => setFormData((prev) => ({ ...prev, surfaceSqmStr: e.target.value }))}
                 placeholder="Ex. 25"
               />
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Input
-                  label="Budget min (€)"
-                  value={formData.budgetMinStr}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, budgetMinStr: e.target.value }))}
-                  placeholder="Ex. 5000"
-                />
-                <Input
-                  label="Budget max (€)"
-                  value={formData.budgetMaxStr}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, budgetMaxStr: e.target.value }))}
-                  placeholder="Ex. 15000"
-                />
-              </div>
+              <Input
+                label="Budget (€)"
+                type="number"
+                min={0}
+                value={formData.budgetStr}
+                onChange={(e) => setFormData((prev) => ({ ...prev, budgetStr: e.target.value }))}
+                placeholder="Ex. 10000"
+              />
               <Input
                 label="Date de début souhaitée"
                 type="date"

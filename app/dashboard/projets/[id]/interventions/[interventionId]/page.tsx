@@ -9,8 +9,7 @@ import { Input } from "@/components/ui/Input";
 import ChatBox from "@/components/chat/ChatBox";
 import { ChatWindow } from "@/components/chat/ChatWindow";
 import DocumentsList from "@/components/documents/DocumentsList";
-import Breadcrumb from "@/components/ui/Breadcrumb";
-import LotBudgetPanel from "@/components/lot/LotBudgetPanel";
+import LotInvoicePanel from "@/components/lot/LotInvoicePanel";
 import ProgressBar from "@/components/ui/ProgressBar";
 import { useAuth, mapUserTypeToRole } from "@/hooks/useAuth";
 import { formatCurrency, formatDate, isValidDateRange, normalizeDateValue } from "@/lib/utils";
@@ -31,14 +30,14 @@ type ProjectMember = {
   role: string;
 };
 
-type TabKey = "overview" | "taches" | "chat" | "budget" | "documents" | "planning" | "assistant";
+type TabKey = "overview" | "taches" | "chat" | "factures" | "documents" | "planning" | "assistant";
 
 const tabItems: Array<{ key: TabKey; label: string; iconSrc: string }> = [
   { key: "overview", label: "Apercu", iconSrc: "/images/grey/eye.png" },
   { key: "taches", label: "Taches", iconSrc: "/images/grey/files.png" },
   { key: "planning", label: "Planning", iconSrc: "/images/grey/calendar%20(1).png" },
   { key: "chat", label: "Chat", iconSrc: "/images/grey/chat-teardrop-dots.png" },
-  { key: "budget", label: "Budget", iconSrc: "/images/grey/files.png" },
+  { key: "factures", label: "Factures", iconSrc: "/images/grey/files.png" },
   { key: "documents", label: "Documents", iconSrc: "/images/grey/files.png" },
   { key: "assistant", label: "Assistant IA", iconSrc: "/images/grey/robot.png" },
 ];
@@ -684,21 +683,15 @@ export default function InterventionPage() {
   return (
     <div className="space-y-6">
       <header className="space-y-2">
-        <Breadcrumb
-          items={[
-            { label: "Projets", href: `/dashboard/projets?role=${role}` },
-            { label: project?.name ?? "Projet", href: `/dashboard/projets/${projectId}?role=${role}` },
-            { label: lot?.name ?? "Intervention" },
-          ]}
-        />
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-sm text-gray-500">
-              Projet: {project?.name ?? projectId}
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900">{lot?.name ?? "Intervention"}</h1>
-            {lot?.company_name && (
-              <p className="text-gray-600">Entreprise: {lot.company_name}</p>
+            {project?.name && (
+              <div className="text-sm text-gray-500 mb-0.5">{project.name}</div>
+            )}
+            <div className="text-sm font-medium text-gray-500">Intervention</div>
+            <h1 className="text-3xl font-bold text-gray-900">{lot?.name ?? "Intervention"}</h1>
+            {lot?.description && (
+              <p className="text-gray-600 mt-1">{lot.description}</p>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -786,19 +779,6 @@ export default function InterventionPage() {
                     </div>
                     <div className="mt-3 h-2 rounded-full bg-gray-100">
                       <div className="h-2 rounded-full bg-primary-600" style={{ width: `${progress.pct}%` }} />
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card className="border-l-4 border-l-emerald-200 bg-emerald-50/20">
-                  <CardHeader className="border-b border-emerald-100 bg-emerald-50/60">
-                    <div className="text-sm text-gray-600">Budget</div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-semibold text-gray-900">
-                      {formatCurrency(Number(lot?.budget_actual ?? 0))}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      / {formatCurrency(Number(lot?.budget_estimated ?? 0))} estime
                     </div>
                   </CardContent>
                 </Card>
@@ -918,8 +898,8 @@ export default function InterventionPage() {
                       <Button variant="outline" size="sm" className="w-full justify-start" onClick={() => updateQuery({ tab: "chat" })}>
                         Ouvrir le chat
                       </Button>
-                      <Button variant="outline" size="sm" className="w-full justify-start" onClick={() => updateQuery({ tab: "budget" })}>
-                        Budget detaille
+                      <Button variant="outline" size="sm" className="w-full justify-start" onClick={() => updateQuery({ tab: "factures" })}>
+                        Factures
                       </Button>
                       <Button variant="outline" size="sm" className="w-full justify-start" onClick={() => updateQuery({ tab: "assistant" })}>
                         Assistant IA
@@ -1259,8 +1239,14 @@ export default function InterventionPage() {
             </section>
           )}
 
-          {activeTab === "budget" && (
-            <LotBudgetPanel projectId={projectId} phaseId={lot?.phase_id ?? ""} lotId={interventionId} role={role} />
+          {activeTab === "factures" && (
+            <LotInvoicePanel
+              projectId={projectId}
+              lotId={interventionId}
+              interventionId={interventionId}
+              canEdit={canEditThisLot}
+              onBudgetUpdated={load}
+            />
           )}
 
           {activeTab === "documents" && (

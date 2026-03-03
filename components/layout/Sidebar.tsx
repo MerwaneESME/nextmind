@@ -67,20 +67,7 @@ export function Sidebar({ userRole, collapsed = false, onToggleCollapse }: Sideb
         </span>
       </button>
 
-      <div className={cn("border-b border-neutral-200", collapsed ? "p-4" : "p-6")}>
-        <Link
-          href={currentRole ? `/dashboard?role=${currentRole}` : "/dashboard"}
-          className={cn("flex items-center gap-2", collapsed && "justify-center")}
-        >
-          <img
-            src="/images/nextmind.png"
-            alt="NextMind"
-            className={cn("h-8 w-auto", collapsed && "h-7")}
-          />
-        </Link>
-      </div>
-
-      <nav className={cn("flex-1 space-y-1", collapsed ? "p-2" : "p-4")}>
+      <nav className={cn("flex-1 space-y-1 pt-4", collapsed ? "p-2" : "p-4")}>
         {navItems.map((item) => {
           const isActive =
             pathname === item.href || (item.href !== "/dashboard" && pathname?.startsWith(item.href + "/"));

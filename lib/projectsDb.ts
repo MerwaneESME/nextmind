@@ -33,8 +33,7 @@ export type CreateProjectParticulierInput = {
   address?: string | null;
   city?: string | null;
   postalCode?: string | null;
-  budgetMin?: number | null;
-  budgetMax?: number | null;
+  budget?: number | null;
   desiredStartDate?: string | null; // ISO date
   surfaceSqm?: number | null; // surface à rénover / refaire (m²)
 };
@@ -243,8 +242,8 @@ export const createProjectAsParticulier = async (
     p_address: input.address?.trim() || null,
     p_city: input.city?.trim() || null,
     p_postal_code: input.postalCode?.trim() || null,
-    p_budget_min: input.budgetMin ?? null,
-    p_budget_max: input.budgetMax ?? null,
+    p_budget_min: input.budget ?? null,
+    p_budget_max: input.budget ?? null,
     p_desired_start_date: input.desiredStartDate || null,
     p_surface_sqm: input.surfaceSqm ?? null,
   });

@@ -27,6 +27,7 @@ import {
 } from "@/lib/ai-service";
 import { createLotTask } from "@/lib/lotTasksDb";
 import { Badge } from "@/components/ui/Badge";
+import ProjectBudgetPanel from "@/components/project/ProjectBudgetPanel";
 
 type Project = {
   id: string;
@@ -105,12 +106,13 @@ type AssistantMessage = {
   attachedFileName?: string | null;
 };
 
-type TabKey = "overview" | "interventions" | "chat" | "devis" | "planning" | "membres" | "assistant" | "guide";
+type TabKey = "overview" | "interventions" | "budget" | "chat" | "devis" | "planning" | "membres" | "assistant" | "guide";
 type WorkflowStatus = "a_faire" | "envoye" | "valide" | "refuse";
 
 const tabItems: Array<{ key: TabKey; label: string; iconSrc: string }> = [
   { key: "overview", label: "Apercu", iconSrc: "/images/grey/eye.png" },
   { key: "interventions", label: "Interventions", iconSrc: "/images/grey/files.png" },
+  { key: "budget", label: "Budget", iconSrc: "/images/grey/files.png" },
   { key: "chat", label: "Chat", iconSrc: "/images/grey/chat-teardrop-dots.png" },
   { key: "devis", label: "Devis", iconSrc: "/images/grey/files.png" },
   { key: "planning", label: "Planning", iconSrc: "/images/grey/calendar%20(1).png" },
@@ -454,6 +456,7 @@ export default function ProjectDetailPage() {
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [publishModalOpen, setPublishModalOpen] = useState(false);
   const [publishSubmitting, setPublishSubmitting] = useState(false);
+  const [rendezVousModalOpen, setRendezVousModalOpen] = useState(false);
   const [publishForm, setPublishForm] = useState({
     title: "",
     summary: "",
@@ -722,7 +725,7 @@ export default function ProjectDetailPage() {
   }, [projectId, user?.id]);
 
   useEffect(() => {
-    if (activeTab !== "interventions" && activeTab !== "overview") return;
+    if (activeTab !== "interventions" && activeTab !== "overview" && activeTab !== "budget") return;
     void loadInterventions();
   }, [activeTab, projectId]);
 
@@ -1941,6 +1944,10 @@ export default function ProjectDetailPage() {
     () => interventions.reduce((sum, i) => sum + (Number(i.budgetEstimated) || 0), 0),
     [interventions]
   );
+  const interventionsBudgetActual = useMemo(
+    () => interventions.reduce((sum, i) => sum + (Number(i.budgetActual) || 0), 0),
+    [interventions]
+  );
   const quotesBudgetTotal = useMemo(
     () => quotes.reduce((sum, quote) => sum + (quote.totalTtc ?? 0), 0),
     [quotes]
@@ -1998,32 +2005,27 @@ export default function ProjectDetailPage() {
     return Math.max(1, diffDays);
   }, [tasks]);
 
-  const upcomingTasks = useMemo(() => {
+  /** Interventions à venir (uniquement les interventions, pas les tâches) */
+  const upcomingInterventions = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    return tasks
-      .filter((task) => task.start_date && !isTaskCompleted(task.status))
-      .map((task) => {
-        const parsed = splitTaskDescription(task.description);
-        const timeRange = parseTimeRange(parsed.time ?? null);
-        const baseDate = new Date(`${task.start_date}T00:00:00`);
-        if (timeRange) {
-          baseDate.setHours(timeRange.startHour, timeRange.startMinute, 0, 0);
-        } else {
-          baseDate.setHours(8, 0, 0, 0);
-        }
-        return {
-          id: task.id,
-          name: task.name,
-          date: baseDate,
-          timeLabel: timeRange?.label ?? null,
-          description: parsed.text ?? null,
-        };
+    return interventions
+      .filter((lot) => {
+        const dateStr = lot.startDate ?? lot.endDate;
+        if (!dateStr) return false;
+        const d = new Date(`${dateStr}T00:00:00`);
+        d.setHours(0, 0, 0, 0);
+        return d >= today;
       })
-      .filter((item) => item.date >= today)
-      .sort((a, b) => a.date.getTime() - b.date.getTime())
-      .slice(0, 3);
-  }, [tasks]);
+      .map((lot) => ({
+        id: lot.id,
+        name: lot.name,
+        date: new Date(`${(lot.startDate ?? lot.endDate) ?? ""}T00:00:00`),
+        companyName: lot.companyName ?? null,
+        description: lot.description ?? null,
+      }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+  }, [interventions]);
 
   const dayKeys = useMemo(() => weekDays.map((day) => toDateKey(day)), [weekDays]);
   const dayKeySet = useMemo(() => new Set(dayKeys), [dayKeys]);
@@ -2136,27 +2138,16 @@ export default function ProjectDetailPage() {
   return (
     <div className="space-y-6">
       <header className="space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-4">
-            <img
-              src="/images/projet2.png"
-              alt="Projet"
-              className="h-28 w-28 object-contain logo-blend"
-            />
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">{project?.name ?? "Projet"}</h1>
-              <p className="text-gray-600">{project?.description ?? "Aucune description."}</p>
-            </div>
+        <div className="flex flex-wrap items-center gap-4">
+          <img
+            src="/images/projet2.png"
+            alt="Projet"
+            className="h-28 w-28 object-contain logo-blend"
+          />
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">{project?.name ?? "Projet"}</h1>
+            <p className="text-gray-600">{project?.description ?? "Aucune description."}</p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="inline-flex items-center gap-2 whitespace-nowrap"
-            onClick={() => router.push(`/dashboard/projets?role=${role}`)}
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Retour
-          </Button>
         </div>
         {currentMember?.status === "pending" && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 flex flex-wrap items-center gap-2">
@@ -2228,6 +2219,11 @@ export default function ProjectDetailPage() {
               </CardHeader>
               <CardContent className="text-2xl font-semibold text-gray-900">
                 {hasBudget ? formatCurrency(totalBudget) : "-"}
+                {interventionsBudgetActual > 0 && (
+                  <div className="text-sm text-gray-600 mt-1">
+                    Dépenses réelles : {formatCurrency(interventionsBudgetActual)}
+                  </div>
+                )}
                 <div className="text-xs text-gray-500 mt-1">
                   {interventions.length > 0 && (
                     <span>{interventions.length} intervention{interventions.length > 1 ? "s" : ""}</span>
@@ -2239,6 +2235,19 @@ export default function ProjectDetailPage() {
                 </div>
                 {quoteStatusSummary && (
                   <div className="text-xs text-gray-500 mt-1">{quoteStatusSummary}</div>
+                )}
+                {interventions.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => {
+                      setActiveTab("budget");
+                      updateQuery({ tab: "budget" });
+                    }}
+                  >
+                    Voir budget détaillé
+                  </Button>
                 )}
               </CardContent>
             </Card>
@@ -2326,47 +2335,52 @@ export default function ProjectDetailPage() {
 
           <div className="grid gap-4 lg:grid-cols-3">
             <Card className="lg:col-span-2 border-l-4 border-l-primary-200">
-              <CardHeader className="border-b border-primary-100 bg-primary-50/40">
-                <div className="font-semibold text-gray-900">Prochains rendez-vous</div>
-                <div className="text-sm text-gray-500">Tâches à venir.</div>
+              <CardHeader className="border-b border-primary-100 bg-primary-50/40 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold text-gray-900">Prochains rendez-vous</div>
+                  <div className="text-sm text-gray-500">
+                    Interventions à venir.
+                  </div>
+                </div>
+                {upcomingInterventions.length > 0 && (
+                  <Button variant="outline" size="sm" onClick={() => setRendezVousModalOpen(true)}>
+                    Voir tout
+                  </Button>
+                )}
               </CardHeader>
               <CardContent className="space-y-3">
-                {upcomingTasks.length === 0 && (
-                  <div className="text-sm text-gray-500">Aucun rendez-vous planifie.</div>
-                )}
-                {upcomingTasks.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3"
-                  >
-                    <div>
-                      <div className="font-semibold text-gray-900">{item.name}</div>
-                      <div className="text-xs text-gray-500 hidden">
-                        {formatDate(item.date)} {item.timeLabel ? `â€¢ ${item.timeLabel}` : ""}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {formatDate(item.date)} {item.timeLabel ? `à ${item.timeLabel}` : ""}
-                      </div>
-                      {item.description && (
-                        <div className="text-xs text-gray-500 mt-1">{item.description}</div>
-                      )}
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setActiveTab("planning");
-                        updateQuery({
-                          tab: "planning",
-                          planningDate: toDateKey(item.date),
-                          planningTaskId: item.id,
-                        });
-                      }}
+                {upcomingInterventions.length === 0 ? (
+                  <div className="text-sm text-gray-500">Aucune intervention à venir.</div>
+                ) : (
+                  upcomingInterventions.slice(0, 2).map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50 transition"
+                      onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${item.id}?role=${role}`)}
                     >
-                      Voir planning
-                    </Button>
-                  </div>
-                ))}
+                      <div>
+                        <div className="font-semibold text-gray-900">{item.name}</div>
+                        <div className="text-xs text-gray-500">
+                          {formatDate(item.date.toISOString().slice(0, 10))}
+                          {item.companyName ? ` • ${item.companyName}` : ""}
+                        </div>
+                        {item.description && (
+                          <div className="text-xs text-gray-500 mt-1 line-clamp-2">{item.description}</div>
+                        )}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/dashboard/projets/${projectId}/interventions/${item.id}?role=${role}`);
+                        }}
+                      >
+                        Voir intervention
+                      </Button>
+                    </div>
+                  ))
+                )}
               </CardContent>
             </Card>
 
@@ -2394,63 +2408,65 @@ export default function ProjectDetailPage() {
             </Card>
           </div>
 
-          <Card>
-            <CardHeader>
-              <div className="font-semibold text-gray-900">Suivi des tâches</div>
-              <div className="text-sm text-gray-500">
-                Mettez à jour l'état des tâches pour suivre l'avancement.
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {tasks.length === 0 && (
-                <div className="text-sm text-gray-500">Aucune tâche pour le moment.</div>
-              )}
-              {tasks.map((task) => {
-                const statusValue = normalizeTaskStatus(task.status);
-                const dueDate = getTaskDueDate(task);
-                const delayLabel = getTaskDelayLabel(task);
-                return (
-                  <div
-                    key={task.id}
-                    className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 ${getTaskCardStyle(
-                      task
-                    )}`}
-                  >
-                    <div>
-                      <div className="font-semibold text-gray-900">{task.name}</div>
-                      <div className="text-xs text-gray-500">
-                        {dueDate ? `Échéance: ${formatDate(dueDate)}` : "Sans date définie"}
+          {userRole !== "professionnel" && (
+            <Card>
+              <CardHeader>
+                <div className="font-semibold text-gray-900">Suivi des tâches</div>
+                <div className="text-sm text-gray-500">
+                  Mettez à jour l'état des tâches pour suivre l'avancement.
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {tasks.length === 0 && (
+                  <div className="text-sm text-gray-500">Aucune tâche pour le moment.</div>
+                )}
+                {tasks.map((task) => {
+                  const statusValue = normalizeTaskStatus(task.status);
+                  const dueDate = getTaskDueDate(task);
+                  const delayLabel = getTaskDelayLabel(task);
+                  return (
+                    <div
+                      key={task.id}
+                      className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 ${getTaskCardStyle(
+                        task
+                      )}`}
+                    >
+                      <div>
+                        <div className="font-semibold text-gray-900">{task.name}</div>
+                        <div className="text-xs text-gray-500">
+                          {dueDate ? `Échéance: ${formatDate(dueDate)}` : "Sans date définie"}
+                        </div>
+                        {delayLabel && (
+                          <div className="text-xs font-semibold text-red-600 mt-1">{delayLabel}</div>
+                        )}
                       </div>
-                      {delayLabel && (
-                        <div className="text-xs font-semibold text-red-600 mt-1">{delayLabel}</div>
-                      )}
+                      <div className="flex items-center gap-2">
+                        <select
+                          className="rounded-lg border border-gray-300 px-2 py-1 text-sm"
+                          value={statusValue}
+                          disabled={!canEditTasks}
+                          onChange={(event) =>
+                            handleUpdateTaskStatus(task, event.target.value as TaskStatusValue)
+                          }
+                        >
+                          {TASK_STATUS_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        {delayLabel && !isTaskCompleted(task.status) && (
+                          <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
+                            Retard
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <select
-                        className="rounded-lg border border-gray-300 px-2 py-1 text-sm"
-                        value={statusValue}
-                        disabled={!canEditTasks}
-                        onChange={(event) =>
-                          handleUpdateTaskStatus(task, event.target.value as TaskStatusValue)
-                        }
-                      >
-                        {TASK_STATUS_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      {delayLabel && !isTaskCompleted(task.status) && (
-                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
-                          Retard
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
 
           {interventions.length > 0 && (
             <Card>
@@ -2583,6 +2599,17 @@ export default function ProjectDetailPage() {
               })}
             </div>
           )}
+        </section>
+      )}
+
+      {!loading && activeTab === "budget" && (
+        <section>
+          <ProjectBudgetPanel
+            projectId={projectId}
+            projectName={project?.name ?? null}
+            interventions={interventions}
+            role={role}
+          />
         </section>
       )}
 
@@ -3812,6 +3839,62 @@ export default function ProjectDetailPage() {
                   {publishSubmitting ? "Publication..." : "Publier"}
                 </Button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rendezVousModalOpen && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-2xl w-full max-h-[85vh] flex flex-col">
+            <div className="flex items-start justify-between gap-3 p-6 border-b border-neutral-200">
+              <div>
+                <h3 className="text-lg font-semibold text-neutral-900">Toutes les interventions à venir</h3>
+                <p className="text-sm text-neutral-600">
+                  Liste de toutes les interventions planifiées.
+                </p>
+              </div>
+              <Button variant="ghost" onClick={() => setRendezVousModalOpen(false)}>
+                Fermer
+              </Button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 space-y-3">
+              {upcomingInterventions.length === 0 ? (
+                <div className="text-sm text-gray-500">Aucune intervention à venir.</div>
+              ) : (
+                upcomingInterventions.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50 transition"
+                    onClick={() => {
+                      setRendezVousModalOpen(false);
+                      router.push(`/dashboard/projets/${projectId}/interventions/${item.id}?role=${role}`);
+                    }}
+                  >
+                    <div>
+                      <div className="font-semibold text-gray-900">{item.name}</div>
+                      <div className="text-xs text-gray-500">
+                        {formatDate(item.date.toISOString().slice(0, 10))}
+                        {item.companyName ? ` • ${item.companyName}` : ""}
+                      </div>
+                      {item.description && (
+                        <div className="text-xs text-gray-500 mt-1 line-clamp-2">{item.description}</div>
+                      )}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRendezVousModalOpen(false);
+                        router.push(`/dashboard/projets/${projectId}/interventions/${item.id}?role=${role}`);
+                      }}
+                    >
+                      Voir intervention
+                    </Button>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
