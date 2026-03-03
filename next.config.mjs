@@ -3,7 +3,6 @@ const nextConfig = {
   reactStrictMode: true,
   experimental: {
     serverComponentsExternalPackages: ['docx'],
-    missingSuspenseWithCSRBailout: false,
   },
 };
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { ChatWidget } from "@/components/chat/ChatWidget";
@@ -9,11 +9,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+function DashboardShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -22,8 +18,7 @@ export default function DashboardLayout({
   const fallbackRole: UserRole = roleParam === "professionnel" ? "professionnel" : "particulier";
   const { session, user, loading } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const hideChatWidget =
-    pathname?.startsWith("/dashboard/projets/") && (tabParam === "assistant" || tabParam === "guide");
+  const hideChatWidget = true; // Bouton Agent IA désactivé pour les deux rôles
 
   const activeUser = useMemo(() => {
     if (user) return user;
@@ -93,5 +88,21 @@ export default function DashboardLayout({
         />
       )}
     </div>
+  );
+}
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-neutral-50 flex items-center justify-center text-neutral-600">
+        Chargement...
+      </div>
+    }>
+      <DashboardShell>{children}</DashboardShell>
+    </Suspense>
   );
 }

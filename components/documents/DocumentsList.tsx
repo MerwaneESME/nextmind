@@ -9,10 +9,12 @@ import { Eye, Trash2 } from "lucide-react";
 import {
   deleteDocument,
   getDocuments,
+  inferTypeFromFile,
   uploadDocument,
   type DocumentRow,
   type DocumentType,
 } from "@/lib/db/documentsDb";
+import { DocumentPreviewTrigger } from "./DocumentPreviewModal";
 
 type DocsContext = { projectId?: string; phaseId?: string; lotId?: string };
 
@@ -31,12 +33,6 @@ function formatFileSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function inferTypeFromFile(file: File): DocumentType {
-  const mime = String(file.type || "").toLowerCase();
-  if (mime.startsWith("image/")) return "photo";
-  return "autre";
 }
 
 export default function DocumentsList({
@@ -174,11 +170,16 @@ export default function DocumentsList({
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <a href={doc.file_url} target="_blank" rel="noreferrer" aria-label="Ouvrir">
-                  <Button variant="outline" size="sm" className="h-9 w-9 p-0" title="Ouvrir">
+                <DocumentPreviewTrigger
+                  url={doc.file_url}
+                  name={doc.name}
+                  fileType={doc.file_type}
+                  className="inline-flex"
+                >
+                  <Button variant="outline" size="sm" className="h-9 w-9 p-0" title="Aperçu">
                     <Eye className="h-4 w-4" />
                   </Button>
-                </a>
+                </DocumentPreviewTrigger>
                 <Button
                   variant="outline"
                   size="sm"

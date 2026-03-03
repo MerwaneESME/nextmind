@@ -76,23 +76,29 @@ export default function ProjetsPage() {
     clientEmail: "",
   });
 
-  const loadProjects = async () => {
+  const loadProjects = async (silent = false) => {
     if (!user?.id) return;
-    setLoading(true);
-    setError(null);
+    if (!silent) setLoading(true);
+    if (!silent) setError(null);
     try {
       const data = await fetchProjectsForUser(user.id);
       setProjects(data);
     } catch (err: any) {
-      setError(err?.message ?? "Impossible de charger les projets.");
+      if (!silent) setError(err?.message ?? "Impossible de charger les projets.");
       setProjects([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     void loadProjects();
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const interval = setInterval(() => void loadProjects(true), 20000);
+    return () => clearInterval(interval);
   }, [user?.id]);
 
   const filteredProjects = useMemo(() => {
