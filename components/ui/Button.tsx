@@ -19,7 +19,7 @@ export function Button({
   
   const variants = {
     primary:
-      "bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500",
+      "bg-gradient-to-r from-primary-400 to-primary-600 text-white hover:opacity-90 focus:ring-primary-500",
     secondary:
       "bg-neutral-100 text-neutral-900 hover:bg-neutral-200 focus:ring-neutral-400",
     outline:
