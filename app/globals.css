@@ -66,6 +66,77 @@
 }
 
 @layer components {
+  /* Gradient text (landing page) */
+  .gradient-text {
+    background-image: linear-gradient(to right, #38b6ff, #1800ad);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Landing page hero animations */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .animate-fade-in-up {
+    animation: fadeInUp 0.7s ease forwards;
+  }
+  .animate-fade-in-up-1 {
+    opacity: 0;
+    animation: fadeInUp 0.7s ease 0.15s forwards;
+  }
+  .animate-fade-in-up-2 {
+    opacity: 0;
+    animation: fadeInUp 0.7s ease 0.3s forwards;
+  }
+  .animate-fade-in-up-3 {
+    opacity: 0;
+    animation: fadeInUp 0.8s ease 0.5s forwards;
+  }
+
+  /* Glass card (beam-build style) */
+  .glass-card {
+    @apply rounded-xl border bg-white/70 backdrop-blur-sm;
+    border-color: rgba(255, 255, 255, 0.6);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  }
+
+  /* Hover card lift */
+  .card-hover {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+  }
+
+  /* Pill tabs */
+  .tab-pill {
+    @apply px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer text-neutral-500;
+  }
+  .tab-pill:hover {
+    @apply bg-neutral-100;
+  }
+  .tab-pill-active {
+    @apply bg-white shadow-sm text-primary-600;
+  }
+
+  /* Sidebar nav items */
+  .sidebar-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200;
+    color: hsl(214 32% 75%);
+  }
+  .sidebar-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: hsl(0 0% 100%);
+  }
+  .sidebar-item-active {
+    background: rgba(56, 182, 255, 0.22);
+    color: #7dd3fc;
+    border-left: 2px solid #38b6ff;
+  }
+
   /* Header du chat */
   .chat-header {
     display: flex;

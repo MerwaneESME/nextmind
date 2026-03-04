@@ -14,7 +14,7 @@ import LotBudgetPanel from "@/components/lot/LotBudgetPanel";
 import StatCard from "@/components/ui/StatCard";
 import ProgressBar from "@/components/ui/ProgressBar";
 import { useAuth } from "@/hooks/useAuth";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatDate, normalizeDateValue } from "@/lib/utils";
 import { canEditLot } from "@/lib/accessControl";
 import { getMyPhaseMembership } from "@/lib/phaseMembersDb";
 import { fetchLotTasks, createLotTask, updateLotTask, deleteLotTask, type LotTask } from "@/lib/lotTasksDb";
@@ -553,7 +553,7 @@ export default function LotPage() {
                   <Input
                     type="date"
                     value={taskForm.dueDate}
-                    onChange={(e) => setTaskForm({ ...taskForm, dueDate: e.target.value })}
+                    onChange={(e) => setTaskForm({ ...taskForm, dueDate: normalizeDateValue(e.target.value) || e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">

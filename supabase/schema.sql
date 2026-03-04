@@ -1,4 +1,4 @@
-﻿-- ============================================================================
+-- ============================================================================
 -- NextMind Supabase schema (single file)
 -- This file is intended to be run in Supabase SQL Editor (admin role).
 -- Generated from former supabase/migrations/*.sql on 2026-02-09 11:52:02
@@ -154,10 +154,7 @@ drop policy if exists projects_insert on public.projects;
 create policy projects_insert
 on public.projects
 for insert
-with check (
-  public.is_pro()
-  and created_by = auth.uid()
-);
+with check (created_by = auth.uid());
 
 drop policy if exists projects_update on public.projects;
 create policy projects_update
@@ -1445,6 +1442,63 @@ to authenticated
 using (
   bucket_id = 'documents'
   and auth.uid() = owner
+);
+
+commit;
+
+-- ---------------------------------------------------------------------------
+-- Source: supabase/migrations/0010_portfolio_images_bucket.sql
+-- ---------------------------------------------------------------------------
+-- Bucket public pour les images du portfolio pro.
+-- Chaque pro uploade dans son propre dossier : {user_id}/{timestamp}.{ext}
+-- A executer dans Supabase SQL Editor.
+
+-- Creer le bucket si absent
+insert into storage.buckets (id, name, public)
+values ('portfolio-images', 'portfolio-images', true)
+on conflict (id) do nothing;
+
+begin;
+
+-- Upload : utilisateur authentifie dans son propre dossier
+drop policy if exists portfolio_images_insert on storage.objects;
+create policy portfolio_images_insert
+on storage.objects
+for insert
+to authenticated
+with check (
+  bucket_id = 'portfolio-images'
+  and (storage.foldername(name))[1] = auth.uid()::text
+);
+
+-- Lecture publique (images visibles par tous)
+drop policy if exists portfolio_images_select on storage.objects;
+create policy portfolio_images_select
+on storage.objects
+for select
+to public
+using (bucket_id = 'portfolio-images');
+
+-- Mise a jour par le proprietaire
+drop policy if exists portfolio_images_update on storage.objects;
+create policy portfolio_images_update
+on storage.objects
+for update
+to authenticated
+using (
+  bucket_id = 'portfolio-images'
+  and (storage.foldername(name))[1] = auth.uid()::text
+);
+
+-- Suppression par le proprietaire
+drop policy if exists portfolio_images_delete on storage.objects;
+create policy portfolio_images_delete
+on storage.objects
+for delete
+to authenticated
+using (
+  bucket_id = 'portfolio-images'
+  and (storage.foldername(name))[1] = auth.uid()::text
 );
 
 commit;

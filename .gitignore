@@ -28,6 +28,12 @@ yarn-error.log*
 .env*.local
 .env
 
+# seed output (contient mots de passe)
+seed-users-output.csv
+seed-pros-paris-lille-output.csv
+seed-particuliers-paris-lille-output.csv
+*-seed-output.csv
+
 # vercel
 .vercel
 

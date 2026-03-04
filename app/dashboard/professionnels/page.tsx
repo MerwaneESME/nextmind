@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -39,7 +39,12 @@ type Filters = {
   specialty: string;
 };
 
-const buildSearchPattern = (value: string) => `%${value}%`;
+// PostgREST utilise * comme alias de % pour éviter l'encodage URL (sinon % devient %25 et casse le pattern)
+// On échappe % et _ pour qu'ils soient traités comme littéraux en ILIKE
+const buildSearchPattern = (value: string) => {
+  const escaped = value.replace(/[%_\\]/g, (c) => `\\${c}`);
+  return `*${escaped}*`;
+};
 
 type UserLocation = { lat: number; lng: number };
 
@@ -159,7 +164,7 @@ export default function ProfessionnelsPage() {
 
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [distanceKm, setDistanceKm] = useState(50);
-  const [sortBy, setSortBy] = useState<"distance" | "note" | "popularite">("distance");
+  const [sortBy, setSortBy] = useState<"distance" | "note" | "popularite" | "score">("score");
   const [selectedProId, setSelectedProId] = useState<string | null>(null);
   const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
   const [geocodedCoords, setGeocodedCoords] = useState<Record<string, UserLocation>>({});
@@ -507,7 +512,7 @@ export default function ProfessionnelsPage() {
         <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
         <div className="relative flex items-start justify-between gap-6 p-6 sm:p-8">
           <div className="flex items-start gap-4">
-            <div className="h-14 w-14 rounded-2xl bg-primary-600 text-white flex items-center justify-center shadow-sm">
+            <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white flex items-center justify-center shadow-sm">
               <MapPin className="h-6 w-6" />
             </div>
             <div className="min-w-0">
@@ -543,7 +548,9 @@ export default function ProfessionnelsPage() {
         </div>
       )}
 
-      <section className="rounded-3xl border border-neutral-200 bg-white shadow-sm p-4 sm:p-6 space-y-4">
+      <section className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <div className="relative z-10 p-4 sm:p-6 space-y-4">
         <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-start">
           <div className="space-y-3">
             <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-start">
@@ -645,6 +652,7 @@ export default function ProfessionnelsPage() {
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
                 >
+                  <option value="score">Tri: Score (recommandé)</option>
                   <option value="distance">Tri: Distance</option>
                   <option value="note">Tri: Note</option>
                   <option value="popularite">Tri: Popularité</option>
@@ -709,7 +717,7 @@ export default function ProfessionnelsPage() {
                         className={[
                           "px-3 py-1 rounded-full text-xs border transition",
                           active
-                            ? "bg-primary-600 text-white border-primary-600"
+                            ? "bg-gradient-to-r from-primary-400 to-primary-600 text-white border-primary-400"
                             : "bg-white text-neutral-800 border-neutral-200 hover:bg-neutral-50",
                         ].join(" ")}
                       >
@@ -777,7 +785,7 @@ export default function ProfessionnelsPage() {
                             "px-3 py-1 rounded-full text-xs border transition",
                             disabled ? "opacity-60 cursor-not-allowed" : "hover:bg-neutral-50",
                             active
-                              ? "bg-primary-600 text-white border-primary-600"
+                              ? "bg-gradient-to-r from-primary-400 to-primary-600 text-white border-primary-400"
                               : "bg-white text-neutral-800 border-neutral-200",
                           ].join(" ")}
                         >
@@ -799,6 +807,7 @@ export default function ProfessionnelsPage() {
             </div>
           </div>
         )}
+        </div>
       </section>
 
       {agentMode && agentError && (
@@ -879,7 +888,12 @@ export default function ProfessionnelsPage() {
 
             <div className="max-h-[72vh] overflow-auto p-4 space-y-3">
               {loading ? (
-                <div className="text-sm text-neutral-600">Chargement des professionnels...</div>
+                <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+                  <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+                  <div className="relative p-6 text-center text-sm text-neutral-600">
+                    Chargement des professionnels...
+                  </div>
+                </div>
               ) : (
                 <>
                   {visibleRows.map((p) => {
@@ -894,14 +908,15 @@ export default function ProfessionnelsPage() {
                       >
                         <Card
                           className={[
-                            "transition cursor-pointer rounded-2xl",
+                            "relative overflow-hidden transition cursor-pointer rounded-2xl",
                             isActive
                               ? "border-primary-300 shadow-md"
                               : "hover:shadow-md hover:-translate-y-[1px]",
                           ].join(" ")}
                           onClick={() => setSelectedProId(p.pro_id)}
                         >
-                          <CardContent className="p-5">
+                          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+                          <CardContent className="relative z-10 p-5">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <h3 className="truncate text-base font-semibold text-neutral-900">{p.title}</h3>
@@ -979,8 +994,11 @@ export default function ProfessionnelsPage() {
                   })}
 
                   {!loading && filteredAndSorted.length === 0 && (
-                    <div className="text-sm text-neutral-600">
-                      Aucun professionnel ne correspond à votre recherche.
+                    <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+                      <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+                      <div className="relative p-6 text-center text-sm text-neutral-600">
+                        Aucun professionnel ne correspond à votre recherche.
+                      </div>
                     </div>
                   )}
 
@@ -1032,7 +1050,12 @@ export default function ProfessionnelsPage() {
           </div>
           <div className="p-4 overflow-auto max-h-[72vh] space-y-3">
             {loading ? (
-              <div className="text-sm text-neutral-600">Chargement des professionnels...</div>
+              <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+                <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+                <div className="relative p-6 text-center text-sm text-neutral-600">
+                  Chargement des professionnels...
+                </div>
+              </div>
             ) : (
               <>
                 {visibleRows.map((p) => {
@@ -1047,12 +1070,13 @@ export default function ProfessionnelsPage() {
                     >
                       <Card
                         className={[
-                          "transition cursor-pointer rounded-2xl",
+                          "relative overflow-hidden transition cursor-pointer rounded-2xl",
                           isActive ? "border-primary-300 shadow-md" : "hover:shadow-md hover:-translate-y-[1px]",
                         ].join(" ")}
                         onClick={() => setSelectedProId(p.pro_id)}
                       >
-                        <CardContent className="p-5">
+                        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+                        <CardContent className="relative z-10 p-5">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <h3 className="truncate text-base font-semibold text-neutral-900">{p.title}</h3>
@@ -1127,8 +1151,11 @@ export default function ProfessionnelsPage() {
                 )}
 
                 {!loading && filteredAndSorted.length === 0 && (
-                  <div className="text-sm text-neutral-600">
-                    Aucun professionnel ne correspond à votre recherche.
+                  <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+                    <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+                    <div className="relative p-6 text-center text-sm text-neutral-600">
+                      Aucun professionnel ne correspond à votre recherche.
+                    </div>
                   </div>
                 )}
               </>

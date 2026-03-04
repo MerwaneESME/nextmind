@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardHeader, CardContent } from "@/components/ui/Card";
 import { Table, TableHeader, TableRow, TableHead, TableCell } from "@/components/ui/Table";
 import { Button } from "@/components/ui/Button";
@@ -14,10 +14,25 @@ import {
   FileText,
   Eye,
   Download,
+  FolderOpen,
+  ImagePlus,
+  Trash2,
   TrendingUp,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { createProject, fetchProjectsForUser, ProjectSummary } from "@/lib/projectsDb";
+import {
+  createProjectAsParticulier,
+  fetchProjectsForUser,
+  ProjectSummary,
+  type CreateProjectParticulierInput,
+  type QuestionnaireData,
+} from "@/lib/projectsDb";
+import { inferTypeFromFile, uploadDocument } from "@/lib/db/documentsDb";
+import {
+  PROJECT_TYPES_PARTICULIER,
+  getQuestionnaireFields,
+  type QuestionnaireField,
+} from "@/lib/projectQuestionnaire";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { QuoteSummary } from "@/lib/quotesStore";
@@ -61,16 +76,30 @@ const toMonthKey = (date: Date) =>
 
 const getStatusBadge = (status: string) => {
   const styles = {
-    draft: "bg-gray-100 text-gray-800",
-    en_cours: "bg-blue-100 text-blue-800",
-    termine: "bg-green-100 text-green-800",
-    en_attente: "bg-yellow-100 text-yellow-800",
-    a_faire: "bg-gray-100 text-gray-800",
-    envoye: "bg-blue-100 text-blue-800",
-    valide: "bg-green-100 text-green-800",
-    refuse: "bg-red-100 text-red-800",
+    draft: "bg-neutral-100 text-neutral-700",
+    en_cours: "bg-primary-50 text-primary-700",
+    termine: "bg-emerald-50 text-emerald-700",
+    en_attente: "bg-amber-50 text-amber-700",
+    a_faire: "bg-neutral-100 text-neutral-700",
+    envoye: "bg-primary-50 text-primary-700",
+    valide: "bg-emerald-50 text-emerald-700",
+    refuse: "bg-red-50 text-red-700",
   };
   return styles[status as keyof typeof styles] || styles.en_attente;
+};
+
+const getStatusDotClass = (status: string) => {
+  const dots = {
+    draft: "bg-neutral-400",
+    en_cours: "bg-primary-400",
+    termine: "bg-emerald-400",
+    en_attente: "bg-amber-400",
+    a_faire: "bg-neutral-400",
+    envoye: "bg-primary-400",
+    valide: "bg-emerald-400",
+    refuse: "bg-red-400",
+  };
+  return dots[status as keyof typeof dots] || dots.en_attente;
 };
 
 const getStatusLabel = (status: string) => {
@@ -87,7 +116,7 @@ const getStatusLabel = (status: string) => {
   return labels[status] || status;
 };
 
-export default function DashboardPage() {
+function DashboardContent() {
   const searchParams = useSearchParams();
   const roleParam = searchParams.get("role");
   const userRole: "particulier" | "professionnel" =
@@ -98,6 +127,18 @@ export default function DashboardPage() {
   }
 
   return <ParticulierDashboard />;
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-[400px] flex items-center justify-center text-neutral-600">
+        Chargement du tableau de bord...
+      </div>
+    }>
+      <DashboardContent />
+    </Suspense>
+  );
 }
 
 function ProfessionalDashboard() {
@@ -117,39 +158,48 @@ function ProfessionalDashboard() {
     return path.startsWith(`${bucket}/`) ? path.slice(bucket.length + 1) : path;
   };
 
-  const loadProjects = async () => {
+  const loadProjects = async (silent = false) => {
     if (!user?.id) return;
-    setProjectsLoading(true);
-    setProjectsError(null);
+    if (!silent) setProjectsLoading(true);
+    if (!silent) setProjectsError(null);
     try {
       const data = await fetchProjectsForUser(user.id);
       setProjects(data);
     } catch (err: any) {
-      setProjectsError(err?.message ?? "Impossible de charger les projets.");
+      if (!silent) setProjectsError(err?.message ?? "Impossible de charger les projets.");
       setProjects([]);
     } finally {
-      setProjectsLoading(false);
+      if (!silent) setProjectsLoading(false);
     }
   };
 
-  const loadQuotes = async () => {
+  const loadQuotes = async (silent = false) => {
     if (!user?.id) return;
-    setQuotesLoading(true);
-    setQuotesError(null);
+    if (!silent) setQuotesLoading(true);
+    if (!silent) setQuotesError(null);
     try {
       const data = await fetchDevisForUser(user.id);
       setQuotes(data);
     } catch (err: any) {
-      setQuotesError(err?.message ?? "Impossible de charger les devis.");
+      if (!silent) setQuotesError(err?.message ?? "Impossible de charger les devis.");
       setQuotes([]);
     } finally {
-      setQuotesLoading(false);
+      if (!silent) setQuotesLoading(false);
     }
   };
 
   useEffect(() => {
     void loadProjects();
     void loadQuotes();
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const interval = setInterval(() => {
+      void loadProjects(true);
+      void loadQuotes(true);
+    }, 20000);
+    return () => clearInterval(interval);
   }, [user?.id]);
 
   const monthSeries = useMemo(() => {
@@ -374,80 +424,91 @@ function ProfessionalDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-
-        <img
-
-          src="/images/dashboard.png"
-
-          alt="Tableau de bord"
-
-          className="h-28 w-28 object-contain logo-blend"
-
-        />
-
-        <div>
-
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Tableau de bord</h1>
-
-          <p className="text-gray-600">Vue d'ensemble de votre activité</p>
-
+      <header className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <div className="relative flex items-start justify-between gap-6 p-6 sm:p-8">
+          <div className="flex items-start gap-4">
+            <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
+              <TrendingUp className="h-6 w-6" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Tableau de bord</h1>
+              <p className="text-neutral-600 mt-1">Vue d'ensemble de votre activité</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-600">
+                <span className="rounded-full border border-neutral-200 bg-white px-3 py-1">
+                  {projects.length} projet{projects.length !== 1 ? "s" : ""}
+                </span>
+                <span className="rounded-full border border-neutral-200 bg-white px-3 py-1">
+                  {quotes.length} devis
+                </span>
+                {projects.filter((p) => resolveProjectStatus(p.status) === "en_cours").length > 0 && (
+                  <span className="rounded-full border border-primary-200 bg-primary-50 text-primary-700 px-3 py-1">
+                    {projects.filter((p) => resolveProjectStatus(p.status) === "en_cours").length} en cours
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <img
+            src="/images/dashboard.png"
+            alt="Tableau de bord"
+            className="hidden sm:block h-20 w-20 object-contain opacity-90 logo-blend flex-shrink-0"
+          />
         </div>
-
-      </div>
+      </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden border-l-4 border-l-primary-400">
+          <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Projets en cours</p>
-                <p className="text-2xl font-bold text-gray-900">{projectsEnCours}</p>
+                <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Projets en cours</p>
+                <p className="text-3xl font-bold text-neutral-900">{projectsEnCours}</p>
               </div>
-              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                <Clock className="w-6 h-6 text-blue-600" />
+              <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center flex-shrink-0">
+                <Clock className="w-5 h-5 text-primary-600" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden border-l-4 border-l-emerald-400">
+          <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Projets achevés</p>
-                <p className="text-2xl font-bold text-gray-900">{projectsTermines}</p>
+                <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Projets achevés</p>
+                <p className="text-3xl font-bold text-neutral-900">{projectsTermines}</p>
               </div>
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                <CheckCircle className="w-6 h-6 text-green-600" />
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                <CheckCircle className="w-5 h-5 text-emerald-600" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden border-l-4 border-l-amber-400">
+          <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Devis à faire</p>
-                <p className="text-2xl font-bold text-gray-900">{devisStats.a_faire}</p>
+                <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Devis à faire</p>
+                <p className="text-3xl font-bold text-neutral-900">{devisStats.a_faire}</p>
               </div>
-              <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-                <FileText className="w-6 h-6 text-yellow-600" />
+              <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <FileText className="w-5 h-5 text-amber-600" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden border-l-4 border-l-red-400">
+          <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Alertes</p>
-                <p className="text-2xl font-bold text-gray-900">{alertesNonLues}</p>
+                <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Alertes</p>
+                <p className="text-3xl font-bold text-neutral-900">{alertesNonLues}</p>
               </div>
-              <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
-                <AlertCircle className="w-6 h-6 text-red-600" />
+              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0">
+                <AlertCircle className="w-5 h-5 text-red-600" />
               </div>
             </div>
           </CardContent>
@@ -456,8 +517,9 @@ function ProfessionalDashboard() {
 
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2 overflow-hidden border border-primary-100 bg-gradient-to-br from-white via-primary-50/60 to-white shadow-sm">
-          <CardHeader className="border-primary-100/80">
+        <Card className="relative lg:col-span-2 overflow-hidden border border-primary-100 shadow-sm">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardHeader className="relative z-10 border-primary-100/80">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-sm text-neutral-500">Evolution du CA</p>
@@ -493,7 +555,7 @@ function ProfessionalDashboard() {
               </div>
             </div>
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="relative z-10 space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-neutral-500">Total</p>
@@ -548,9 +610,11 @@ function ProfessionalDashboard() {
                         }`}
                       >
                         <div
-                          className={`w-full rounded-md bg-gradient-to-t from-primary-600/30 via-primary-400/60 to-primary-200 ${
-                            projectHeight > 0 ? "opacity-100" : "opacity-0"
-                          }`}
+                          className={`w-full rounded-md transition-all ${
+                            isActive
+                              ? "bg-gradient-to-t from-primary-600 via-primary-500 to-primary-300"
+                              : "bg-gradient-to-t from-primary-500 via-primary-400 to-primary-200"
+                          } ${projectHeight > 0 ? "opacity-100" : "opacity-0"}`}
                           style={{ height: `${projectHeight}%` }}
                         />
                       </div>
@@ -619,27 +683,35 @@ function ProfessionalDashboard() {
                               <span className="uppercase tracking-[0.15em] text-neutral-500">
                                 {project.projectType ?? "Projet"}
                               </span>
-                              <span className="text-neutral-400">|</span>
-                              <span className="text-neutral-700">
-                                {budgetValue > 0 ? formatCurrency(budgetValue) : "Budget non défini"}
-                              </span>
+                              {budgetValue > 0 && (
+                                <>
+                                  <span className="text-neutral-400">|</span>
+                                  <span className="text-neutral-700">{formatCurrency(budgetValue)}</span>
+                                </>
+                              )}
                             </div>
                           </div>
-                          <div className="text-right">
-                            <p className="text-xs font-semibold text-primary-600">
-                              {Math.round(rawPercent)}%
-                            </p>
-                            <p className="text-[10px] uppercase tracking-[0.15em] text-neutral-500">
-                              {budgetBaselineShortLabel}
-                            </p>
+                          {budgetValue > 0 ? (
+                            <div className="text-right flex-shrink-0">
+                              <p className="text-xs font-semibold text-primary-600">
+                                {Math.round(rawPercent)}%
+                              </p>
+                              <p className="text-[10px] uppercase tracking-[0.15em] text-neutral-500">
+                                {budgetBaselineShortLabel}
+                              </p>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-neutral-400 italic flex-shrink-0">Budget à définir</span>
+                          )}
+                        </div>
+                        {budgetValue > 0 && (
+                          <div className="mt-2 h-1.5 rounded-full bg-neutral-200">
+                            <div
+                              className="h-1.5 rounded-full bg-gradient-to-r from-primary-400 to-primary-600"
+                              style={{ width: `${displayPercent}%` }}
+                            />
                           </div>
-                        </div>
-                        <div className="mt-2 h-2 rounded-full bg-neutral-200">
-                          <div
-                            className="h-2 rounded-full bg-primary-500"
-                            style={{ width: `${displayPercent}%` }}
-                          />
-                        </div>
+                        )}
                       </div>
                     );
                   })
@@ -652,7 +724,8 @@ function ProfessionalDashboard() {
         </Card>
 
         <Card className="relative overflow-hidden">
-          <CardHeader className="relative border-neutral-100">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardHeader className="relative z-10 border-neutral-100">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-neutral-500">Taux de conversion client</p>
@@ -665,7 +738,7 @@ function ProfessionalDashboard() {
               />
             </div>
           </CardHeader>
-          <CardContent className="relative space-y-6">
+          <CardContent className="relative z-10 space-y-6">
             <div className="flex items-center gap-4">
               <div className="relative h-24 w-24">
                 <div
@@ -711,21 +784,22 @@ function ProfessionalDashboard() {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
+      <Card className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <CardHeader className="relative z-10">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">Projets récents</h2>
+            <h2 className="text-lg font-semibold text-neutral-900">Projets récents</h2>
             <Button variant="outline" size="sm" onClick={openProjects}>
               Voir tout
             </Button>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="relative z-10">
           {projectsError && (
             <div className="text-sm text-red-600 mb-3">{projectsError}</div>
           )}
           {projectsLoading ? (
-            <p className="text-sm text-gray-500">Chargement des projets...</p>
+            <p className="text-sm text-neutral-500">Chargement des projets...</p>
           ) : (
             <>
               <Table>
@@ -744,25 +818,24 @@ function ProfessionalDashboard() {
                       <TableRow key={project.id} onClick={() => handleOpenProject(project.id)}>
                         <TableCell>
                           <div>
-                            <p className="font-medium text-gray-900">{project.name}</p>
+                            <p className="font-medium text-neutral-900">{project.name}</p>
                             {project.description && (
-                              <p className="text-sm text-gray-500">{project.description}</p>
+                              <p className="text-sm text-neutral-500">{project.description}</p>
                             )}
                           </div>
                         </TableCell>
                         <TableCell>
                           <span
-                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(
-                              statusKey
-                            )}`}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(statusKey)}`}
                           >
+                            <span className={`h-1.5 w-1.5 rounded-full ${getStatusDotClass(statusKey)}`} />
                             {getStatusLabel(statusKey)}
                           </span>
                         </TableCell>
-                        <TableCell className="text-gray-600">
+                        <TableCell className="text-neutral-600">
                           {project.createdAt ? formatDate(project.createdAt) : "-"}
                         </TableCell>
-                        <TableCell className="text-gray-600">
+                        <TableCell className="text-neutral-600">
                           {project.updatedAt ? formatDate(project.updatedAt) : "-"}
                         </TableCell>
                       </TableRow>
@@ -771,19 +844,20 @@ function ProfessionalDashboard() {
                 </tbody>
               </Table>
               {!projects.length && (
-                <p className="text-sm text-gray-500 mt-4">Aucun projet pour le moment.</p>
+                <p className="text-sm text-neutral-500 mt-4">Aucun projet pour le moment.</p>
               )}
             </>
           )}
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
+      <Card className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <CardHeader className="relative z-10">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">Devis récents</h2>
+            <h2 className="text-lg font-semibold text-neutral-900">Devis récents</h2>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600">
+              <span className="text-sm text-neutral-500">
                 En étude: {devisStats.a_faire} | Envoyés: {devisStats.envoye} | Validés: {devisStats.valide}
               </span>
               <Button variant="outline" size="sm" onClick={openDevis}>
@@ -792,7 +866,7 @@ function ProfessionalDashboard() {
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="relative z-10">
           {quotesError && (
             <div className="text-sm text-red-600 mb-3">{quotesError}</div>
           )}
@@ -813,25 +887,24 @@ function ProfessionalDashboard() {
                   <TableRow key={quote.id}>
                     <TableCell>
                       <div>
-                        <p className="font-medium text-gray-900">{quote.title}</p>
+                        <p className="font-medium text-neutral-900">{quote.title}</p>
                         {quote.clientName && (
-                          <p className="text-xs text-gray-500">Client: {quote.clientName}</p>
+                          <p className="text-xs text-neutral-500">Client: {quote.clientName}</p>
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="font-medium">
+                    <TableCell className="font-medium text-neutral-900">
                       {typeof quote.totalTtc === "number" ? formatCurrency(quote.totalTtc) : "-"}
                     </TableCell>
                     <TableCell>
                       <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(
-                          workflowStatus
-                        )}`}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(workflowStatus)}`}
                       >
+                        <span className={`h-1.5 w-1.5 rounded-full ${getStatusDotClass(workflowStatus)}`} />
                         {getStatusLabel(workflowStatus)}
                       </span>
                     </TableCell>
-                    <TableCell className="text-gray-600">
+                    <TableCell className="text-neutral-600">
                       {formatDate(quote.updatedAt)}
                     </TableCell>
                     <TableCell>
@@ -860,16 +933,110 @@ function ProfessionalDashboard() {
             </tbody>
           </Table>
           {!quotesLoading && quotes.length === 0 && (
-            <p className="text-sm text-gray-500 mt-4">Aucun devis pour le moment.</p>
+            <p className="text-sm text-neutral-500 mt-4">Aucun devis pour le moment.</p>
           )}
           {quotesLoading && (
-            <p className="text-sm text-gray-500 mt-4">Chargement des devis...</p>
+            <p className="text-sm text-neutral-500 mt-4">Chargement des devis...</p>
           )}
         </CardContent>
       </Card>
     </div>
   );
 }
+
+const initialParticulierForm: CreateProjectParticulierInput & {
+  budgetStr: string;
+  surfaceSqmStr: string;
+  questionnaire: Record<string, string | number>;
+} = {
+  name: "",
+  description: "",
+  projectType: "",
+  address: "",
+  city: "",
+  postalCode: "",
+  budgetStr: "",
+  surfaceSqmStr: "",
+  desiredStartDate: "",
+  questionnaire: {},
+};
+
+function QuestionnaireFieldInput({
+  field,
+  value,
+  onChange,
+}: {
+  field: QuestionnaireField;
+  value: string | number;
+  onChange: (value: string | number) => void;
+}) {
+  const val = value ?? "";
+  const commonClass = "w-full px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent";
+  if (field.type === "textarea") {
+    return (
+      <div>
+        <label className="block text-sm font-medium text-neutral-800 mb-1">{field.label}</label>
+        <textarea
+          value={String(val)}
+          onChange={(e) => onChange(e.target.value)}
+          className={`${commonClass} min-h-[100px]`}
+          placeholder={field.placeholder}
+          required
+        />
+      </div>
+    );
+  }
+  if (field.type === "select") {
+    const selectId = `q-${field.key}`;
+    return (
+      <div>
+        <label htmlFor={selectId} className="block text-sm font-medium text-neutral-800 mb-1">{field.label}</label>
+        <select
+          id={selectId}
+          aria-label={field.label}
+          value={String(val)}
+          onChange={(e) => onChange(e.target.value)}
+          className={commonClass}
+          required
+        >
+          {(field.options ?? []).map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+  if (field.type === "number") {
+    return (
+      <Input
+        label={field.label}
+        type="number"
+        min={field.min}
+        max={field.max}
+        step={field.step}
+        value={String(val)}
+        onChange={(e) => {
+          const v = e.target.value;
+          onChange(v ? Number(v) : "");
+        }}
+        placeholder={field.placeholder}
+        required
+      />
+    );
+  }
+  return (
+    <Input
+      label={field.label}
+      value={String(val)}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={field.placeholder}
+      required
+    />
+  );
+}
+
+const ACCEPTED_FILE_TYPES = "image/*,application/pdf,.doc,.docx,.xls,.xlsx";
+const MAX_FILE_SIZE_MB = 10;
 
 function ParticulierDashboard() {
   const router = useRouter();
@@ -879,25 +1046,40 @@ function ParticulierDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formData, setFormData] = useState({ name: "", description: "" });
+  const [formData, setFormData] = useState(initialParticulierForm);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const loadProjects = async () => {
+  const addFiles = (files: FileList | File[]) => {
+    const arr = Array.isArray(files) ? files : Array.from(files);
+    const valid = arr.filter((f) => f.size <= MAX_FILE_SIZE_MB * 1024 * 1024);
+    setSelectedFiles((prev) => [...prev, ...valid]);
+  };
+
+  const loadProjects = async (silent = false) => {
     if (!user?.id) return;
-    setLoading(true);
-    setError(null);
+    if (!silent) setLoading(true);
+    if (!silent) setError(null);
     try {
       const data = await fetchProjectsForUser(user.id);
       setProjects(data);
     } catch (err: any) {
-      setError(err?.message ?? "Impossible de charger les projets.");
+      if (!silent) setError(err?.message ?? "Impossible de charger les projets.");
       setProjects([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     void loadProjects();
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const interval = setInterval(() => void loadProjects(true), 20000);
+    return () => clearInterval(interval);
   }, [user?.id]);
 
   const projectsEnCours = projects.filter(
@@ -914,11 +1096,48 @@ function ParticulierDashboard() {
     setIsSubmitting(true);
     setError(null);
     try {
-      await createProject(user.id, {
+      const budget = formData.budgetStr ? Number(formData.budgetStr.replace(/\s/g, "")) : undefined;
+      const surfaceSqm = formData.surfaceSqmStr ? Number(formData.surfaceSqmStr.replace(/\s/g, "").replace(",", ".")) : undefined;
+      const questionnaireData: QuestionnaireData = {};
+      for (const [k, v] of Object.entries(formData.questionnaire)) {
+        if (v !== "" && v !== null && v !== undefined) {
+          questionnaireData[k] = typeof v === "number" ? v : String(v).trim();
+        }
+      }
+      const description =
+        formData.projectType === "autre" && questionnaireData.descriptionDetaillee
+          ? String(questionnaireData.descriptionDetaillee)
+          : formData.description || undefined;
+      const projectId = await createProjectAsParticulier(user.id, {
         name: formData.name,
-        description: formData.description,
+        description: description,
+        projectType: formData.projectType || undefined,
+        address: formData.address || undefined,
+        city: formData.city || undefined,
+        postalCode: formData.postalCode || undefined,
+        budget: Number.isFinite(budget) ? budget : undefined,
+        desiredStartDate: formData.desiredStartDate || undefined,
+        surfaceSqm: Number.isFinite(surfaceSqm) ? surfaceSqm : undefined,
+        questionnaireData: Object.keys(questionnaireData).length ? questionnaireData : undefined,
       });
-      setFormData({ name: "", description: "" });
+      if (selectedFiles.length > 0 && projectId) {
+        const uploadErrors: string[] = [];
+        for (const file of selectedFiles) {
+          try {
+            await uploadDocument(file, {
+              projectId,
+              fileType: inferTypeFromFile(file),
+            });
+          } catch (uploadErr: any) {
+            uploadErrors.push(`${file.name}: ${uploadErr?.message ?? "Erreur"}`);
+          }
+        }
+        if (uploadErrors.length > 0) {
+          setError(`Projet créé. Erreurs lors de l'upload : ${uploadErrors.join(" ; ")}`);
+        }
+      }
+      setFormData(initialParticulierForm);
+      setSelectedFiles([]);
       setIsCreating(false);
       await loadProjects();
     } catch (err: any) {
@@ -928,6 +1147,17 @@ function ParticulierDashboard() {
     }
   };
 
+  const handleProjectTypeChange = (value: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      projectType: value,
+      questionnaire: {},
+    }));
+  };
+
+  const questionnaireFields = getQuestionnaireFields(formData.projectType);
+  const needsSurface = ["renovation", "construction", "extension", "peinture", "carrelage", "toiture"].includes(formData.projectType);
+
   const handleOpenProject = (projectId: string) => {
     const roleParam = user?.role === "professionnel" ? "professionnel" : "particulier";
     router.push(`/dashboard/projets/${projectId}?role=${roleParam}`);
@@ -935,15 +1165,45 @@ function ParticulierDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Mes projets</h1>
-          <p className="text-gray-600">Gérez vos projets BTP</p>
+      <header className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <div className="relative flex items-start justify-between gap-6 p-6 sm:p-8">
+          <div className="flex items-start gap-4">
+            <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
+              <FolderOpen className="h-6 w-6" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Mes projets</h1>
+              <p className="text-neutral-600 mt-1">Gérez vos projets BTP</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-600">
+                <span className="rounded-full border border-neutral-200 bg-white px-3 py-1">
+                  {projects.length} projet{projects.length !== 1 ? "s" : ""}
+                </span>
+                {projectsEnCours > 0 && (
+                  <span className="rounded-full border border-primary-200 bg-primary-50 text-primary-700 px-3 py-1">
+                    {projectsEnCours} en cours
+                  </span>
+                )}
+                {projectsTermines > 0 && (
+                  <span className="rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 px-3 py-1">
+                    {projectsTermines} terminé{projectsTermines !== 1 ? "s" : ""}
+                  </span>
+                )}
+              </div>
+              <div className="mt-4">
+                <Button onClick={() => setIsCreating(true)}>
+                  Créer un nouveau projet
+                </Button>
+              </div>
+            </div>
+          </div>
+          <img
+            src="/images/dashboard.png"
+            alt="Mes projets"
+            className="hidden sm:block h-20 w-20 object-contain opacity-90 logo-blend flex-shrink-0"
+          />
         </div>
-        <Button onClick={() => setIsCreating(true)}>
-          Créer un nouveau projet
-        </Button>
-      </div>
+      </header>
 
       {error && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
@@ -952,42 +1212,44 @@ function ParticulierDashboard() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden border-l-4 border-l-primary-400">
+          <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Projets en cours</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {projectsEnCours}
-                </p>
+                <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Projets en cours</p>
+                <p className="text-3xl font-bold text-neutral-900">{projectsEnCours}</p>
               </div>
-              <Clock className="w-8 h-8 text-blue-600" />
+              <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center flex-shrink-0">
+                <Clock className="w-5 h-5 text-primary-600" />
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden border-l-4 border-l-emerald-400">
+          <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Projets terminés</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {projectsTermines}
-                </p>
+                <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Projets terminés</p>
+                <p className="text-3xl font-bold text-neutral-900">{projectsTermines}</p>
               </div>
-              <CheckCircle className="w-8 h-8 text-green-600" />
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                <CheckCircle className="w-5 h-5 text-emerald-600" />
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden border-l-4 border-l-amber-400">
+          <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Devis reçus</p>
-                <p className="text-2xl font-bold text-gray-900">{devisRecus}</p>
+                <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Devis reçus</p>
+                <p className="text-3xl font-bold text-neutral-900">{devisRecus}</p>
               </div>
-              <FileText className="w-8 h-8 text-yellow-600" />
+              <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <FileText className="w-5 h-5 text-amber-600" />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -995,40 +1257,41 @@ function ParticulierDashboard() {
 
       <Card>
         <CardHeader>
-          <h2 className="text-lg font-semibold text-gray-900">Mes projets</h2>
+          <h2 className="text-lg font-semibold text-neutral-900">Mes projets</h2>
         </CardHeader>
         <CardContent>
           {loading ? (
-            <p className="text-sm text-gray-500">Chargement des projets...</p>
+            <p className="text-sm text-neutral-500">Chargement des projets...</p>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {projects.map((project) => {
                 const statusKey = resolveProjectStatus(project.status);
                 return (
-              <div
-                key={project.id}
-                onClick={() => handleOpenProject(project.id)}
-                className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-gray-900 mb-1">{project.name}</h3>
-                    {project.description && (
-                      <p className="text-sm text-gray-600 mb-2">{project.description}</p>
-                    )}
-                    <div className="flex items-center gap-4 text-sm text-gray-500">
-                      <span>Créé le {project.createdAt ? formatDate(project.createdAt) : "-"}</span>
-                      <span className="capitalize">
-                        Statut: {getStatusLabel(statusKey)}
+                  <div
+                    key={project.id}
+                    onClick={() => handleOpenProject(project.id)}
+                    className="p-4 border border-neutral-200 rounded-xl hover:bg-neutral-50 card-hover transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-neutral-900 mb-1 truncate">{project.name}</h3>
+                        {project.description && (
+                          <p className="text-sm text-neutral-600 mb-2 line-clamp-1">{project.description}</p>
+                        )}
+                        <div className="flex items-center gap-3 text-xs text-neutral-500">
+                          <span>Créé le {project.createdAt ? formatDate(project.createdAt) : "-"}</span>
+                        </div>
+                      </div>
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ${getStatusBadge(statusKey)}`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${getStatusDotClass(statusKey)}`} />
+                        {getStatusLabel(statusKey)}
                       </span>
                     </div>
                   </div>
-                </div>
-              </div>
                 );
               })}
               {!projects.length && (
-                <p className="text-sm text-gray-500">Aucun projet pour le moment.</p>
+                <p className="text-sm text-neutral-500">Aucun projet pour le moment.</p>
               )}
             </div>
           )}
@@ -1036,33 +1299,192 @@ function ParticulierDashboard() {
       </Card>
 
       {isCreating && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-lg w-full p-6">
-            <h3 className="text-lg font-semibold text-neutral-900 mb-4">Créer un nouveau projet</h3>
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4 overflow-y-auto py-8">
+          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-2xl w-full p-6 my-8 max-h-[85vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold text-neutral-900 mb-1">Nouvelle demande de projet</h3>
+            <p className="text-sm text-neutral-500 mb-4">
+              Remplissez ce formulaire. Les informations seront envoyées aux artisans compatibles pour une meilleure estimation.
+            </p>
             <form className="space-y-4" onSubmit={handleCreateProject}>
+              <div>
+                <label htmlFor="particulier-project-type" className="block text-sm font-medium text-neutral-800 mb-1">Type de travaux *</label>
+                <select
+                  id="particulier-project-type"
+                  aria-label="Type de travaux"
+                  value={formData.projectType}
+                  onChange={(e) => handleProjectTypeChange(e.target.value)}
+                  className="w-full px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  required
+                >
+                  {PROJECT_TYPES_PARTICULIER.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
               <Input
-                label="Titre du projet"
+                label="Titre du projet *"
                 value={formData.name}
                 onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                placeholder="Ex. Rénovation cuisine"
                 required
               />
-              <div>
-                <label className="block text-sm font-medium text-neutral-800 mb-1">
-                  Description
-                </label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-                  className="w-full min-h-[120px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  placeholder="Decrivez votre projet (dimensions, pieces concernees, budget estime, delais...)"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="sm:col-span-2">
+                  <Input
+                    label="Adresse du chantier *"
+                    value={formData.address}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
+                    placeholder="Numéro et rue"
+                    required
+                  />
+                </div>
+                <div>
+                  <Input
+                    label="Code postal *"
+                    value={formData.postalCode}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, postalCode: e.target.value }))}
+                    placeholder="75001"
+                    required
+                  />
+                </div>
               </div>
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <Button type="button" variant="ghost" onClick={() => setIsCreating(false)}>
+              <Input
+                label="Ville *"
+                value={formData.city}
+                onChange={(e) => setFormData((prev) => ({ ...prev, city: e.target.value }))}
+                placeholder="Paris"
+                required
+              />
+              {formData.projectType !== "autre" && (
+                <div>
+                  <label className="block text-sm font-medium text-neutral-800 mb-1">Description détaillée *</label>
+                  <textarea
+                    value={formData.description}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+                    className="w-full min-h-[100px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    placeholder="Décrivez votre projet : dimensions, contraintes, délais souhaités..."
+                    required
+                  />
+                </div>
+              )}
+              {questionnaireFields.map((field) => (
+                <QuestionnaireFieldInput
+                  key={field.key}
+                  field={field}
+                  value={formData.questionnaire[field.key] ?? ""}
+                  onChange={(value) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      questionnaire: { ...prev.questionnaire, [field.key]: value },
+                    }))
+                  }
+                />
+              ))}
+              {needsSurface && (
+                <Input
+                  label="Surface à traiter (m²) *"
+                  type="number"
+                  min={1}
+                  step={0.01}
+                  value={formData.surfaceSqmStr}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, surfaceSqmStr: e.target.value }))}
+                  placeholder="Ex. 25"
+                  required
+                />
+              )}
+              <Input
+                label="Budget (€) *"
+                type="number"
+                min={0}
+                value={formData.budgetStr}
+                onChange={(e) => setFormData((prev) => ({ ...prev, budgetStr: e.target.value }))}
+                placeholder="Ex. 10000"
+                required
+              />
+              <Input
+                label="Date de début souhaitée *"
+                type="date"
+                value={formData.desiredStartDate}
+                onChange={(e) => setFormData((prev) => ({ ...prev, desiredStartDate: e.target.value }))}
+                required
+              />
+              <div className="space-y-2 pt-2 border-t border-neutral-200">
+                <label className="block text-sm font-medium text-neutral-800 mb-1">
+                  Documents ou photos (optionnel)
+                </label>
+                <p className="text-xs text-neutral-500 mb-3">
+                  Ajoutez des plans, photos ou documents pour compléter votre demande. Max {MAX_FILE_SIZE_MB} Mo par fichier.
+                </p>
+                <input
+                  ref={fileInputRef}
+                  id="particulier-project-files"
+                  type="file"
+                  accept={ACCEPTED_FILE_TYPES}
+                  multiple
+                  className="hidden"
+                  aria-label="Ajouter des documents ou photos"
+                  onChange={(e) => {
+                    if (e.target.files) addFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <label
+                  htmlFor="particulier-project-files"
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragOver(true);
+                  }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOver(false);
+                    if (e.dataTransfer.files) addFiles(e.dataTransfer.files);
+                  }}
+                  className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed min-h-[140px] px-6 py-8 cursor-pointer transition-all block bg-blue-50 border-blue-400 shadow-sm hover:bg-blue-100 hover:border-blue-500 ${
+                    dragOver ? "!border-blue-600 !bg-blue-100 ring-2 ring-blue-300" : ""
+                  }`}
+                >
+                  <ImagePlus className="w-12 h-12 text-blue-600" />
+                  <span className="text-sm font-semibold text-gray-800">Déposer des documents ou photos</span>
+                  <span className="text-xs text-gray-600">Cliquez ou glissez vos fichiers ici (images, PDF, Word, Excel)</span>
+                </label>
+                {selectedFiles.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {selectedFiles.map((file, i) => (
+                      <li
+                        key={`${file.name}-${i}`}
+                        className="flex items-center justify-between text-sm bg-neutral-50 rounded px-3 py-2"
+                      >
+                        <span className="truncate flex-1">{file.name}</span>
+                        <span className="text-xs text-neutral-500 ml-2">
+                          {(file.size / 1024).toFixed(1)} Ko
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedFiles((prev) => prev.filter((_, j) => j !== i))}
+                          className="ml-2 p-1 text-red-600 hover:bg-red-50 rounded"
+                          aria-label="Supprimer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="flex items-center justify-end gap-3 pt-2 border-t border-neutral-200">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setIsCreating(false);
+                    setSelectedFiles([]);
+                  }}
+                >
                   Annuler
                 </Button>
                 <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? "Création..." : "Créer le projet"}
+                  {isSubmitting ? "Création..." : "Créer la demande"}
                 </Button>
               </div>
             </form>

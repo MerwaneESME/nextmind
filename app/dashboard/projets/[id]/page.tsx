@@ -1,14 +1,16 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useBreadcrumb } from "@/contexts/BreadcrumbContext";
 import { Card, CardHeader, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { ArrowLeft, Bot, Send } from "lucide-react";
+import StatCard from "@/components/ui/StatCard";
+import { ArrowLeft, Bot, Calendar, CheckCircle2, Clock, Euro, FileText, MapPin, Paperclip, Pencil, Plus, Send, TrendingUp, Users, Wrench, X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { mapUserTypeToRole, useAuth } from "@/hooks/useAuth";
-import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, isValidDateRange, normalizeDateValue } from "@/lib/utils";
 import { deleteDevisWithItems, mapDevisRowToSummary } from "@/lib/devisDb";
 import { downloadQuotePdf } from "@/lib/quotePdf";
 import { deleteProjectCascade, inviteProjectMemberByEmail } from "@/lib/projectsDb";
@@ -26,6 +28,8 @@ import {
   type PlanningProposal,
 } from "@/lib/ai-service";
 import { createLotTask } from "@/lib/lotTasksDb";
+import { Badge } from "@/components/ui/Badge";
+import ProjectBudgetPanel from "@/components/project/ProjectBudgetPanel";
 
 type Project = {
   id: string;
@@ -85,6 +89,13 @@ type AssistantProposal = {
 /** Extended proposal returned by the enriched planning engine */
 type AssistantPlanningProposal = PlanningProposal;
 
+type ProjectQuickAction = {
+  id: string;
+  label: string;
+  prompt: string;
+  icon?: string;
+};
+
 type AssistantMessage = {
   role: "user" | "assistant";
   content: string;
@@ -93,14 +104,17 @@ type AssistantMessage = {
   planningProposal?: AssistantPlanningProposal | null;
   requires_devis?: boolean;
   suggestions?: string[];
+  quickActions?: ProjectQuickAction[];
+  attachedFileName?: string | null;
 };
 
-type TabKey = "overview" | "interventions" | "chat" | "devis" | "planning" | "membres" | "assistant" | "guide";
+type TabKey = "overview" | "interventions" | "budget" | "chat" | "devis" | "planning" | "membres" | "assistant" | "guide";
 type WorkflowStatus = "a_faire" | "envoye" | "valide" | "refuse";
 
 const tabItems: Array<{ key: TabKey; label: string; iconSrc: string }> = [
   { key: "overview", label: "Apercu", iconSrc: "/images/grey/eye.png" },
   { key: "interventions", label: "Interventions", iconSrc: "/images/grey/files.png" },
+  { key: "budget", label: "Budget", iconSrc: "/images/grey/files.png" },
   { key: "chat", label: "Chat", iconSrc: "/images/grey/chat-teardrop-dots.png" },
   { key: "devis", label: "Devis", iconSrc: "/images/grey/files.png" },
   { key: "planning", label: "Planning", iconSrc: "/images/grey/calendar%20(1).png" },
@@ -431,6 +445,7 @@ export default function ProjectDetailPage() {
   const [taskDescription, setTaskDescription] = useState("");
   const [taskTime, setTaskTime] = useState({ start: "", end: "" });
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [taskDetailOpen, setTaskDetailOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -443,6 +458,10 @@ export default function ProjectDetailPage() {
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [publishModalOpen, setPublishModalOpen] = useState(false);
   const [publishSubmitting, setPublishSubmitting] = useState(false);
+  const [rendezVousModalOpen, setRendezVousModalOpen] = useState(false);
+  const [editInfoModalOpen, setEditInfoModalOpen] = useState(false);
+  const [editInfoSubmitting, setEditInfoSubmitting] = useState(false);
+  const [editInfoForm, setEditInfoForm] = useState({ name: "", project_type: "", address: "", city: "", description: "" });
   const [publishForm, setPublishForm] = useState({
     title: "",
     summary: "",
@@ -454,12 +473,12 @@ export default function ProjectDetailPage() {
   });
   const getAssistantIntro = (roleValue: string) =>
     roleValue === "professionnel"
-      ? "Bonjour ! Je connais votre projet, ses interventions, taches et membres. Demandez-moi l'avancement, le planning, le budget ou une analyse."
-      : "Bonjour ! Je suis votre conseiller projet. Je peux vous expliquer l'avancement, les prochaines etapes, le budget et repondre a vos questions.";
+      ? "Bonjour ! Je suis votre assistant IA BTP. J'ai accès à l'ensemble de votre projet : interventions, tâches, équipe et budget. Posez-moi vos questions sur l'avancement, les délais ou la planification."
+      : "Bonjour ! Je suis votre assistant IA BTP. Je suis au courant de l'avancement de votre projet et je peux répondre à toutes vos questions sur les travaux, les étapes et le budget.";
 
   const assistantIntroVariants = [
-    "Bonjour ! Je connais votre projet, ses interventions, taches et membres. Demandez-moi l'avancement, le planning, le budget ou une analyse.",
-    "Bonjour ! Je suis votre conseiller projet. Je peux vous expliquer l'avancement, les prochaines etapes, le budget et repondre a vos questions.",
+    "Bonjour ! Je suis votre assistant IA BTP. J'ai accès à l'ensemble de votre projet : interventions, tâches, équipe et budget. Posez-moi vos questions sur l'avancement, les délais ou la planification.",
+    "Bonjour ! Je suis votre assistant IA BTP. Je suis au courant de l'avancement de votre projet et je peux répondre à toutes vos questions sur les travaux, les étapes et le budget.",
   ];
 
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([
@@ -471,12 +490,15 @@ export default function ProjectDetailPage() {
   ]);
   const [assistantInput, setAssistantInput] = useState("");
   const [assistantLoading, setAssistantLoading] = useState(false);
+  const [assistantStreamingContent, setAssistantStreamingContent] = useState<string | null>(null);
   const [assistantError, setAssistantError] = useState<string | null>(null);
   const [assistantNotice, setAssistantNotice] = useState<string | null>(null);
   const [pendingProposal, setPendingProposal] = useState<AssistantProposal | null>(null);
   const [pendingPlanningProposal, setPendingPlanningProposal] = useState<AssistantPlanningProposal | null>(null);
   const [assistantActiveAction, setAssistantActiveAction] = useState<AssistantActionButton["id"] | null>(null);
   const [applyLoading, setApplyLoading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const assistantSectionRef = useRef<HTMLDivElement | null>(null);
   const assistantMessagesContainerRef = useRef<HTMLDivElement | null>(null);
   const assistantMessagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -527,6 +549,15 @@ export default function ProjectDetailPage() {
 
     requestAnimationFrame(step);
   };
+
+  const { setBreadcrumb } = useBreadcrumb();
+  useEffect(() => {
+    setBreadcrumb([
+      { label: "Projets", href: `/dashboard?role=${role}` },
+      { label: project?.name ?? "Projet" },
+    ]);
+    return () => setBreadcrumb([]);
+  }, [project?.name, role]);
 
   useEffect(() => {
     if (!isTabKey(tabParam)) return;
@@ -708,7 +739,7 @@ export default function ProjectDetailPage() {
   }, [projectId, user?.id]);
 
   useEffect(() => {
-    if (activeTab !== "interventions" && activeTab !== "overview") return;
+    if (activeTab !== "interventions" && activeTab !== "overview" && activeTab !== "budget") return;
     void loadInterventions();
   }, [activeTab, projectId]);
 
@@ -718,11 +749,33 @@ export default function ProjectDetailPage() {
     }
   }, [activeTab]);
 
+  const planningDateParam = searchParams.get("planningDate");
+  const planningTaskIdParam = searchParams.get("planningTaskId");
+
   useEffect(() => {
     if (activeTab === "planning") {
-      setWeekStart(startOfWeek(new Date()));
+      if (planningDateParam) {
+        const d = new Date(`${planningDateParam}T00:00:00`);
+        if (!Number.isNaN(d.getTime())) setWeekStart(startOfWeek(d));
+      } else {
+        setWeekStart(startOfWeek(new Date()));
+      }
     }
-  }, [activeTab]);
+  }, [activeTab, planningDateParam]);
+
+  // Scroll vers l'événement ciblé quand on arrive sur le planning via "Voir planning"
+  useEffect(() => {
+    if (activeTab !== "planning" || !planningTaskIdParam) return;
+    const t = window.setTimeout(() => {
+      const el = document.querySelector(`[data-task-id="${planningTaskIdParam}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.add("ring-2", "ring-primary-500", "ring-offset-2");
+        window.setTimeout(() => el.classList.remove("ring-2", "ring-primary-500", "ring-offset-2"), 2500);
+      }
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [activeTab, planningTaskIdParam]);
 
   const handleCreateIntervention = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -731,7 +784,12 @@ export default function ProjectDetailPage() {
       return;
     }
     if (!projectId || !interventionForm.name.trim()) return;
+    if (!isValidDateRange(interventionForm.startDate, interventionForm.endDate)) {
+      setFormError("La date de fin doit être supérieure ou égale à la date de début.");
+      return;
+    }
     setInterventionSubmitting(true);
+    setFormError(null);
     setError(null);
     try {
       await createLotForProject(projectId, {
@@ -754,7 +812,7 @@ export default function ProjectDetailPage() {
       setInterventionModalOpen(false);
       await loadInterventions();
     } catch (err: any) {
-      setError(err?.message ?? "Impossible de creer l'intervention.");
+      setFormError(err?.message ?? "Impossible de creer l'intervention.");
     } finally {
       setInterventionSubmitting(false);
     }
@@ -780,6 +838,7 @@ export default function ProjectDetailPage() {
     setTaskDates({ start: dayKey, end: dayKey });
     setTaskTime({ start: "", end: "" });
     setTaskDescription("");
+    setFormError(null);
     setIsTaskModalOpen(true);
   };
 
@@ -789,6 +848,10 @@ export default function ProjectDetailPage() {
       return;
     }
     if (!taskName.trim()) return;
+    if (!isValidDateRange(taskDates.start, taskDates.end)) {
+      setFormError("La date de fin doit être supérieure ou égale à la date de début.");
+      return;
+    }
     const payloadBase = {
       project_id: projectId,
       name: taskName.trim(),
@@ -813,7 +876,7 @@ export default function ProjectDetailPage() {
       }
     }
     if (insertError) {
-      setError(insertError.message ?? "Impossible d'ajouter la tâche.");
+      setFormError(insertError.message ?? "Impossible d'ajouter la tâche.");
       return;
     }
     setIsTaskModalOpen(false);
@@ -992,6 +1055,38 @@ export default function ProjectDetailPage() {
     setPublishModalOpen(false);
   };
 
+  const openEditInfoModal = () => {
+    setEditInfoForm({
+      name: project?.name ?? "",
+      project_type: project?.project_type ?? "",
+      address: project?.address ?? "",
+      city: project?.city ?? "",
+      description: project?.description ?? "",
+    });
+    setEditInfoModalOpen(true);
+  };
+
+  const handleSaveProjectInfo = async () => {
+    if (!canManageProject || !projectId) return;
+    setEditInfoSubmitting(true);
+    const { data, error: updateError } = await supabase
+      .from("projects")
+      .update({
+        name: editInfoForm.name.trim() || project?.name,
+        project_type: editInfoForm.project_type.trim() || null,
+        address: editInfoForm.address.trim() || null,
+        city: editInfoForm.city.trim() || null,
+        description: editInfoForm.description.trim() || null,
+      })
+      .eq("id", projectId)
+      .select()
+      .single();
+    setEditInfoSubmitting(false);
+    if (updateError) { setError(updateError.message); return; }
+    if (data) setProject(data as Project);
+    setEditInfoModalOpen(false);
+  };
+
   const buildAssistantTaskDescription = (task: AssistantTask) => {
     const timeRange = (task.time_range ?? "").trim();
     const base = (task.description ?? "").trim();
@@ -1025,6 +1120,14 @@ export default function ProjectDetailPage() {
       return;
     }
     if (!pendingProposal || !projectId || !user?.id) return;
+    for (const task of pendingProposal.tasks) {
+      const start = (task.start_date ?? "").trim();
+      const end = (task.end_date ?? task.start_date ?? "").trim();
+      if (start && end && !isValidDateRange(start, end)) {
+        setAssistantError("Chaque tâche doit avoir une date de fin supérieure ou égale à la date de début.");
+        return;
+      }
+    }
     const shouldReplace = window.confirm(
       "Valider ce planning va remplacer les tâches actuelles du projet. Voulez-vous continuer ?"
     );
@@ -1082,6 +1185,27 @@ export default function ProjectDetailPage() {
     if (!hasSuggestedTasks && !hasNewInterventions) {
       setAssistantNotice("Aucune suggestion à appliquer dans cette proposition.");
       return;
+    }
+
+    for (const intervention of proposal.existing_interventions) {
+      for (const task of intervention.suggested_tasks) {
+        const start = (task.start_date ?? "").trim();
+        const end = (task.end_date ?? task.start_date ?? "").trim();
+        if (start && end && !isValidDateRange(start, end)) {
+          setAssistantError("Chaque tâche doit avoir une date de fin supérieure ou égale à la date de début.");
+          return;
+        }
+      }
+    }
+    for (const newIntervention of proposal.suggested_interventions) {
+      for (const task of newIntervention.suggested_tasks) {
+        const start = (task.start_date ?? "").trim();
+        const end = (task.end_date ?? task.start_date ?? "").trim();
+        if (start && end && !isValidDateRange(start, end)) {
+          setAssistantError("Chaque tâche doit avoir une date de fin supérieure ou égale à la date de début.");
+          return;
+        }
+      }
     }
 
     const confirmMsg = hasNewInterventions
@@ -1185,13 +1309,30 @@ export default function ProjectDetailPage() {
     });
   };
 
+  const streamText = async (text: string) => {
+    const words = text.split(" ");
+    for (let i = 0; i < words.length; i++) {
+      setAssistantStreamingContent((prev) => (prev ?? "") + words[i] + (i < words.length - 1 ? " " : ""));
+      await new Promise<void>((r) => setTimeout(r, 20));
+    }
+  };
+
   const sendAssistantMessage = async (
     content: string,
-    options?: { forcePlan?: boolean; uiMode?: AssistantUiMode; actionId?: string }
+    options?: { forcePlan?: boolean; uiMode?: AssistantUiMode; actionId?: string; file?: File }
   ) => {
     if (!user?.id || !projectId) return;
-    const trimmed = content.trim();
-    if (!trimmed || assistantLoading) return;
+    if (assistantLoading) return;
+
+    // Capture file before clearing state
+    const attachedFile = options?.file ?? selectedFile ?? null;
+    const attachedFileName = attachedFile?.name ?? null;
+
+    // Allow sending with file only — generate a default message
+    const rawTrimmed = content.trim();
+    const trimmed = rawTrimmed || (attachedFile ? `Analyse ce document : ${attachedFile.name}` : "");
+    if (!trimmed) return;
+
     setAssistantError(null);
     setAssistantNotice(null);
 
@@ -1201,12 +1342,15 @@ export default function ProjectDetailPage() {
 
     const userMessage: AssistantMessage = {
       role: "user",
-      content: trimmed,
+      content: rawTrimmed || `📎 ${attachedFile?.name ?? "fichier joint"}`,
       timestamp: new Date().toISOString(),
+      attachedFileName,
     };
     setAssistantMessages((prev) => [...prev, userMessage]);
     setAssistantInput("");
+    setSelectedFile(null);
     setAssistantLoading(true);
+    setAssistantStreamingContent("");
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_AI_API_URL;
@@ -1236,6 +1380,8 @@ export default function ProjectDetailPage() {
           },
           history
         );
+
+        await streamText(planningResult.message);
 
         const assistantMessage: AssistantMessage = {
           role: "assistant",
@@ -1279,23 +1425,39 @@ export default function ProjectDetailPage() {
       }
 
       // ── Standard path (non-planning) ───────────────────────────
-      const assistantEndpoint =
-        userRole === "professionnel" ? "/project-chat" : "/project-chat-client";
-      const response = await fetch(`${apiUrl}${assistantEndpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project_id: projectId,
-          phase_id: contextPhaseId ?? null,
-          lot_id: contextLotId ?? null,
-          context_type: assistantContextType,
-          user_id: user.id,
-          user_role: userRole,
-          message: trimmed,
-          history,
-          force_plan: false,
-        }),
-      });
+      let response: Response;
+      if (attachedFile && userRole === "professionnel") {
+        // Multipart quand un fichier est joint (pros uniquement)
+        const formData = new FormData();
+        formData.append("project_id", projectId);
+        formData.append("user_id", user.id);
+        formData.append("user_role", userRole);
+        formData.append("message", trimmed);
+        formData.append("force_plan", "false");
+        formData.append("file", attachedFile, attachedFile.name);
+        response = await fetch(`${apiUrl}/project-chat-file`, {
+          method: "POST",
+          body: formData,
+        });
+      } else {
+        const assistantEndpoint =
+          userRole === "professionnel" ? "/project-chat" : "/project-chat-client";
+        response = await fetch(`${apiUrl}${assistantEndpoint}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            project_id: projectId,
+            phase_id: contextPhaseId ?? null,
+            lot_id: contextLotId ?? null,
+            context_type: assistantContextType,
+            user_id: user.id,
+            user_role: userRole,
+            message: trimmed,
+            history,
+            force_plan: false,
+          }),
+        });
+      }
       const data = await response.json();
       const rawReply = (data.reply ?? "Je reviens vers vous avec une proposition.") as string;
 
@@ -1373,14 +1535,19 @@ export default function ProjectDetailPage() {
         return `${text}\n\nPour en savoir plus : [${prefix}${label}](${href})`;
       };
 
-      const nextReply = options?.uiMode
-        ? formatAssistantReply(options.uiMode, rawReply, {
-            projectName: project?.name ?? null,
-            projectType: project?.project_type ?? null,
-            totalBudgetTtc: totalBudget,
-            quotes,
-          })
-        : withGuideLink(rawReply);
+      // formatAssistantReply génère des cartes "Guide" — réservé aux particuliers
+      const nextReply =
+        options?.uiMode && userRole !== "professionnel"
+          ? formatAssistantReply(options.uiMode, rawReply, {
+              projectName: project?.name ?? null,
+              projectType: project?.project_type ?? null,
+              totalBudgetTtc: totalBudget,
+              quotes,
+            })
+          : withGuideLink(rawReply);
+
+      await streamText(nextReply);
+
       const assistantMessage: AssistantMessage = {
         role: "assistant",
         content: nextReply,
@@ -1388,6 +1555,7 @@ export default function ProjectDetailPage() {
         proposal: data.proposal ?? null,
         requires_devis: Boolean(data.requires_devis),
         suggestions: data.suggested_questions ?? [],
+        quickActions: data.quick_actions ?? [],
       };
       setAssistantMessages((prev) => [...prev, assistantMessage]);
       if (data.proposal) {
@@ -1405,6 +1573,7 @@ export default function ProjectDetailPage() {
       ]);
     } finally {
       setAssistantLoading(false);
+      setAssistantStreamingContent(null);
     }
   };
 
@@ -1675,6 +1844,31 @@ export default function ProjectDetailPage() {
     setSelectedQuoteId("");
     await loadProject();
     await loadAvailableQuotes();
+
+    // Extraction du total PDF en arrière-plan (le devis lié peut être un PDF sans montant)
+    const apiUrl = process.env.NEXT_PUBLIC_AI_API_URL;
+    if (apiUrl && user?.id) {
+      fetch(`${apiUrl}/project-refresh-budget`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: projectId, user_id: user.id }),
+      })
+        .then((res) => res.json())
+        .then((result: { devis?: Array<{ id: string; total: number | null }> }) => {
+          if (result.devis) {
+            setQuotes((prev) =>
+              prev.map((q) => {
+                const updated = result.devis!.find((d) => d.id === q.id);
+                if (updated && updated.total != null && q.totalTtc == null) {
+                  return { ...q, totalTtc: updated.total };
+                }
+                return q;
+              })
+            );
+          }
+        })
+        .catch(() => {/* silencieux */});
+    }
   };
 
   const handleUpdateQuoteWorkflow = async (quote: QuoteSummary, nextStatus: WorkflowStatus) => {
@@ -1792,13 +1986,25 @@ export default function ProjectDetailPage() {
 
   const lateTasks = useMemo(() => tasks.filter((task) => isTaskLate(task)), [tasks]);
 
-  const totalBudget = useMemo(
+  const interventionsBudgetTotal = useMemo(
+    () => interventions.reduce((sum, i) => sum + (Number(i.budgetEstimated) || 0), 0),
+    [interventions]
+  );
+  const interventionsBudgetActual = useMemo(
+    () => interventions.reduce((sum, i) => sum + (Number(i.budgetActual) || 0), 0),
+    [interventions]
+  );
+  const quotesBudgetTotal = useMemo(
     () => quotes.reduce((sum, quote) => sum + (quote.totalTtc ?? 0), 0),
     [quotes]
   );
+  const totalBudget = useMemo(
+    () => interventionsBudgetTotal + quotesBudgetTotal,
+    [interventionsBudgetTotal, quotesBudgetTotal]
+  );
   const hasBudget = useMemo(
-    () => quotes.some((quote) => typeof quote.totalTtc === "number"),
-    [quotes]
+    () => interventionsBudgetTotal > 0 || quotes.some((quote) => typeof quote.totalTtc === "number"),
+    [interventionsBudgetTotal, quotes]
   );
   const quoteStatusSummary = useMemo(() => {
     if (!quotes.length) return null;
@@ -1845,32 +2051,60 @@ export default function ProjectDetailPage() {
     return Math.max(1, diffDays);
   }, [tasks]);
 
+  /** Interventions à venir (au niveau lot) */
+  const upcomingInterventions = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return interventions
+      .filter((lot) => {
+        const dateStr = lot.startDate ?? lot.endDate;
+        if (!dateStr) return false;
+        const d = new Date(`${dateStr}T00:00:00`);
+        d.setHours(0, 0, 0, 0);
+        return d >= today;
+      })
+      .map((lot) => ({
+        id: lot.id,
+        name: lot.name,
+        date: new Date(`${(lot.startDate ?? lot.endDate) ?? ""}T00:00:00`),
+        companyName: lot.companyName ?? null,
+        description: lot.description ?? null,
+        kind: "intervention" as const,
+      }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+  }, [interventions]);
+
+  /** Tâches à venir (niveau projet + interventions) */
   const upcomingTasks = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+
     return tasks
-      .filter((task) => task.start_date && !isTaskCompleted(task.status))
-      .map((task) => {
-        const parsed = splitTaskDescription(task.description);
-        const timeRange = parseTimeRange(parsed.time ?? null);
-        const baseDate = new Date(`${task.start_date}T00:00:00`);
-        if (timeRange) {
-          baseDate.setHours(timeRange.startHour, timeRange.startMinute, 0, 0);
-        } else {
-          baseDate.setHours(8, 0, 0, 0);
-        }
-        return {
-          id: task.id,
-          name: task.name,
-          date: baseDate,
-          timeLabel: timeRange?.label ?? null,
-          description: parsed.text ?? null,
-        };
+      .filter((task) => {
+        if (task.completed_at) return false;
+        const dateStr = task.start_date ?? task.end_date;
+        if (!dateStr) return false;
+        const d = new Date(`${dateStr}T00:00:00`);
+        d.setHours(0, 0, 0, 0);
+        return d >= today;
       })
-      .filter((item) => item.date >= today)
-      .sort((a, b) => a.date.getTime() - b.date.getTime())
-      .slice(0, 3);
+      .map((task) => ({
+        id: task.id,
+        name: task.name,
+        date: new Date(`${(task.start_date ?? task.end_date) ?? ""}T00:00:00`),
+        companyName: null as string | null,
+        description: task.description,
+        kind: "task" as const,
+      }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
   }, [tasks]);
+
+  /** Combinaison pour les prochains rendez-vous (tâches + interventions) */
+  const upcomingItems = useMemo(() => {
+    const combined = [...upcomingTasks, ...upcomingInterventions];
+    combined.sort((a, b) => a.date.getTime() - b.date.getTime());
+    return combined;
+  }, [upcomingTasks, upcomingInterventions]);
 
   const dayKeys = useMemo(() => weekDays.map((day) => toDateKey(day)), [weekDays]);
   const dayKeySet = useMemo(() => new Set(dayKeys), [dayKeys]);
@@ -1881,6 +2115,44 @@ export default function ProjectDetailPage() {
   );
   const todayKey = toDateKey(new Date());
   const projectStatusValue = normalizeProjectStatus(project?.status ?? null);
+
+  const statusCardColorClass = useMemo(() => {
+    switch (projectStatusValue) {
+      case "termine":
+        return {
+          leftBorderColor: "#10b981",
+          bg: "bg-emerald-50/60",
+          iconBg: "bg-gradient-to-br from-emerald-100 to-emerald-50",
+          iconColor: "text-emerald-700",
+          selectClass: "border-emerald-200 text-emerald-700 hover:border-emerald-300",
+        };
+      case "en_cours":
+        return {
+          leftBorderColor: "#38b6ff",
+          bg: "bg-sky-50/60",
+          iconBg: "bg-gradient-to-br from-sky-100 to-sky-50",
+          iconColor: "text-sky-600",
+          selectClass: "border-sky-200 text-sky-700 hover:border-sky-300",
+        };
+      case "en_attente":
+        return {
+          leftBorderColor: "#fbbf24",
+          bg: "bg-amber-50/60",
+          iconBg: "bg-gradient-to-br from-amber-100 to-amber-50",
+          iconColor: "text-amber-700",
+          selectClass: "border-amber-200 text-amber-700 hover:border-amber-300",
+        };
+      default: // draft / à faire
+        return {
+          leftBorderColor: "#94a3b8",
+          bg: "bg-slate-50/60",
+          iconBg: "bg-gradient-to-br from-slate-100 to-slate-50",
+          iconColor: "text-slate-500",
+          selectClass: "border-slate-200 text-slate-600 hover:border-slate-300",
+        };
+    }
+  }, [projectStatusValue]);
+
   const selectedTaskInfo = selectedTask ? splitTaskDescription(selectedTask.description) : { time: null, text: null };
 
   const taskSlots = useMemo(() => {
@@ -1983,8 +2255,8 @@ export default function ProjectDetailPage() {
   return (
     <div className="space-y-6">
       <header className="space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-4">
             <img
               src="/images/projet2.png"
               alt="Projet"
@@ -1992,18 +2264,30 @@ export default function ProjectDetailPage() {
             />
             <div>
               <h1 className="text-3xl font-bold text-gray-900">{project?.name ?? "Projet"}</h1>
-              <p className="text-gray-600">{project?.description ?? "Aucune description."}</p>
+              <p className="text-sm text-gray-600">
+                Projet {project?.status ? project.status.replace("_", " ") : ""}
+                {project?.updated_at && (
+                  <> · Mis à jour {formatDate(project.updated_at)}</>
+                )}
+              </p>
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="inline-flex items-center gap-2 whitespace-nowrap"
-            onClick={() => router.push(`/dashboard/projets?role=${role}`)}
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Retour
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => {
+              // TODO: export action
+            }}>
+              <FileText className="h-4 w-4" />
+              Exporter
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              className="bg-gradient-to-r from-primary-400 to-primary-600 shadow-md hover:shadow-lg hover:brightness-105"
+              onClick={() => setEditInfoModalOpen(true)}
+            >
+              Modifier le projet
+            </Button>
+          </div>
         </div>
         {currentMember?.status === "pending" && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 flex flex-wrap items-center gap-2">
@@ -2020,7 +2304,7 @@ export default function ProjectDetailPage() {
       </header>
 
       <nav className="sticky top-3 z-30" aria-label="Navigation du projet">
-        <div className="flex flex-wrap gap-1 rounded-2xl border border-neutral-200 bg-white/70 p-1 shadow-[0_18px_55px_-45px_rgba(0,0,0,0.35)] backdrop-blur">
+        <div className="flex flex-wrap gap-1 rounded-2xl border border-neutral-100 bg-neutral-100/60 p-1 backdrop-blur">
           {tabItems.map((tab) => {
             const isActive = activeTab === tab.key;
             const isGuideOrAssistant = tab.key === "guide" || tab.key === "assistant";
@@ -2036,8 +2320,8 @@ export default function ProjectDetailPage() {
                   "transition duration-200 ease-out transform-gpu",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2",
                   isActive
-                    ? "bg-primary-600 text-white shadow-[0_16px_40px_-28px_rgba(24,0,173,0.45)]"
-                    : "text-neutral-700 hover:bg-white hover:text-neutral-900",
+                    ? "bg-white text-primary-600 shadow-sm"
+                    : "text-neutral-600 hover:bg-white/80 hover:text-neutral-900",
                   !isActive ? "hover:-translate-y-[1px]" : "",
                 ].join(" ")}
                 onClick={() => {
@@ -2049,7 +2333,7 @@ export default function ProjectDetailPage() {
                   src={tab.iconSrc}
                   alt=""
                   aria-hidden
-                  className={`w-4 h-4 object-contain transition ${isActive ? "brightness-0 invert" : "logo-blend group-hover:scale-[1.02]"}`}
+                  className="w-4 h-4 object-contain transition logo-blend group-hover:scale-[1.02]"
                 />
                 <span className="text-inherit">{tab.label}</span>
                 {isActive && isGuideOrAssistant ? (
@@ -2068,258 +2352,355 @@ export default function ProjectDetailPage() {
 
       {!loading && activeTab === "overview" && (
         <section className="space-y-6">
+          {/* ── Stats cards ── */}
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <Card className="border-l-4 border-l-emerald-200 bg-emerald-50/20">
-              <CardHeader className="border-b border-emerald-100 bg-emerald-50/60">
-                <div className="text-sm text-gray-600">Budget estimé</div>
-              </CardHeader>
-              <CardContent className="text-2xl font-semibold text-gray-900">
-                {hasBudget ? formatCurrency(totalBudget) : "-"}
-                <div className="text-xs text-gray-500 mt-1">
-                  {quotes.length} devis lié{quotes.length > 1 ? "s" : ""}
-                </div>
-                {quoteStatusSummary && (
-                  <div className="text-xs text-gray-500 mt-1">{quoteStatusSummary}</div>
+            {/* stat grid generation */}
+            {[
+              {
+                key: "budget",
+                label: "Budget estimé",
+                value: hasBudget ? formatCurrency(totalBudget) : "—",
+                extra: interventionsBudgetActual > 0 ? (
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Dépensé : {formatCurrency(interventionsBudgetActual)}
+                  </p>
+                ) : null,
+                cta: interventions.length > 0 && (
+                  <button
+                    className="mt-2 inline-flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
+                    onClick={() => {
+                      setActiveTab("budget");
+                      updateQuery({ tab: "budget" });
+                    }}
+                  >
+                    Voir budget →
+                  </button>
+                ),
+                colorClass: {
+                  leftBorderColor: "#10b981",
+                  bg: "bg-emerald-50/60",
+                  iconBg: "bg-gradient-to-br from-emerald-100 to-emerald-50",
+                  iconColor: "text-emerald-700",
+                },
+                icon: Euro,
+              },
+              {
+                key: "progress",
+                label: "Avancement",
+                value: `${progressPercent}%`,
+                extra: (
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Sur {totalTasks} tâche{totalTasks !== 1 ? "s" : ""}
+                  </p>
+                ),
+                colorClass: {
+                  leftBorderColor: "#38b6ff",
+                  bg: "bg-sky-50/60",
+                  iconBg: "bg-gradient-to-br from-primary-100 to-primary-50",
+                  iconColor: "text-primary-600",
+                },
+                icon: TrendingUp,
+              },
+              {
+                key: "status",
+                label: "Statut projet",
+                value:
+                  PROJECT_STATUS_OPTIONS.find((o) => o.value === projectStatusValue)?.label || "—",
+                extra: (
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Mis à jour : {project?.updated_at ? formatDate(project.updated_at) : "—"}
+                  </p>
+                ),
+                cta: canManageProject ? (
+                  <select
+                    className={cn("mt-2 text-xs rounded-lg border bg-white px-2 py-1 cursor-pointer transition-colors", statusCardColorClass.selectClass)}
+                    value={projectStatusValue}
+                    onChange={(e) => void handleUpdateProjectStatus(e.target.value as ProjectStatusValue)}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {PROJECT_STATUS_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                ) : null,
+                colorClass: statusCardColorClass,
+                icon: CheckCircle2,
+              },
+              {
+                key: "participants",
+                label: "Participants",
+                value: String(members.length),
+                extra: <p className="text-xs text-neutral-500 mt-1">{members.filter((m) => formatMemberStatus(m.status).label === "Actif").length} actifs</p>,
+                colorClass: {
+                  leftBorderColor: "#1800ad",
+                  bg: "bg-violet-50/60",
+                  iconBg: "bg-gradient-to-br from-violet-100 to-violet-50",
+                  iconColor: "text-violet-700",
+                },
+                icon: Users,
+              },
+            ].map((stat) => (
+              <div
+                key={stat.key}
+                className={cn(
+                  "relative rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow border border-neutral-100",
+                  stat.colorClass.bg
                 )}
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-blue-200 bg-blue-50/20">
-              <CardHeader className="border-b border-blue-100 bg-blue-50/60">
-                <div className="text-sm text-gray-600">Avancement</div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-semibold text-gray-900">{progressPercent}%</div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {completedTasks}/{totalTasks} tâches terminées
-                </div>
-                {lateTasks.length > 0 && (
-                  <div className="text-xs font-semibold text-red-600 mt-1">
-                    {lateTasks.length} tâche{lateTasks.length > 1 ? "s" : ""} en retard
+                style={{ borderLeft: `3px solid ${stat.colorClass.leftBorderColor}` }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-neutral-500">{stat.label}</p>
+                    <p className="mt-1 text-3xl font-bold text-neutral-900">
+                      {stat.value}
+                    </p>
+                    {stat.extra}
+                    {stat.cta}
                   </div>
-                )}
-                <div className="mt-3 h-2 rounded-full bg-gray-100">
                   <div
-                    className="h-2 rounded-full bg-primary-600"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-amber-200 bg-amber-50/20">
-              <CardHeader className="border-b border-amber-100 bg-amber-50/60">
-                <div className="text-sm text-gray-600">Statut</div>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <select
-                  className="w-full rounded-lg border border-amber-200 bg-white px-2 py-1 text-sm"
-                  value={projectStatusValue}
-                  disabled={statusUpdating || !canManageProject}
-                  onChange={(event) =>
-                    handleUpdateProjectStatus(event.target.value as ProjectStatusValue)
-                  }
-                >
-                  {PROJECT_STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <div className="text-xs text-gray-500">
-                  Dernière maj : {project?.updated_at ? formatDate(project.updated_at) : "-"}
-                </div>
-                {projectStatusValue !== "termine" && canManageProject && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleUpdateProjectStatus("termine")}
-                    disabled={statusUpdating || !canManageProject}
+                    className={cn(
+                      "h-12 w-12 rounded-xl flex items-center justify-center flex-shrink-0",
+                      stat.colorClass.iconBg
+                    )}
                   >
-                    Cloturer le projet
-                  </Button>
-                )}
-                {projectStatusValue === "termine" && canManageProject && (
-                  <Button variant="outline" size="sm" onClick={openPublishModal}>
-                    Publier sur le profil
-                  </Button>
-                )}
-                {canManageProject && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-red-200 text-red-600"
-                    onClick={handleDeleteProject}
-                  >
-                    Supprimer le projet
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-violet-200 bg-violet-50/20">
-              <CardHeader className="border-b border-violet-100 bg-violet-50/60">
-                <div className="text-sm text-gray-600">Participants</div>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <div className="text-2xl font-semibold text-gray-900">{members.length}</div>
-                <div className="text-xs text-gray-500">Membres invites et actifs</div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Card className="lg:col-span-2 border-l-4 border-l-primary-200">
-              <CardHeader className="border-b border-primary-100 bg-primary-50/40">
-                <div className="font-semibold text-gray-900">Prochains rendez-vous</div>
-                <div className="text-sm text-gray-500">Tâches à venir.</div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {upcomingTasks.length === 0 && (
-                  <div className="text-sm text-gray-500">Aucun rendez-vous planifie.</div>
-                )}
-                {upcomingTasks.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3"
-                  >
-                    <div>
-                      <div className="font-semibold text-gray-900">{item.name}</div>
-                      <div className="text-xs text-gray-500 hidden">
-                        {formatDate(item.date)} {item.timeLabel ? `â€¢ ${item.timeLabel}` : ""}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {formatDate(item.date)} {item.timeLabel ? `à ${item.timeLabel}` : ""}
-                      </div>
-                      {item.description && (
-                        <div className="text-xs text-gray-500 mt-1">{item.description}</div>
-                      )}
-                    </div>
-                    <Button variant="outline" size="sm" onClick={() => setActiveTab("planning")}>
-                      Voir planning
-                    </Button>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-
-            <Card className="border-l-4 border-l-slate-200 bg-slate-50/30">
-              <CardHeader className="border-b border-slate-100 bg-slate-50/60">
-                <div className="font-semibold text-gray-900">Informations</div>
-                <div className="text-sm text-gray-500">Résumé du chantier.</div>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-gray-700">
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-gray-400">Type</div>
-                  <div>{project?.project_type || "Non défini"}</div>
-                </div>
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-gray-400">Localisation</div>
-                  <div>
-                    {project?.address || "-"} {project?.city || ""}
+                    <stat.icon className={cn("h-6 w-6", stat.colorClass.iconColor)} />
                   </div>
                 </div>
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-gray-400">Description</div>
-                  <div>{project?.description || "Aucune description."}</div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <div className="font-semibold text-gray-900">Suivi des tâches</div>
-              <div className="text-sm text-gray-500">
-                Mettez à jour l'état des tâches pour suivre l'avancement.
+                {stat.key === "progress" && (
+                  <div className="mt-3 h-1.5 rounded-full bg-neutral-100 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-primary-400 to-primary-600 transition-all progress-fill"
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
+                )}
               </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {tasks.length === 0 && (
-                <div className="text-sm text-gray-500">Aucune tâche pour le moment.</div>
-              )}
-              {tasks.map((task) => {
-                const statusValue = normalizeTaskStatus(task.status);
-                const dueDate = getTaskDueDate(task);
-                const delayLabel = getTaskDelayLabel(task);
-                return (
-                  <div
-                    key={task.id}
-                    className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 ${getTaskCardStyle(
-                      task
-                    )}`}
-                  >
-                    <div>
-                      <div className="font-semibold text-gray-900">{task.name}</div>
-                      <div className="text-xs text-gray-500">
-                        {dueDate ? `Échéance: ${formatDate(dueDate)}` : "Sans date définie"}
-                      </div>
-                      {delayLabel && (
-                        <div className="text-xs font-semibold text-red-600 mt-1">{delayLabel}</div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <select
-                        className="rounded-lg border border-gray-300 px-2 py-1 text-sm"
-                        value={statusValue}
-                        disabled={!canEditTasks}
-                        onChange={(event) =>
-                          handleUpdateTaskStatus(task, event.target.value as TaskStatusValue)
-                        }
-                      >
-                        {TASK_STATUS_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      {delayLabel && !isTaskCompleted(task.status) && (
-                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
-                          Retard
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
+            ))}
 
-          {interventions.length > 0 && (
-            <Card>
-              <CardHeader className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="font-semibold text-gray-900">Interventions ({interventions.length})</div>
-                  <div className="text-sm text-gray-500">Progression des interventions du projet.</div>
+          </div>
+
+          {/* ── Main 2-column layout ── */}
+          <div className="grid gap-6 lg:grid-cols-3">
+            {/* Left column (2/3) */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* Informations */}
+              <div className="rounded-xl border border-neutral-100 bg-white shadow-sm overflow-hidden card-hover">
+                <div className="px-5 py-4 flex items-center justify-between">
+                  <h3 className="font-semibold text-neutral-900">Informations</h3>
+                  {canManageProject && (
+                    <button
+                      onClick={openEditInfoModal}
+                      className="h-8 w-8 rounded-lg bg-neutral-100 hover:bg-primary-50 flex items-center justify-center transition-colors"
+                      title="Modifier les informations"
+                    >
+                      <Pencil className="h-4 w-4 text-neutral-500 hover:text-primary-600" />
+                    </button>
+                  )}
                 </div>
-                <Button variant="outline" size="sm" onClick={() => { setActiveTab("interventions"); updateQuery({ tab: "interventions" }); }}>
-                  Voir tout
-                </Button>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {interventions.slice(0, 4).map((intervention) => (
-                  <div
-                    key={intervention.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50 transition"
-                    onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${intervention.id}?role=${role}`)}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium text-gray-900">{intervention.name}</div>
-                      <div className="text-xs text-gray-500">
-                        {intervention.tasksDone}/{intervention.tasksTotal} taches
-                        {intervention.companyName ? ` - ${intervention.companyName}` : ""}
-                      </div>
+                <div className="px-5 pb-5 grid sm:grid-cols-2 gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-lg bg-primary-100 flex-shrink-0">
+                      <Wrench className="h-4 w-4 text-primary-600" />
                     </div>
-                    <div className="flex items-center gap-3">
-                      <div className="w-24">
-                        <div className="h-2 rounded-full bg-gray-100">
-                          <div className="h-2 rounded-full bg-primary-600" style={{ width: `${intervention.progressPercentage}%` }} />
-                        </div>
-                      </div>
-                      <span className="text-xs font-medium text-gray-700 w-10 text-right">{intervention.progressPercentage}%</span>
+                    <div>
+                      <p className="text-xs text-neutral-500">Type de travaux</p>
+                      <p className="text-sm font-medium text-neutral-900 mt-0.5">{project?.project_type || "Non défini"}</p>
                     </div>
                   </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-lg bg-primary-100 flex-shrink-0">
+                      <MapPin className="h-4 w-4 text-primary-600" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-neutral-500">Localisation</p>
+                      <p className="text-sm font-medium text-neutral-900 mt-0.5">
+                        {[project?.address, project?.city].filter(Boolean).join(", ") || "—"}
+                      </p>
+                    </div>
+                  </div>
+                  {project?.description && (
+                    <div className="sm:col-span-2 flex items-start gap-3">
+                      <div className="p-2 rounded-lg bg-primary-100 flex-shrink-0">
+                        <FileText className="h-4 w-4 text-primary-600" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-neutral-500">Description</p>
+                        <p className="text-sm font-medium text-neutral-900 mt-0.5 leading-relaxed">{project.description}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Suivi des interventions */}
+              <div className="rounded-xl border border-neutral-100 bg-white shadow-sm overflow-hidden card-hover">
+                <div className="px-5 py-4 flex items-center justify-between">
+                  <h3 className="font-semibold text-neutral-900">Suivi des tâches</h3>
+                  {interventions.length > 0 && (
+                    <button
+                      className="text-xs text-primary-600 hover:underline"
+                      onClick={() => { setActiveTab("interventions"); updateQuery({ tab: "interventions" }); }}
+                    >
+                      Voir tout →
+                    </button>
+                  )}
+                </div>
+                <div className="p-3 space-y-2">
+                  {interventionsLoading ? (
+                    <div className="px-4 py-6 text-sm text-neutral-500">Chargement...</div>
+                  ) : interventions.length === 0 ? (
+                    <div className="px-4 py-8 text-sm text-neutral-500 text-center">
+                      Aucune intervention pour le moment.
+                      {canManageProject && (
+                        <div className="mt-2">
+                          <Button size="sm" onClick={() => { setFormError(null); setInterventionModalOpen(true); }}>
+                            + Nouvelle intervention
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    interventions.map((intervention) => {
+                      const isDone = intervention.status === "termine" || intervention.status === "valide";
+                      const isInProgress = intervention.status === "en_cours";
+                      const isDevis = intervention.status === "devis_en_cours" || intervention.status === "devis_valide";
+                      const statusLabel = isDone ? "Terminé"
+                        : isInProgress ? "En cours"
+                        : isDevis ? "Devis"
+                        : "Planifié";
+                      const statusColor = isDone
+                        ? "bg-success-50 text-success-700"
+                        : isInProgress
+                        ? "bg-primary-50 text-primary-700"
+                        : isDevis
+                        ? "bg-amber-50 text-amber-700"
+                        : "bg-neutral-100 text-neutral-600";
+                      const dotColor = isDone
+                        ? "bg-success-500"
+                        : isInProgress
+                        ? "bg-primary-500"
+                        : isDevis
+                        ? "bg-amber-500"
+                        : "bg-neutral-400";
+                      const barGradient = isDone
+                        ? "bg-gradient-to-r from-success-500 to-success-700"
+                        : isInProgress
+                        ? "bg-gradient-to-r from-primary-400 to-primary-600"
+                        : isDevis
+                        ? "bg-gradient-to-r from-amber-400 to-amber-600"
+                        : "bg-neutral-300";
+                      return (
+                        <div
+                          key={intervention.id}
+                          className="px-4 py-4 rounded-xl cursor-pointer bg-white border border-neutral-100 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
+                          onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${intervention.id}?role=${role}`)}
+                        >
+                          <div className="flex items-center justify-between gap-3 mb-2">
+                            <span className="font-medium text-neutral-900 truncate">{intervention.name}</span>
+                            <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium flex-shrink-0", statusColor)}>
+                              <span className={cn("h-1.5 w-1.5 rounded-full flex-shrink-0", dotColor)} />
+                              {statusLabel}
+                            </span>
+                          </div>
+                          <div className="h-2 rounded-full bg-neutral-100 overflow-hidden">
+                            <div className={cn("h-full rounded-full transition-all progress-fill", barGradient)} style={{ width: `${intervention.progressPercentage}%` }} />
+                          </div>
+                          <div className="flex items-center justify-between mt-1.5">
+                            <span className="text-xs text-neutral-400">
+                              {intervention.tasksDone}/{intervention.tasksTotal} tâches
+                              {intervention.companyName ? ` · ${intervention.companyName}` : ""}
+                            </span>
+                            <span className="text-xs font-medium text-neutral-500">{intervention.progressPercentage}%</span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Right column (1/3) */}
+            <div className="space-y-6">
+              {/* Prochains rendez-vous */}
+              <div className="rounded-xl border border-neutral-100 bg-white shadow-sm overflow-hidden card-hover">
+                <div className="px-5 py-4 flex items-center justify-between">
+                  <h3 className="font-semibold text-neutral-900">Prochains rendez-vous</h3>
+                  {upcomingItems.length > 0 && (
+                    <button className="text-xs text-primary-600 hover:underline" onClick={() => setRendezVousModalOpen(true)}>
+                      Voir tout
+                    </button>
+                  )}
+                </div>
+                <div className="p-3 space-y-2">
+                  {upcomingItems.length === 0 ? (
+                    <div className="px-4 py-6 text-sm text-neutral-500 text-center">Aucun rendez-vous à venir.</div>
+                  ) : (
+                    upcomingItems.slice(0, 3).map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-start gap-3 p-3 rounded-lg bg-neutral-50/80 hover:bg-neutral-100/60 cursor-pointer transition-colors"
+                        onClick={() => {
+                          if (item.kind === "intervention") {
+                            router.push(`/dashboard/projets/${projectId}/interventions/${item.id}?role=${role}`);
+                          } else {
+                            updateQuery({ tab: "planning" });
+                          }
+                        }}
+                      >
+                        <div className="p-2 rounded-lg bg-primary-100 flex-shrink-0">
+                          <Calendar className="h-4 w-4 text-primary-600" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-neutral-900 truncate">{item.name}</p>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Clock className="h-3 w-3 text-neutral-400 flex-shrink-0" />
+                            <span className="text-xs text-neutral-500">
+                              {formatDate(item.date.toISOString().slice(0, 10))}
+                              {item.companyName ? ` · ${item.companyName}` : ""}
+                            </span>
+                          </div>
+                        </div>
+                        <Badge variant="info" className="text-[10px] flex-shrink-0 gap-1">
+                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-500" />
+                          {item.kind === "intervention" ? "Intervention" : "Tâche"}
+                        </Badge>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Membres */}
+              <div className="rounded-xl border border-neutral-100 bg-white shadow-sm overflow-hidden card-hover">
+                <div className="px-5 py-4 flex items-center justify-between">
+                  <h3 className="font-semibold text-neutral-900">Membres</h3>
+                  <span className="text-xs text-neutral-400">{members.length}</span>
+                </div>
+                <div className="divide-y divide-neutral-100">
+                  {members.length === 0 ? (
+                    <div className="px-5 py-6 text-sm text-neutral-500 text-center">Aucun membre.</div>
+                  ) : (
+                    members.slice(0, 5).map((member) => {
+                      const roleInfo = formatMemberRole(member.role);
+                      const name = member.user?.full_name || member.user?.email || member.invited_email || "Invité";
+                      return (
+                        <div key={member.id} className="flex items-center gap-3 px-5 py-3">
+                          <div className="h-8 w-8 rounded-full bg-primary-50 flex items-center justify-center flex-shrink-0">
+                            <span className="text-xs font-semibold text-primary-500">{name.charAt(0).toUpperCase()}</span>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-neutral-900 truncate">{name}</p>
+                            <p className="text-xs text-neutral-500">{roleInfo.label}</p>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
       )}
 
@@ -2328,10 +2709,10 @@ export default function ProjectDetailPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Interventions ({interventions.length})</h2>
-              <p className="text-sm text-gray-500">Liste des interventions du projet.</p>
+              <p className="text-sm text-gray-500">Sous-traitants ou équipe interne — chaque intervention génère des tâches sur le chantier.</p>
             </div>
             {canManageProject && (
-              <Button size="sm" onClick={() => setInterventionModalOpen(true)}>
+              <Button size="sm" onClick={() => { setFormError(null); setInterventionModalOpen(true); }}>
                 + Nouvelle intervention
               </Button>
             )}
@@ -2346,65 +2727,84 @@ export default function ProjectDetailPage() {
                   Aucune intervention pour le moment.
                 </div>
                 {canManageProject && (
-                  <Button size="sm" onClick={() => setInterventionModalOpen(true)}>
+                  <Button size="sm" onClick={() => { setFormError(null); setInterventionModalOpen(true); }}>
                     + Creer une intervention
                   </Button>
                 )}
               </CardContent>
             </Card>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {interventions.map((intervention) => (
-                <Card
-                  key={intervention.id}
-                  className="cursor-pointer hover:shadow-md transition"
-                  onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${intervention.id}?role=${role}`)}
-                >
-                  <CardHeader>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-semibold text-gray-900">{intervention.name}</div>
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                        intervention.status === "en_cours" ? "bg-blue-100 text-blue-700" :
-                        intervention.status === "termine" || intervention.status === "valide" ? "bg-emerald-100 text-emerald-700" :
-                        "bg-gray-100 text-gray-700"
-                      }`}>
-                        {intervention.status?.replace(/_/g, " ") ?? "Planifie"}
-                      </span>
-                    </div>
-                    {intervention.description && <div className="text-sm text-gray-500 mt-1">{intervention.description}</div>}
-                  </CardHeader>
-                  <CardContent className="text-sm text-gray-700">
-                    <div className="flex flex-wrap items-center gap-4">
-                      <div>
-                        <div className="text-xs uppercase tracking-wide text-gray-400">Taches</div>
-                        <div>{intervention.tasksDone}/{intervention.tasksTotal}</div>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
+              {interventions.map((intervention) => {
+                const lotStatus = intervention.status === "en_cours" ? "en_cours" : intervention.status === "termine" || intervention.status === "valide" ? "termine" : intervention.status === "devis_en_cours" || intervention.status === "devis_valide" ? intervention.status : "planifie";
+                return (
+                  <Card
+                    key={intervention.id}
+                    className="cursor-pointer hover:shadow-lg hover:border-primary-200 transition-all duration-200"
+                    onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${intervention.id}?role=${role}`)}
+                  >
+                    <CardHeader className="pb-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-gray-900 truncate">{intervention.name}</div>
+                          {intervention.description && (
+                            <div className="text-sm text-gray-500 mt-0.5 line-clamp-2">{intervention.description}</div>
+                          )}
+                        </div>
+                        <Badge type="lot" status={lotStatus} size="sm" className="shrink-0">
+                          {intervention.status === "en_cours" ? "En cours" : intervention.status === "termine" || intervention.status === "valide" ? "Terminé" : intervention.status?.replace(/_/g, " ") ?? "Planifié"}
+                        </Badge>
                       </div>
-                      <div>
-                        <div className="text-xs uppercase tracking-wide text-gray-400">Budget</div>
-                        <div>{formatCurrency(intervention.budgetEstimated)}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs uppercase tracking-wide text-gray-400">Dates</div>
+                    </CardHeader>
+                    <CardContent className="text-sm text-gray-700 pt-0">
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                         <div>
-                          {intervention.startDate ? formatDate(intervention.startDate) : "-"} →{" "}
-                          {intervention.endDate ? formatDate(intervention.endDate) : "-"}
+                          <div className="text-xs uppercase tracking-wide text-gray-400">Tâches</div>
+                          <div className="font-medium">{intervention.tasksDone}/{intervention.tasksTotal}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs uppercase tracking-wide text-gray-400">Budget</div>
+                          <div className="font-medium">{formatCurrency(intervention.budgetEstimated)}</div>
+                        </div>
+                        <div className="col-span-2">
+                          <div className="text-xs uppercase tracking-wide text-gray-400">Période</div>
+                          <div>
+                            {intervention.startDate ? formatDate(intervention.startDate) : "-"} → {intervention.endDate ? formatDate(intervention.endDate) : "-"}
+                          </div>
+                        </div>
+                        {intervention.companyName && (
+                          <div className="col-span-2">
+                            <div className="text-xs uppercase tracking-wide text-gray-400">Entreprise / responsable</div>
+                            <div>{intervention.companyName}</div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-3">
+                        <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                          <span>Avancement</span>
+                          <span className="font-semibold text-gray-700">{intervention.progressPercentage}%</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                          <div className="h-full rounded-full bg-primary-600 transition-all" style={{ width: `${intervention.progressPercentage}%` }} />
                         </div>
                       </div>
-                      {intervention.companyName && (
-                        <div>
-                          <div className="text-xs uppercase tracking-wide text-gray-400">Entreprise</div>
-                          <div>{intervention.companyName}</div>
-                        </div>
-                      )}
-                    </div>
-                    <div className="mt-3 h-2 rounded-full bg-gray-100">
-                      <div className="h-2 rounded-full bg-primary-600" style={{ width: `${intervention.progressPercentage}%` }} />
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
+        </section>
+      )}
+
+      {!loading && activeTab === "budget" && (
+        <section>
+          <ProjectBudgetPanel
+            projectId={projectId}
+            projectName={project?.name ?? null}
+            interventions={interventions}
+            role={role}
+          />
         </section>
       )}
 
@@ -2590,6 +2990,16 @@ export default function ProjectDetailPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {canEditPlanning && (
+                    <Button
+                      size="sm"
+                      className="inline-flex items-center gap-2"
+                      onClick={() => openTaskModal(new Date())}
+                    >
+                      <Plus className="w-4 h-4" />
+                      Ajouter un événement
+                    </Button>
+                  )}
                   <Button variant="outline" size="sm" onClick={() => setWeekStart(addDays(weekStart, -7))}>
                     Semaine précédente
                   </Button>
@@ -2660,9 +3070,10 @@ export default function ProjectDetailPage() {
                                 return (
                                   <div
                                     key={task.id}
+                                    data-task-id={task.id}
                                     onClick={(event) => event.stopPropagation()}
                                     className={cn(
-                                      "min-w-0 overflow-hidden break-words",
+                                      "min-w-0 overflow-hidden break-words transition-shadow",
                                       "rounded-md border-l-4 border px-2 py-1 text-[11px] shadow-sm",
                                       colorClass
                                     )}
@@ -2743,10 +3154,11 @@ export default function ProjectDetailPage() {
                                 }}
                                 className={cn(
                                   "absolute left-2 right-2 rounded-md border-l-4 border px-3 py-2 text-[11px]",
-                                  "shadow-sm overflow-hidden break-words",
+                                  "shadow-sm overflow-hidden break-words transition-shadow",
                                   block.colorClass
                                 )}
                                 style={{ top: `${block.top}px`, height: `${block.height}px` }}
+                                data-task-id={block.task.id}
                               >
                                 <div className="flex items-center justify-between gap-2">
                                   <span
@@ -2939,6 +3351,12 @@ export default function ProjectDetailPage() {
                             : "bg-neutral-100 text-neutral-900 border border-neutral-200 shadow-sm"
                         }`}
                       >
+                        {msg.role === "user" && msg.attachedFileName && (
+                          <div className="flex items-center gap-1.5 mb-1.5 text-xs text-primary-100 opacity-90">
+                            <Paperclip className="w-3 h-3" />
+                            <span className="truncate max-w-[160px]">{msg.attachedFileName}</span>
+                          </div>
+                        )}
                         <ChatMessageMarkdown content={msg.content} />
                         {msg.role === "assistant" && msg.suggestions && msg.suggestions.length > 0 && (
                           <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-neutral-200">
@@ -2955,10 +3373,26 @@ export default function ProjectDetailPage() {
                             ))}
                           </div>
                         )}
+                        {msg.role === "assistant" && msg.quickActions && msg.quickActions.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-neutral-200">
+                            {msg.quickActions.map((action) => (
+                              <button
+                                key={action.id}
+                                onClick={() => sendAssistantMessage(action.prompt)}
+                                disabled={assistantLoading}
+                                type="button"
+                                className="text-xs px-3 py-1.5 rounded-full border border-primary-400 text-primary-600 bg-primary-50 hover:bg-primary-100 hover:border-primary-500 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {action.icon && <span className="mr-1">{action.icon}</span>}
+                                {action.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
-                  {assistantLoading && (
+                  {assistantLoading && !assistantStreamingContent && (
                     <div className="flex gap-3 justify-start">
                       <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
                         <img
@@ -2976,9 +3410,64 @@ export default function ProjectDetailPage() {
                       </div>
                     </div>
                   )}
+                  {assistantStreamingContent && (
+                    <div className="flex gap-3 justify-start">
+                      <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <img
+                          src="/images/grey/robot.png"
+                          alt="Assistant IA"
+                          className="w-5 h-5 object-contain logo-blend"
+                        />
+                      </div>
+                      <div className="max-w-[80%]">
+                        <div className="bg-neutral-100 border border-neutral-200 rounded-lg px-4 py-3 shadow-sm text-sm text-neutral-900 whitespace-pre-wrap">
+                          {assistantStreamingContent}
+                          <span className="inline-block w-0.5 h-4 bg-neutral-500 animate-pulse ml-0.5 align-middle" />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div ref={assistantMessagesEndRef} />
                 </div>
+                {/* Chip fichier sélectionné */}
+                {selectedFile && (
+                  <div className="flex items-center gap-2 px-3 py-1.5 mb-1 bg-primary-50 border border-primary-200 rounded-lg text-sm text-primary-700 w-fit max-w-full">
+                    <Paperclip className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate max-w-[200px]">{selectedFile.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFile(null)}
+                      className="ml-1 hover:text-red-500 transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
                 <div className="flex gap-2 pb-2">
+                  {/* Input fichier caché */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.docx,.png,.jpg,.jpeg,.txt"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      setSelectedFile(f);
+                      e.target.value = "";
+                    }}
+                  />
+                  {/* Bouton trombone — pros uniquement */}
+                  {userRole === "professionnel" && (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={assistantLoading}
+                      title="Joindre un fichier (PDF, DOCX, image…)"
+                      className="h-14 w-11 flex items-center justify-center border border-neutral-300 rounded-lg bg-white hover:bg-neutral-50 hover:border-primary-400 text-neutral-500 hover:text-primary-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                    >
+                      <Paperclip className="w-4 h-4" />
+                    </button>
+                  )}
                   <input
                     type="text"
                     value={assistantInput}
@@ -2998,7 +3487,7 @@ export default function ProjectDetailPage() {
                   />
                   <Button
                     onClick={() => sendAssistantMessage(assistantInput)}
-                    disabled={assistantLoading || !assistantInput.trim()}
+                    disabled={assistantLoading || (!assistantInput.trim() && !selectedFile)}
                     className="h-14"
                   >
                     <Send className="w-4 h-4" />
@@ -3191,13 +3680,13 @@ export default function ProjectDetailPage() {
                               label="Debut"
                               type="date"
                               value={task.start_date ?? ""}
-                              onChange={(event) => updateProposalTask(index, { start_date: event.target.value })}
+                              onChange={(event) => updateProposalTask(index, { start_date: normalizeDateValue(event.target.value) || event.target.value })}
                             />
                             <Input
                               label="Fin"
                               type="date"
                               value={task.end_date ?? ""}
-                              onChange={(event) => updateProposalTask(index, { end_date: event.target.value })}
+                              onChange={(event) => updateProposalTask(index, { end_date: normalizeDateValue(event.target.value) || event.target.value })}
                             />
                             <Input
                               label="Creneau"
@@ -3309,10 +3798,15 @@ export default function ProjectDetailPage() {
                 <h3 className="text-lg font-semibold text-neutral-900">Nouvelle intervention</h3>
                 <p className="text-sm text-neutral-600">Ajoutez une intervention au projet.</p>
               </div>
-              <Button variant="ghost" onClick={() => setInterventionModalOpen(false)}>
+              <Button variant="ghost" onClick={() => { setInterventionModalOpen(false); setFormError(null); }}>
                 Fermer
               </Button>
             </div>
+            {formError && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {formError}
+              </div>
+            )}
             <form className="space-y-4" onSubmit={handleCreateIntervention}>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Nom *</label>
@@ -3356,7 +3850,7 @@ export default function ProjectDetailPage() {
                   <Input
                     type="date"
                     value={interventionForm.startDate}
-                    onChange={(event) => setInterventionForm({ ...interventionForm, startDate: event.target.value })}
+                    onChange={(event) => setInterventionForm({ ...interventionForm, startDate: normalizeDateValue(event.target.value) || event.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -3364,12 +3858,12 @@ export default function ProjectDetailPage() {
                   <Input
                     type="date"
                     value={interventionForm.endDate}
-                    onChange={(event) => setInterventionForm({ ...interventionForm, endDate: event.target.value })}
+                    onChange={(event) => setInterventionForm({ ...interventionForm, endDate: normalizeDateValue(event.target.value) || event.target.value })}
                   />
                 </div>
               </div>
               <div className="flex items-center justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setInterventionModalOpen(false)}>
+                <Button type="button" variant="outline" onClick={() => { setInterventionModalOpen(false); setFormError(null); }}>
                   Annuler
                 </Button>
                 <Button type="submit" disabled={interventionSubmitting || !canManageProject}>
@@ -3390,10 +3884,15 @@ export default function ProjectDetailPage() {
                   <p className="text-sm text-neutral-600">Jour: {formatDate(selectedDay)}</p>
                 )}
               </div>
-              <Button variant="ghost" onClick={() => setIsTaskModalOpen(false)}>
+              <Button variant="ghost" onClick={() => { setIsTaskModalOpen(false); setFormError(null); }}>
                 Fermer
               </Button>
             </div>
+            {formError && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {formError}
+              </div>
+            )}
             <div className="space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Nom *</label>
@@ -3409,7 +3908,7 @@ export default function ProjectDetailPage() {
                   <Input
                     type="date"
                     value={taskDates.start}
-                    onChange={(event) => setTaskDates({ ...taskDates, start: event.target.value })}
+                    onChange={(event) => setTaskDates({ ...taskDates, start: normalizeDateValue(event.target.value) || event.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -3427,7 +3926,7 @@ export default function ProjectDetailPage() {
                   <Input
                     type="date"
                     value={taskDates.end}
-                    onChange={(event) => setTaskDates({ ...taskDates, end: event.target.value })}
+                    onChange={(event) => setTaskDates({ ...taskDates, end: normalizeDateValue(event.target.value) || event.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -3456,6 +3955,88 @@ export default function ProjectDetailPage() {
                   Ajouter
                 </Button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit project info modal ── */}
+      {editInfoModalOpen && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-neutral-200 max-w-lg w-full p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h2 className="text-base font-semibold text-neutral-900">Modifier les informations</h2>
+                <p className="text-sm text-neutral-500">Mettez à jour les détails du projet</p>
+              </div>
+              <button onClick={() => setEditInfoModalOpen(false)} className="h-8 w-8 rounded-lg bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center transition-colors">
+                <X className="h-4 w-4 text-neutral-600" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Nom du projet</label>
+                <input
+                  className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition"
+                  value={editInfoForm.name}
+                  onChange={(e) => setEditInfoForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="Ex : Rénovation cuisine"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Type de travaux</label>
+                <input
+                  className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition"
+                  value={editInfoForm.project_type}
+                  onChange={(e) => setEditInfoForm((f) => ({ ...f, project_type: e.target.value }))}
+                  placeholder="Ex : Extension, Rénovation…"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Adresse</label>
+                  <input
+                    className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition"
+                    value={editInfoForm.address}
+                    onChange={(e) => setEditInfoForm((f) => ({ ...f, address: e.target.value }))}
+                    placeholder="8 Rue du Parc"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Ville</label>
+                  <input
+                    className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition"
+                    value={editInfoForm.city}
+                    onChange={(e) => setEditInfoForm((f) => ({ ...f, city: e.target.value }))}
+                    placeholder="Versailles"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Description</label>
+                <textarea
+                  rows={3}
+                  className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition resize-none"
+                  value={editInfoForm.description}
+                  onChange={(e) => setEditInfoForm((f) => ({ ...f, description: e.target.value }))}
+                  placeholder="Description du chantier…"
+                />
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={() => setEditInfoModalOpen(false)}
+                className="rounded-xl border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleSaveProjectInfo}
+                disabled={editInfoSubmitting}
+                className="rounded-xl bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors"
+              >
+                {editInfoSubmitting ? "Enregistrement…" : "Enregistrer"}
+              </button>
             </div>
           </div>
         </div>
@@ -3535,6 +4116,70 @@ export default function ProjectDetailPage() {
                   {publishSubmitting ? "Publication..." : "Publier"}
                 </Button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rendezVousModalOpen && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-2xl w-full max-h-[85vh] flex flex-col">
+            <div className="flex items-start justify-between gap-3 p-6 border-b border-neutral-200">
+              <div>
+                <h3 className="text-lg font-semibold text-neutral-900">Tous les rendez-vous à venir</h3>
+                <p className="text-sm text-neutral-600">
+                  Liste de toutes les interventions planifiées.
+                </p>
+              </div>
+              <Button variant="ghost" onClick={() => setRendezVousModalOpen(false)}>
+                Fermer
+              </Button>
+            </div>
+                <div className="flex-1 overflow-y-auto p-6 space-y-3">
+              {upcomingItems.length === 0 ? (
+                <div className="text-sm text-gray-500">Aucun rendez-vous à venir.</div>
+              ) : (
+                upcomingItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50 transition"
+                    onClick={() => {
+                      setRendezVousModalOpen(false);
+                      if (item.kind === "intervention") {
+                        router.push(`/dashboard/projets/${projectId}/interventions/${item.id}?role=${role}`);
+                      } else {
+                        updateQuery({ tab: "planning" });
+                      }
+                    }}
+                  >
+                    <div>
+                      <div className="font-semibold text-gray-900">{item.name}</div>
+                      <div className="text-xs text-gray-500">
+                        {formatDate(item.date.toISOString().slice(0, 10))}
+                        {item.companyName ? ` • ${item.companyName}` : ""}
+                      </div>
+                      {item.description && (
+                        <div className="text-xs text-gray-500 mt-1 line-clamp-2">{item.description}</div>
+                      )}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRendezVousModalOpen(false);
+                        if (item.kind === "intervention") {
+                          router.push(`/dashboard/projets/${projectId}/interventions/${item.id}?role=${role}`);
+                        } else {
+                          updateQuery({ tab: "planning" });
+                        }
+                      }}
+                    >
+                      {item.kind === "intervention" ? "Voir intervention" : "Voir dans le planning"}
+                    </Button>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

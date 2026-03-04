@@ -5,7 +5,7 @@ import { Send, User } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import {
   generateChecklistPdf,
-  sendMessageToAI,
+  streamMessageToAI,
   type AIContext,
   type AIMessage,
   type QuickAction,
@@ -39,9 +39,9 @@ export function ChatWindow({
   const [messages, setMessages] = useState<AIMessage[]>([
     {
       role: "assistant",
-      content: userRole === "particulier" 
-        ? "Bonjour ! Je suis votre assistant IA pour vos projets BTP. Que souhaitez-vous tester ou savoir ?"
-        : "Bonjour ! Je suis votre assistant IA professionnel. Je peux vous aider à générer des devis, créer des factures, et gérer vos projets BTP. Que souhaitez-vous faire ?",
+      content: userRole === "particulier"
+        ? "Bonjour ! Je suis votre assistant BTP. Je peux vous guider dans votre projet, vous expliquer les étapes, estimer un budget ou vous aider à trouver un professionnel. Comment puis-je vous aider ?"
+        : "Bonjour ! Je suis votre assistant IA BTP. Je peux générer vos devis et factures, analyser vos projets et vous apporter une expertise technique. Que souhaitez-vous faire ?",
       timestamp: new Date().toISOString(),
     },
   ]);
@@ -72,6 +72,7 @@ export function ChatWindow({
 
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<AIMessage[]>(messages);
@@ -126,6 +127,7 @@ export function ChatWindow({
 
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
+    setStreamingContent("");
 
     try {
       const context: AIContext = {
@@ -139,7 +141,9 @@ export function ChatWindow({
         conversationHistory: [...messagesRef.current, userMessage],
       };
 
-      const response = await sendMessageToAI(text, context);
+      const response = await streamMessageToAI(text, context, (token) => {
+        setStreamingContent((prev) => (prev ?? "") + token);
+      });
 
       if (response.conversationId && response.conversationId !== conversationId) {
         setConversationId(response.conversationId);
@@ -164,6 +168,7 @@ export function ChatWindow({
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
+      setStreamingContent(null);
     }
   };
 
@@ -254,7 +259,7 @@ export function ChatWindow({
             }`}
           >
             {message.role === "assistant" && (
-              <div className="w-8 h-8 bg-[#38b6ff] rounded-full flex items-center justify-center flex-shrink-0">
+              <div className="w-8 h-8 bg-gradient-to-br from-primary-400 to-primary-600 rounded-full flex items-center justify-center flex-shrink-0">
                 <img
                   src="/images/robotbleu.png"
                   alt="Assistant IA"
@@ -339,9 +344,9 @@ export function ChatWindow({
             )}
           </div>
         ))}
-        {isLoading && (
+        {isLoading && !streamingContent && (
           <div className="flex gap-3 justify-start">
-            <div className="w-8 h-8 bg-[#38b6ff] rounded-full flex items-center justify-center">
+            <div className="w-8 h-8 bg-gradient-to-br from-primary-400 to-primary-600 rounded-full flex items-center justify-center">
               <img
                 src="/images/robotbleu.png"
                 alt="Assistant IA"
@@ -353,6 +358,23 @@ export function ChatWindow({
                 <div className="w-2 h-2 bg-neutral-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></div>
                 <div className="w-2 h-2 bg-neutral-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></div>
                 <div className="w-2 h-2 bg-neutral-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></div>
+              </div>
+            </div>
+          </div>
+        )}
+        {streamingContent && (
+          <div className="flex gap-3 justify-start">
+            <div className="w-8 h-8 bg-gradient-to-br from-primary-400 to-primary-600 rounded-full flex items-center justify-center flex-shrink-0">
+              <img
+                src="/images/robotbleu.png"
+                alt="Assistant IA"
+                className="w-5 h-5 object-contain brightness-0 invert"
+              />
+            </div>
+            <div className="max-w-[80%]">
+              <div className="rounded-lg px-4 py-2 bg-neutral-100 text-neutral-900 border border-neutral-200 shadow-sm">
+                <ChatMessageMarkdown content={streamingContent} />
+                <span className="inline-block w-0.5 h-4 bg-neutral-500 animate-pulse ml-0.5 align-middle" />
               </div>
             </div>
           </div>

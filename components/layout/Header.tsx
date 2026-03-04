@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle, Search, X } from "lucide-react";
+import { AlertTriangle, Bell, CheckCircle, X } from "lucide-react";
 import { User } from "@/types";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { useBreadcrumb } from "@/contexts/BreadcrumbContext";
 
 interface HeaderProps {
   user?: User;
@@ -38,8 +39,13 @@ const isSuccess = (type: string) => type === "success" || type === "project";
 
 export function Header({ user }: HeaderProps) {
   const router = useRouter();
+  const { breadcrumb } = useBreadcrumb();
   const [openNotif, setOpenNotif] = useState(false);
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
+
+  const goToDashboard = () => {
+    router.push(user?.role ? `/dashboard?role=${user.role}` : "/dashboard");
+  };
   const [notifLoading, setNotifLoading] = useState(false);
   const [notifError, setNotifError] = useState<string | null>(null);
   const notifRef = useRef<HTMLDivElement | null>(null);
@@ -99,6 +105,7 @@ export function Header({ user }: HeaderProps) {
   const handleOpenNotif = (notif: NotificationRow) => {
     if (!notif.action_url) return;
     setOpenNotif(false);
+    void removeNotif(notif.id);
     router.push(notif.action_url);
   };
 
@@ -149,31 +156,50 @@ export function Header({ user }: HeaderProps) {
   }, [openNotif]);
 
   return (
-    <header className="h-16 bg-white border-b border-neutral-200 flex items-center justify-between px-6 relative">
-      <div className="flex-1 max-w-xl">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-neutral-400 w-5 h-5" />
-          <input
-            type="text"
-            placeholder="Rechercher..."
-            className="w-full pl-10 pr-4 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-          />
-        </div>
-      </div>
+    <header className="h-16 bg-white border-b border-neutral-200 flex items-center justify-end px-6 relative">
+      {/* Breadcrumb — left side */}
+      {breadcrumb.length > 0 ? (
+        <nav aria-label="Fil d'Ariane" className="absolute left-6 flex items-center gap-2 text-sm">
+          {breadcrumb.map((item, i) => (
+            <span key={i} className="flex items-center gap-2">
+              {i > 0 && <span className="text-neutral-300 select-none">›</span>}
+              {item.href ? (
+                <button
+                  onClick={() => router.push(item.href!)}
+                  className="text-neutral-500 hover:text-primary-600 transition-colors font-medium"
+                >
+                  {item.label}
+                </button>
+              ) : (
+                <span className="text-neutral-800 font-semibold truncate max-w-[220px]">{item.label}</span>
+              )}
+            </span>
+          ))}
+        </nav>
+      ) : null}
 
-      <div className="flex items-center gap-4 relative">
+      {/* Logo — centered */}
+      <button
+        type="button"
+        onClick={goToDashboard}
+        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 rounded"
+        aria-label="Retour au tableau de bord"
+      >
+        <img src="/images/nextmind.png" alt="NextMind" className="h-8 w-auto" />
+      </button>
+
+      {/* Right side — notifications + user */}
+      <div className="flex items-center gap-3 relative">
         <div className="relative" ref={notifRef}>
           <button
-            className="relative p-2 text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 rounded-lg transition-colors"
+            className="relative p-2 text-neutral-500 hover:text-neutral-800 hover:bg-neutral-100 rounded-lg transition-colors"
             onClick={() => setOpenNotif((v) => !v)}
             aria-label="Notifications"
           >
-            <img
-              src="/images/bell.png"
-              alt="Notifications"
-              className="w-5 h-5 object-contain logo-blend"
-            />
-            {unreadCount > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />}
+            <Bell className="w-5 h-5" />
+            {unreadCount > 0 && (
+              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+            )}
           </button>
           {openNotif && (
             <div className="absolute right-0 mt-2 w-80 bg-white border border-neutral-200 rounded-lg shadow-lg z-20">
@@ -202,11 +228,7 @@ export function Header({ user }: HeaderProps) {
                       ) : isSuccess(notif.type) ? (
                         <CheckCircle className="w-4 h-4 text-green-600 mt-0.5" />
                       ) : (
-                        <img
-                          src="/images/bell.png"
-                          alt="Notification"
-                          className="w-4 h-4 object-contain logo-blend mt-0.5"
-                        />
+                        <Bell className="w-4 h-4 text-neutral-400 mt-0.5" />
                       )}
                       <div className="flex-1">
                         <p className="text-sm font-medium text-neutral-900">{notif.title}</p>
@@ -245,8 +267,8 @@ export function Header({ user }: HeaderProps) {
               <p className="text-sm font-medium text-neutral-900">{user.name}</p>
               <p className="text-xs text-neutral-500 capitalize">{user.role}</p>
             </div>
-            <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
-              <span className="text-primary-700 font-medium">
+            <div className="w-9 h-9 bg-gradient-to-br from-primary-400 to-primary-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm">
+              <span className="text-white font-semibold text-sm">
                 {user.name.charAt(0).toUpperCase()}
               </span>
             </div>

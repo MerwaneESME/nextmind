@@ -25,6 +25,23 @@ export type CreateProjectInput = {
   city?: string | null;
 };
 
+/** Données du questionnaire adapté au type de travaux */
+export type QuestionnaireData = Record<string, string | number | null>;
+
+/** Demande de projet (particulier) : formulaire structuré pour envoi aux artisans */
+export type CreateProjectParticulierInput = {
+  name: string;
+  description?: string | null;
+  projectType?: string | null;
+  address?: string | null;
+  city?: string | null;
+  postalCode?: string | null;
+  budget?: number | null;
+  desiredStartDate?: string | null; // ISO date
+  surfaceSqm?: number | null; // surface à rénover / refaire (m²)
+  questionnaireData?: QuestionnaireData | null;
+};
+
 type ProjectRow = {
   id: string;
   name: string;
@@ -114,6 +131,32 @@ export const fetchProjectsForUser = async (userId: string, limit?: number) => {
   }
 
   return mapped;
+};
+
+/** Projets créés par l'utilisateur (fallback si project_members absent) */
+export const fetchProjectsByCreator = async (userId: string): Promise<ProjectSummary[]> => {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("id,name,description,status,project_type,budget_total,city,address,created_at,updated_at")
+    .eq("created_by", userId)
+    .order("updated_at", { ascending: false });
+
+  if (error) throw error;
+  const rows = (data ?? []) as any[];
+  return rows.map((p) => ({
+    id: p.id,
+    name: p.name,
+    description: p.description,
+    status: p.status,
+    projectType: p.project_type,
+    budgetTotal: typeof p.budget_total === "number" ? p.budget_total : Number(p.budget_total) || null,
+    city: p.city,
+    address: p.address,
+    createdAt: p.created_at,
+    updatedAt: p.updated_at,
+    memberStatus: "accepted",
+    memberRole: "owner",
+  }));
 };
 
 export async function fetchHierarchyCounts(
@@ -211,6 +254,161 @@ export const createProject = async (userId: string, input: CreateProjectInput) =
 
   return data.id as string;
 };
+
+/**
+ * Création de projet par un particulier via RPC (contourne RLS).
+ * À utiliser pour éviter l'erreur "new row violates row-level security policy".
+ * Les données du formulaire sont structurées pour être réutilisées telles quelles
+ * lors de l'envoi de la demande aux artisans.
+ */
+export const createProjectAsParticulier = async (
+  _userId: string,
+  input: CreateProjectParticulierInput
+): Promise<string> => {
+  const baseParams = {
+    p_name: input.name.trim(),
+    p_description: input.description?.trim() || null,
+    p_project_type: input.projectType?.trim() || null,
+    p_address: input.address?.trim() || null,
+    p_city: input.city?.trim() || null,
+    p_postal_code: input.postalCode?.trim() || null,
+    p_budget_min: input.budget ?? null,
+    p_budget_max: input.budget ?? null,
+    p_desired_start_date: input.desiredStartDate || null,
+    p_surface_sqm: input.surfaceSqm ?? null,
+  };
+
+  let { data, error } = await supabase.rpc("rpc_create_project", {
+    ...baseParams,
+    p_questionnaire_data: input.questionnaireData ?? {},
+  });
+
+  const errMsg = (error?.message ?? "").toLowerCase();
+  const isFunctionNotFound = errMsg.includes("could not find the function") || errMsg.includes("in the schema cache");
+  if (isFunctionNotFound) {
+    const { data: data2, error: error2 } = await supabase.rpc("rpc_create_project", baseParams);
+    if (error2) throw error2;
+    if (data2 == null) throw new Error("Création du projet échouée");
+    return data2 as string;
+  } else if (error) {
+    throw error;
+  }
+
+  if (data == null) throw new Error("Création du projet échouée");
+  return data as string;
+};
+
+/**
+ * Résumé structuré d'une demande de projet pour envoi aux artisans.
+ * Même format pour tous les artisans, basé sur le formulaire rempli par le particulier.
+ */
+export type DemandeProjetSummary = {
+  projectId: string;
+  titre: string;
+  typeTravaux: string | null;
+  adresse: string | null;
+  codePostal: string | null;
+  ville: string | null;
+  description: string | null;
+  budgetMin: number | null;
+  budgetMax: number | null;
+  dateDebutSouhaitee: string | null;
+  surfaceSqm: number | null;
+  questionnaireData: QuestionnaireData | null;
+};
+
+export async function getProjectDemandeSummary(
+  projectId: string
+): Promise<{ recap: DemandeProjetSummary | null; error?: string }> {
+  const minCols = "id,name,description,project_type,address,city";
+  const fullCols = `${minCols},total_budget,postal_code,budget_min,desired_start_date,surface_sqm,questionnaire_data`;
+  let { data, error } = await supabase
+    .from("projects")
+    .select(fullCols)
+    .eq("id", projectId)
+    .maybeSingle();
+  if (error) {
+    const withExtras = `${minCols},total_budget,postal_code,budget_min,desired_start_date,surface_sqm`;
+    let fallback = await supabase
+      .from("projects")
+      .select(`${withExtras},questionnaire_data`)
+      .eq("id", projectId)
+      .maybeSingle();
+    if (fallback.error) {
+      fallback = await supabase
+        .from("projects")
+        .select(withExtras)
+        .eq("id", projectId)
+        .maybeSingle();
+    }
+    if (fallback.error) {
+      fallback = await supabase
+        .from("projects")
+        .select(`${minCols},total_budget`)
+        .eq("id", projectId)
+        .maybeSingle();
+    }
+    if (fallback.error) {
+      fallback = await supabase
+        .from("projects")
+        .select(`${minCols},budget_total`)
+        .eq("id", projectId)
+        .maybeSingle();
+    }
+    if (fallback.error) {
+      fallback = await supabase
+        .from("projects")
+        .select(minCols)
+        .eq("id", projectId)
+        .maybeSingle();
+    }
+    if (fallback.error || !fallback.data)
+      return { recap: null, error: fallback.error?.message ?? "Projet introuvable" };
+    data = fallback.data;
+  }
+  if (!data) return { recap: null, error: "Projet introuvable" };
+  const row = data as Record<string, unknown>;
+  const rawBudget = row.total_budget ?? row.budget_total;
+  const budgetMax =
+    typeof rawBudget === "number" ? rawBudget : typeof rawBudget === "string" ? Number(rawBudget) : null;
+  const budgetMin =
+    typeof row.budget_min === "number" ? row.budget_min : typeof row.budget_min === "string" ? Number(row.budget_min) : null;
+  const surfaceSqm =
+    typeof row.surface_sqm === "number" ? row.surface_sqm : typeof row.surface_sqm === "string" ? Number(row.surface_sqm) : null;
+  let qData = row.questionnaire_data;
+  if (qData === undefined && row.id) {
+    const { data: qRow } = await supabase
+      .from("projects")
+      .select("questionnaire_data")
+      .eq("id", row.id)
+      .maybeSingle();
+    if (qRow && (qRow as Record<string, unknown>).questionnaire_data != null) {
+      qData = (qRow as Record<string, unknown>).questionnaire_data;
+    }
+  }
+  const questionnaireData: QuestionnaireData | null =
+    qData && typeof qData === "object" && !Array.isArray(qData) ? (qData as QuestionnaireData) : null;
+  const rawDate = row.desired_start_date;
+  const dateDebutSouhaitee =
+    rawDate == null ? null : typeof rawDate === "string" ? rawDate : (rawDate as Date)?.toISOString?.()?.slice(0, 10) ?? null;
+
+  return {
+    recap: {
+      projectId: row.id as string,
+      titre: (row.name as string) ?? "Projet",
+      typeTravaux: row.project_type as string | null,
+      adresse: row.address as string | null,
+      codePostal: row.postal_code as string | null,
+      ville: row.city as string | null,
+      description: row.description as string | null,
+      budgetMin: Number.isFinite(budgetMin) ? budgetMin : null,
+      budgetMax: Number.isFinite(budgetMax) ? budgetMax : null,
+      dateDebutSouhaitee,
+      surfaceSqm: Number.isFinite(surfaceSqm) ? surfaceSqm : null,
+      questionnaireData,
+    },
+  };
+}
 
 export type ProjectInvite = {
   id: string;
