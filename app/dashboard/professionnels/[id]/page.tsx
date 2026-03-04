@@ -150,7 +150,7 @@ export default function ProProfilePage() {
         <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
         <div className="relative flex items-start justify-between gap-6 p-6 sm:p-8">
           <div className="flex items-start gap-4">
-            <div className="h-14 w-14 rounded-2xl bg-primary-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
+            <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
               <Building2 className="h-6 w-6" />
             </div>
             <div className="min-w-0">

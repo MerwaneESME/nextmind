@@ -14,6 +14,7 @@ import {
   FileText,
   Eye,
   Download,
+  FolderOpen,
   ImagePlus,
   Trash2,
   TrendingUp,
@@ -75,16 +76,30 @@ const toMonthKey = (date: Date) =>
 
 const getStatusBadge = (status: string) => {
   const styles = {
-    draft: "bg-gray-100 text-gray-800",
-    en_cours: "bg-blue-100 text-blue-800",
-    termine: "bg-green-100 text-green-800",
-    en_attente: "bg-yellow-100 text-yellow-800",
-    a_faire: "bg-gray-100 text-gray-800",
-    envoye: "bg-blue-100 text-blue-800",
-    valide: "bg-green-100 text-green-800",
-    refuse: "bg-red-100 text-red-800",
+    draft: "bg-neutral-100 text-neutral-700",
+    en_cours: "bg-primary-50 text-primary-700",
+    termine: "bg-emerald-50 text-emerald-700",
+    en_attente: "bg-amber-50 text-amber-700",
+    a_faire: "bg-neutral-100 text-neutral-700",
+    envoye: "bg-primary-50 text-primary-700",
+    valide: "bg-emerald-50 text-emerald-700",
+    refuse: "bg-red-50 text-red-700",
   };
   return styles[status as keyof typeof styles] || styles.en_attente;
+};
+
+const getStatusDotClass = (status: string) => {
+  const dots = {
+    draft: "bg-neutral-400",
+    en_cours: "bg-primary-400",
+    termine: "bg-emerald-400",
+    en_attente: "bg-amber-400",
+    a_faire: "bg-neutral-400",
+    envoye: "bg-primary-400",
+    valide: "bg-emerald-400",
+    refuse: "bg-red-400",
+  };
+  return dots[status as keyof typeof dots] || dots.en_attente;
 };
 
 const getStatusLabel = (status: string) => {
@@ -409,84 +424,91 @@ function ProfessionalDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-
-        <img
-
-          src="/images/dashboard.png"
-
-          alt="Tableau de bord"
-
-          className="h-28 w-28 object-contain logo-blend"
-
-        />
-
-        <div>
-
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Tableau de bord</h1>
-
-          <p className="text-gray-600">Vue d'ensemble de votre activité</p>
-
+      <header className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <div className="relative flex items-start justify-between gap-6 p-6 sm:p-8">
+          <div className="flex items-start gap-4">
+            <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
+              <TrendingUp className="h-6 w-6" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Tableau de bord</h1>
+              <p className="text-neutral-600 mt-1">Vue d'ensemble de votre activité</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-600">
+                <span className="rounded-full border border-neutral-200 bg-white px-3 py-1">
+                  {projects.length} projet{projects.length !== 1 ? "s" : ""}
+                </span>
+                <span className="rounded-full border border-neutral-200 bg-white px-3 py-1">
+                  {quotes.length} devis
+                </span>
+                {projects.filter((p) => resolveProjectStatus(p.status) === "en_cours").length > 0 && (
+                  <span className="rounded-full border border-primary-200 bg-primary-50 text-primary-700 px-3 py-1">
+                    {projects.filter((p) => resolveProjectStatus(p.status) === "en_cours").length} en cours
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <img
+            src="/images/dashboard.png"
+            alt="Tableau de bord"
+            className="hidden sm:block h-20 w-20 object-contain opacity-90 logo-blend flex-shrink-0"
+          />
         </div>
-
-      </div>
+      </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
-          <CardContent className="relative z-10 p-6">
+        <Card className="relative overflow-hidden border-l-4 border-l-primary-400">
+          <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Projets en cours</p>
-                <p className="text-2xl font-bold text-gray-900">{projectsEnCours}</p>
+                <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Projets en cours</p>
+                <p className="text-3xl font-bold text-neutral-900">{projectsEnCours}</p>
               </div>
-              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                <Clock className="w-6 h-6 text-blue-600" />
+              <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center flex-shrink-0">
+                <Clock className="w-5 h-5 text-primary-600" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
-          <CardContent className="relative z-10 p-6">
+        <Card className="relative overflow-hidden border-l-4 border-l-emerald-400">
+          <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Projets achevés</p>
-                <p className="text-2xl font-bold text-gray-900">{projectsTermines}</p>
+                <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Projets achevés</p>
+                <p className="text-3xl font-bold text-neutral-900">{projectsTermines}</p>
               </div>
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                <CheckCircle className="w-6 h-6 text-green-600" />
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                <CheckCircle className="w-5 h-5 text-emerald-600" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
-          <CardContent className="relative z-10 p-6">
+        <Card className="relative overflow-hidden border-l-4 border-l-amber-400">
+          <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Devis à faire</p>
-                <p className="text-2xl font-bold text-gray-900">{devisStats.a_faire}</p>
+                <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Devis à faire</p>
+                <p className="text-3xl font-bold text-neutral-900">{devisStats.a_faire}</p>
               </div>
-              <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-                <FileText className="w-6 h-6 text-yellow-600" />
+              <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <FileText className="w-5 h-5 text-amber-600" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
-          <CardContent className="relative z-10 p-6">
+        <Card className="relative overflow-hidden border-l-4 border-l-red-400">
+          <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Alertes</p>
-                <p className="text-2xl font-bold text-gray-900">{alertesNonLues}</p>
+                <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Alertes</p>
+                <p className="text-3xl font-bold text-neutral-900">{alertesNonLues}</p>
               </div>
-              <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
-                <AlertCircle className="w-6 h-6 text-red-600" />
+              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0">
+                <AlertCircle className="w-5 h-5 text-red-600" />
               </div>
             </div>
           </CardContent>
@@ -588,9 +610,11 @@ function ProfessionalDashboard() {
                         }`}
                       >
                         <div
-                          className={`w-full rounded-md bg-gradient-to-t from-primary-600/30 via-primary-400/60 to-primary-200 ${
-                            projectHeight > 0 ? "opacity-100" : "opacity-0"
-                          }`}
+                          className={`w-full rounded-md transition-all ${
+                            isActive
+                              ? "bg-gradient-to-t from-primary-600 via-primary-500 to-primary-300"
+                              : "bg-gradient-to-t from-primary-500 via-primary-400 to-primary-200"
+                          } ${projectHeight > 0 ? "opacity-100" : "opacity-0"}`}
                           style={{ height: `${projectHeight}%` }}
                         />
                       </div>
@@ -659,27 +683,35 @@ function ProfessionalDashboard() {
                               <span className="uppercase tracking-[0.15em] text-neutral-500">
                                 {project.projectType ?? "Projet"}
                               </span>
-                              <span className="text-neutral-400">|</span>
-                              <span className="text-neutral-700">
-                                {budgetValue > 0 ? formatCurrency(budgetValue) : "Budget non défini"}
-                              </span>
+                              {budgetValue > 0 && (
+                                <>
+                                  <span className="text-neutral-400">|</span>
+                                  <span className="text-neutral-700">{formatCurrency(budgetValue)}</span>
+                                </>
+                              )}
                             </div>
                           </div>
-                          <div className="text-right">
-                            <p className="text-xs font-semibold text-primary-600">
-                              {Math.round(rawPercent)}%
-                            </p>
-                            <p className="text-[10px] uppercase tracking-[0.15em] text-neutral-500">
-                              {budgetBaselineShortLabel}
-                            </p>
+                          {budgetValue > 0 ? (
+                            <div className="text-right flex-shrink-0">
+                              <p className="text-xs font-semibold text-primary-600">
+                                {Math.round(rawPercent)}%
+                              </p>
+                              <p className="text-[10px] uppercase tracking-[0.15em] text-neutral-500">
+                                {budgetBaselineShortLabel}
+                              </p>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-neutral-400 italic flex-shrink-0">Budget à définir</span>
+                          )}
+                        </div>
+                        {budgetValue > 0 && (
+                          <div className="mt-2 h-1.5 rounded-full bg-neutral-200">
+                            <div
+                              className="h-1.5 rounded-full bg-gradient-to-r from-primary-400 to-primary-600"
+                              style={{ width: `${displayPercent}%` }}
+                            />
                           </div>
-                        </div>
-                        <div className="mt-2 h-2 rounded-full bg-neutral-200">
-                          <div
-                            className="h-2 rounded-full bg-primary-500"
-                            style={{ width: `${displayPercent}%` }}
-                          />
-                        </div>
+                        )}
                       </div>
                     );
                   })
@@ -756,7 +788,7 @@ function ProfessionalDashboard() {
         <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
         <CardHeader className="relative z-10">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">Projets récents</h2>
+            <h2 className="text-lg font-semibold text-neutral-900">Projets récents</h2>
             <Button variant="outline" size="sm" onClick={openProjects}>
               Voir tout
             </Button>
@@ -767,7 +799,7 @@ function ProfessionalDashboard() {
             <div className="text-sm text-red-600 mb-3">{projectsError}</div>
           )}
           {projectsLoading ? (
-            <p className="text-sm text-gray-500">Chargement des projets...</p>
+            <p className="text-sm text-neutral-500">Chargement des projets...</p>
           ) : (
             <>
               <Table>
@@ -786,25 +818,24 @@ function ProfessionalDashboard() {
                       <TableRow key={project.id} onClick={() => handleOpenProject(project.id)}>
                         <TableCell>
                           <div>
-                            <p className="font-medium text-gray-900">{project.name}</p>
+                            <p className="font-medium text-neutral-900">{project.name}</p>
                             {project.description && (
-                              <p className="text-sm text-gray-500">{project.description}</p>
+                              <p className="text-sm text-neutral-500">{project.description}</p>
                             )}
                           </div>
                         </TableCell>
                         <TableCell>
                           <span
-                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(
-                              statusKey
-                            )}`}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(statusKey)}`}
                           >
+                            <span className={`h-1.5 w-1.5 rounded-full ${getStatusDotClass(statusKey)}`} />
                             {getStatusLabel(statusKey)}
                           </span>
                         </TableCell>
-                        <TableCell className="text-gray-600">
+                        <TableCell className="text-neutral-600">
                           {project.createdAt ? formatDate(project.createdAt) : "-"}
                         </TableCell>
-                        <TableCell className="text-gray-600">
+                        <TableCell className="text-neutral-600">
                           {project.updatedAt ? formatDate(project.updatedAt) : "-"}
                         </TableCell>
                       </TableRow>
@@ -813,7 +844,7 @@ function ProfessionalDashboard() {
                 </tbody>
               </Table>
               {!projects.length && (
-                <p className="text-sm text-gray-500 mt-4">Aucun projet pour le moment.</p>
+                <p className="text-sm text-neutral-500 mt-4">Aucun projet pour le moment.</p>
               )}
             </>
           )}
@@ -824,9 +855,9 @@ function ProfessionalDashboard() {
         <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
         <CardHeader className="relative z-10">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">Devis récents</h2>
+            <h2 className="text-lg font-semibold text-neutral-900">Devis récents</h2>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600">
+              <span className="text-sm text-neutral-500">
                 En étude: {devisStats.a_faire} | Envoyés: {devisStats.envoye} | Validés: {devisStats.valide}
               </span>
               <Button variant="outline" size="sm" onClick={openDevis}>
@@ -856,25 +887,24 @@ function ProfessionalDashboard() {
                   <TableRow key={quote.id}>
                     <TableCell>
                       <div>
-                        <p className="font-medium text-gray-900">{quote.title}</p>
+                        <p className="font-medium text-neutral-900">{quote.title}</p>
                         {quote.clientName && (
-                          <p className="text-xs text-gray-500">Client: {quote.clientName}</p>
+                          <p className="text-xs text-neutral-500">Client: {quote.clientName}</p>
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="font-medium">
+                    <TableCell className="font-medium text-neutral-900">
                       {typeof quote.totalTtc === "number" ? formatCurrency(quote.totalTtc) : "-"}
                     </TableCell>
                     <TableCell>
                       <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(
-                          workflowStatus
-                        )}`}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(workflowStatus)}`}
                       >
+                        <span className={`h-1.5 w-1.5 rounded-full ${getStatusDotClass(workflowStatus)}`} />
                         {getStatusLabel(workflowStatus)}
                       </span>
                     </TableCell>
-                    <TableCell className="text-gray-600">
+                    <TableCell className="text-neutral-600">
                       {formatDate(quote.updatedAt)}
                     </TableCell>
                     <TableCell>
@@ -903,10 +933,10 @@ function ProfessionalDashboard() {
             </tbody>
           </Table>
           {!quotesLoading && quotes.length === 0 && (
-            <p className="text-sm text-gray-500 mt-4">Aucun devis pour le moment.</p>
+            <p className="text-sm text-neutral-500 mt-4">Aucun devis pour le moment.</p>
           )}
           {quotesLoading && (
-            <p className="text-sm text-gray-500 mt-4">Chargement des devis...</p>
+            <p className="text-sm text-neutral-500 mt-4">Chargement des devis...</p>
           )}
         </CardContent>
       </Card>
@@ -1135,15 +1165,45 @@ function ParticulierDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Mes projets</h1>
-          <p className="text-gray-600">Gérez vos projets BTP</p>
+      <header className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <div className="relative flex items-start justify-between gap-6 p-6 sm:p-8">
+          <div className="flex items-start gap-4">
+            <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
+              <FolderOpen className="h-6 w-6" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Mes projets</h1>
+              <p className="text-neutral-600 mt-1">Gérez vos projets BTP</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-600">
+                <span className="rounded-full border border-neutral-200 bg-white px-3 py-1">
+                  {projects.length} projet{projects.length !== 1 ? "s" : ""}
+                </span>
+                {projectsEnCours > 0 && (
+                  <span className="rounded-full border border-primary-200 bg-primary-50 text-primary-700 px-3 py-1">
+                    {projectsEnCours} en cours
+                  </span>
+                )}
+                {projectsTermines > 0 && (
+                  <span className="rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 px-3 py-1">
+                    {projectsTermines} terminé{projectsTermines !== 1 ? "s" : ""}
+                  </span>
+                )}
+              </div>
+              <div className="mt-4">
+                <Button onClick={() => setIsCreating(true)}>
+                  Créer un nouveau projet
+                </Button>
+              </div>
+            </div>
+          </div>
+          <img
+            src="/images/dashboard.png"
+            alt="Mes projets"
+            className="hidden sm:block h-20 w-20 object-contain opacity-90 logo-blend flex-shrink-0"
+          />
         </div>
-        <Button onClick={() => setIsCreating(true)}>
-          Créer un nouveau projet
-        </Button>
-      </div>
+      </header>
 
       {error && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
@@ -1152,87 +1212,86 @@ function ParticulierDashboard() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
-          <CardContent className="relative z-10 p-6">
+        <Card className="relative overflow-hidden border-l-4 border-l-primary-400">
+          <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Projets en cours</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {projectsEnCours}
-                </p>
+                <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Projets en cours</p>
+                <p className="text-3xl font-bold text-neutral-900">{projectsEnCours}</p>
               </div>
-              <Clock className="w-8 h-8 text-blue-600" />
+              <div className="w-10 h-10 rounded-xl bg-primary-100 flex items-center justify-center flex-shrink-0">
+                <Clock className="w-5 h-5 text-primary-600" />
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
-          <CardContent className="relative z-10 p-6">
+        <Card className="relative overflow-hidden border-l-4 border-l-emerald-400">
+          <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Projets terminés</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {projectsTermines}
-                </p>
+                <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Projets terminés</p>
+                <p className="text-3xl font-bold text-neutral-900">{projectsTermines}</p>
               </div>
-              <CheckCircle className="w-8 h-8 text-green-600" />
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                <CheckCircle className="w-5 h-5 text-emerald-600" />
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
-          <CardContent className="relative z-10 p-6">
+        <Card className="relative overflow-hidden border-l-4 border-l-amber-400">
+          <CardContent className="p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 mb-1">Devis reçus</p>
-                <p className="text-2xl font-bold text-gray-900">{devisRecus}</p>
+                <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Devis reçus</p>
+                <p className="text-3xl font-bold text-neutral-900">{devisRecus}</p>
               </div>
-              <FileText className="w-8 h-8 text-yellow-600" />
+              <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <FileText className="w-5 h-5 text-amber-600" />
+              </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <Card className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
-        <CardHeader className="relative z-10">
-          <h2 className="text-lg font-semibold text-gray-900">Mes projets</h2>
+      <Card>
+        <CardHeader>
+          <h2 className="text-lg font-semibold text-neutral-900">Mes projets</h2>
         </CardHeader>
-        <CardContent className="relative z-10">
+        <CardContent>
           {loading ? (
-            <p className="text-sm text-gray-500">Chargement des projets...</p>
+            <p className="text-sm text-neutral-500">Chargement des projets...</p>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {projects.map((project) => {
                 const statusKey = resolveProjectStatus(project.status);
                 return (
-              <div
-                key={project.id}
-                onClick={() => handleOpenProject(project.id)}
-                className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-gray-900 mb-1">{project.name}</h3>
-                    {project.description && (
-                      <p className="text-sm text-gray-600 mb-2">{project.description}</p>
-                    )}
-                    <div className="flex items-center gap-4 text-sm text-gray-500">
-                      <span>Créé le {project.createdAt ? formatDate(project.createdAt) : "-"}</span>
-                      <span className="capitalize">
-                        Statut: {getStatusLabel(statusKey)}
+                  <div
+                    key={project.id}
+                    onClick={() => handleOpenProject(project.id)}
+                    className="p-4 border border-neutral-200 rounded-xl hover:bg-neutral-50 card-hover transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-neutral-900 mb-1 truncate">{project.name}</h3>
+                        {project.description && (
+                          <p className="text-sm text-neutral-600 mb-2 line-clamp-1">{project.description}</p>
+                        )}
+                        <div className="flex items-center gap-3 text-xs text-neutral-500">
+                          <span>Créé le {project.createdAt ? formatDate(project.createdAt) : "-"}</span>
+                        </div>
+                      </div>
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ${getStatusBadge(statusKey)}`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${getStatusDotClass(statusKey)}`} />
+                        {getStatusLabel(statusKey)}
                       </span>
                     </div>
                   </div>
-                </div>
-              </div>
                 );
               })}
               {!projects.length && (
-                <p className="text-sm text-gray-500">Aucun projet pour le moment.</p>
+                <p className="text-sm text-neutral-500">Aucun projet pour le moment.</p>
               )}
             </div>
           )}

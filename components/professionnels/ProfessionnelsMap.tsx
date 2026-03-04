@@ -786,7 +786,13 @@ export function ProfessionnelsMap({
           const idx = cursor++;
           const [q, ids] = entries[idx];
           if (!q) continue;
-          const loc = await geocodeFrance(q, controller.signal);
+          let loc: UserLocation | null;
+          try {
+            loc = await geocodeFrance(q, controller.signal);
+          } catch (err: any) {
+            if (err?.name === "AbortError" || controller.signal.aborted) return;
+            throw err;
+          }
           if (!loc) continue;
           if (!alive) return;
           setGeocoded((prev) => {
@@ -794,7 +800,7 @@ export function ProfessionnelsMap({
             let changed = false;
             for (const id of ids) {
               if (next[id]) continue;
-              next[id] = loc;
+              next[id] = loc!;
               changed = true;
             }
             return changed ? next : prev;

@@ -507,7 +507,7 @@ export default function ProfessionnelsPage() {
         <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
         <div className="relative flex items-start justify-between gap-6 p-6 sm:p-8">
           <div className="flex items-start gap-4">
-            <div className="h-14 w-14 rounded-2xl bg-primary-600 text-white flex items-center justify-center shadow-sm">
+            <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white flex items-center justify-center shadow-sm">
               <MapPin className="h-6 w-6" />
             </div>
             <div className="min-w-0">
@@ -711,7 +711,7 @@ export default function ProfessionnelsPage() {
                         className={[
                           "px-3 py-1 rounded-full text-xs border transition",
                           active
-                            ? "bg-primary-600 text-white border-primary-600"
+                            ? "bg-gradient-to-r from-primary-400 to-primary-600 text-white border-primary-400"
                             : "bg-white text-neutral-800 border-neutral-200 hover:bg-neutral-50",
                         ].join(" ")}
                       >
@@ -779,7 +779,7 @@ export default function ProfessionnelsPage() {
                             "px-3 py-1 rounded-full text-xs border transition",
                             disabled ? "opacity-60 cursor-not-allowed" : "hover:bg-neutral-50",
                             active
-                              ? "bg-primary-600 text-white border-primary-600"
+                              ? "bg-gradient-to-r from-primary-400 to-primary-600 text-white border-primary-400"
                               : "bg-white text-neutral-800 border-neutral-200",
                           ].join(" ")}
                         >

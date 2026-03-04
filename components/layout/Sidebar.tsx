@@ -18,7 +18,6 @@ const particulierNavItems = [
   { href: "/dashboard", label: "Mes projets", iconSrc: "/images/folder-open.png" },
   { href: "/dashboard/professionnels", label: "Professionnels", iconSrc: "/images/users-three.png" },
   { href: "/dashboard/messages", label: "Messages", iconSrc: "/images/chats.png" },
-  { href: "/dashboard/settings", label: "Parametres", iconSrc: "/images/gear.png" },
 ];
 
 const professionnelNavItems = [
@@ -28,7 +27,6 @@ const professionnelNavItems = [
   { href: "/dashboard/professionnels", label: "Professionnels", iconSrc: "/images/users-three.png" },
   { href: "/dashboard/portfolio", label: "Portfolio", iconSrc: "/images/article.png" },
   { href: "/dashboard/messages", label: "Messages", iconSrc: "/images/chats.png" },
-  { href: "/dashboard/settings", label: "Parametres", iconSrc: "/images/gear.png" },
 ];
 
 export function Sidebar({ userRole, collapsed = false, onToggleCollapse, user }: SidebarProps) {

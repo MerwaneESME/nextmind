@@ -259,7 +259,7 @@ export function ChatWindow({
             }`}
           >
             {message.role === "assistant" && (
-              <div className="w-8 h-8 bg-[#38b6ff] rounded-full flex items-center justify-center flex-shrink-0">
+              <div className="w-8 h-8 bg-gradient-to-br from-primary-400 to-primary-600 rounded-full flex items-center justify-center flex-shrink-0">
                 <img
                   src="/images/robotbleu.png"
                   alt="Assistant IA"
@@ -346,7 +346,7 @@ export function ChatWindow({
         ))}
         {isLoading && !streamingContent && (
           <div className="flex gap-3 justify-start">
-            <div className="w-8 h-8 bg-[#38b6ff] rounded-full flex items-center justify-center">
+            <div className="w-8 h-8 bg-gradient-to-br from-primary-400 to-primary-600 rounded-full flex items-center justify-center">
               <img
                 src="/images/robotbleu.png"
                 alt="Assistant IA"
@@ -364,7 +364,7 @@ export function ChatWindow({
         )}
         {streamingContent && (
           <div className="flex gap-3 justify-start">
-            <div className="w-8 h-8 bg-[#38b6ff] rounded-full flex items-center justify-center flex-shrink-0">
+            <div className="w-8 h-8 bg-gradient-to-br from-primary-400 to-primary-600 rounded-full flex items-center justify-center flex-shrink-0">
               <img
                 src="/images/robotbleu.png"
                 alt="Assistant IA"

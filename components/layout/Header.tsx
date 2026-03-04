@@ -105,6 +105,7 @@ export function Header({ user }: HeaderProps) {
   const handleOpenNotif = (notif: NotificationRow) => {
     if (!notif.action_url) return;
     setOpenNotif(false);
+    void removeNotif(notif.id);
     router.push(notif.action_url);
   };
 

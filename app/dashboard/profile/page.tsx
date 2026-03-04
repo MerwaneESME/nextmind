@@ -1,11 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Card, CardContent, CardHeader } from "@/components/ui/Card";
+import { Card, CardContent } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
-import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  User,
+  Mail,
+  Phone,
+  Building2,
+  MapPin,
+  Globe,
+  FileText,
+  Bell,
+  BriefcaseBusiness,
+  Save,
+  Shield,
+} from "lucide-react";
 
 type ProfilePreferences = {
   email_notifications: boolean;
@@ -24,11 +36,48 @@ const normalizeText = (value: string) => {
   return trimmed ? trimmed : null;
 };
 
+function Toggle({
+  checked,
+  onChange,
+  id,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  id: string;
+}) {
+  return (
+    <label htmlFor={id} className="relative inline-flex items-center cursor-pointer">
+      <input
+        id={id}
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="sr-only peer"
+      />
+      <div className="w-11 h-6 bg-neutral-200 rounded-full peer peer-checked:bg-gradient-to-r peer-checked:from-primary-400 peer-checked:to-primary-600 transition-all after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:shadow-sm after:transition-all peer-checked:after:translate-x-5" />
+    </label>
+  );
+}
+
+function SectionHeader({ icon: Icon, title, subtitle }: { icon: React.ElementType; title: string; subtitle?: string }) {
+  return (
+    <div className="flex items-center gap-3 mb-6 pb-4 border-b border-neutral-100">
+      <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary-100 to-primary-50 flex items-center justify-center flex-shrink-0">
+        <Icon className="w-4 h-4 text-primary-600" />
+      </div>
+      <div>
+        <h2 className="text-base font-semibold text-neutral-900">{title}</h2>
+        {subtitle && <p className="text-xs text-neutral-500 mt-0.5">{subtitle}</p>}
+      </div>
+    </div>
+  );
+}
+
 export default function ProfilePage() {
   const { user, profile, loading, refreshProfile } = useAuth();
   const isPro = profile?.user_type === "pro";
   const roleLabel = useMemo(
-    () => (profile?.user_type === "pro" ? "professionnel" : "particulier"),
+    () => (profile?.user_type === "pro" ? "Professionnel" : "Particulier"),
     [profile?.user_type]
   );
 
@@ -65,10 +114,7 @@ export default function ProfilePage() {
       companyDescription: profile.company_description ?? "",
       publicPortfolioEnabled: Boolean(profile.public_portfolio_enabled),
     });
-    setPreferences({
-      ...DEFAULT_PREFERENCES,
-      ...(profile.preferences ?? {}),
-    });
+    setPreferences({ ...DEFAULT_PREFERENCES, ...(profile.preferences ?? {}) });
   }, [profile, user?.email]);
 
   const handleSave = async () => {
@@ -104,199 +150,322 @@ export default function ProfilePage() {
 
     await refreshProfile();
     setSaving(false);
-    setSuccess("Profil mis à jour.");
+    setSuccess("Profil mis à jour avec succès.");
   };
 
   if (loading && !profile) {
-    return <div className="text-sm text-neutral-600">Chargement du profil...</div>;
+    return (
+      <div className="flex items-center justify-center h-48 text-sm text-neutral-500">
+        Chargement du profil...
+      </div>
+    );
   }
 
   if (!user) {
-    return <div className="text-sm text-neutral-600">Connectez-vous pour acceder a votre profil.</div>;
+    return (
+      <div className="flex items-center justify-center h-48 text-sm text-neutral-500">
+        Connectez-vous pour accéder à votre profil.
+      </div>
+    );
   }
 
+  const initials = form.fullName
+    ? form.fullName.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
+    : (user.email?.[0] ?? "U").toUpperCase();
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-neutral-900 mb-2">Profil</h1>
-        <p className="text-neutral-600">Informations et parametres de votre compte</p>
+    <div className="space-y-6 max-w-4xl mx-auto">
+      {/* Page header with avatar */}
+      <div className="flex items-center gap-5">
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center shadow-md flex-shrink-0">
+          <span className="text-white font-bold text-xl">{initials}</span>
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold text-neutral-900">{form.fullName || "Mon profil"}</h1>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-700">
+              {roleLabel}
+            </span>
+            {form.email && (
+              <span className="text-sm text-neutral-500">{form.email}</span>
+            )}
+          </div>
+        </div>
       </div>
 
+      {/* Alerts */}
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       )}
       {success && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           {success}
         </div>
       )}
 
-      <Card className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
-        <CardHeader className="relative z-10">
-          <h2 className="text-lg font-semibold text-neutral-900">Informations personnelles</h2>
-        </CardHeader>
-        <CardContent className="relative z-10">
+      {/* Informations personnelles */}
+      <Card>
+        <CardContent className="p-6">
+          <SectionHeader
+            icon={User}
+            title="Informations personnelles"
+            subtitle="Vos coordonnées de base"
+          />
           <div className="grid md:grid-cols-2 gap-4">
-            <Input
-              label="Nom complet"
-              value={form.fullName}
-              onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))}
-            />
-            <Input
-              label="Email de contact"
-              type="email"
-              value={form.email}
-              onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
-            />
-            <Input
-              label="Téléphone"
-              type="tel"
-              value={form.phone}
-              onChange={(event) => setForm((prev) => ({ ...prev, phone: event.target.value }))}
-            />
-            <Input label="Role" value={roleLabel} disabled />
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-neutral-500 uppercase tracking-wide flex items-center gap-1.5">
+                <User className="w-3 h-3" /> Nom complet
+              </label>
+              <input
+                type="text"
+                value={form.fullName}
+                onChange={(e) => setForm((p) => ({ ...p, fullName: e.target.value }))}
+                className="w-full px-3 py-2.5 text-sm border border-neutral-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition-all"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-neutral-500 uppercase tracking-wide flex items-center gap-1.5">
+                <Mail className="w-3 h-3" /> Email de contact
+              </label>
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
+                className="w-full px-3 py-2.5 text-sm border border-neutral-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition-all"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-neutral-500 uppercase tracking-wide flex items-center gap-1.5">
+                <Phone className="w-3 h-3" /> Téléphone
+              </label>
+              <input
+                type="tel"
+                value={form.phone}
+                onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))}
+                className="w-full px-3 py-2.5 text-sm border border-neutral-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition-all"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-neutral-500 uppercase tracking-wide flex items-center gap-1.5">
+                <Shield className="w-3 h-3" /> Rôle
+              </label>
+              <input
+                type="text"
+                value={roleLabel}
+                disabled
+                className="w-full px-3 py-2.5 text-sm border border-neutral-200 rounded-lg bg-neutral-50 text-neutral-500 cursor-not-allowed"
+              />
+            </div>
             {!isPro && (
               <>
-                <Input
-                  label="Adresse"
-                  value={form.address}
-                  onChange={(event) => setForm((prev) => ({ ...prev, address: event.target.value }))}
-                />
-                <Input
-                  label="Ville"
-                  value={form.city}
-                  onChange={(event) => setForm((prev) => ({ ...prev, city: event.target.value }))}
-                />
-                <Input
-                  label="Code postal"
-                  value={form.postalCode}
-                  onChange={(event) => setForm((prev) => ({ ...prev, postalCode: event.target.value }))}
-                />
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-neutral-500 uppercase tracking-wide flex items-center gap-1.5">
+                    <MapPin className="w-3 h-3" /> Adresse
+                  </label>
+                  <input
+                    type="text"
+                    value={form.address}
+                    onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))}
+                    className="w-full px-3 py-2.5 text-sm border border-neutral-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition-all"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-neutral-500 uppercase tracking-wide flex items-center gap-1.5">
+                    <MapPin className="w-3 h-3" /> Ville
+                  </label>
+                  <input
+                    type="text"
+                    value={form.city}
+                    onChange={(e) => setForm((p) => ({ ...p, city: e.target.value }))}
+                    className="w-full px-3 py-2.5 text-sm border border-neutral-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition-all"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-neutral-500 uppercase tracking-wide">
+                    Code postal
+                  </label>
+                  <input
+                    type="text"
+                    value={form.postalCode}
+                    onChange={(e) => setForm((p) => ({ ...p, postalCode: e.target.value }))}
+                    className="w-full px-3 py-2.5 text-sm border border-neutral-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition-all"
+                  />
+                </div>
               </>
             )}
           </div>
         </CardContent>
       </Card>
 
+      {/* Informations entreprise (pro only) */}
       {isPro && (
-        <Card className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
-          <CardHeader className="relative z-10">
-            <h2 className="text-lg font-semibold text-neutral-900">Informations entreprise</h2>
-          </CardHeader>
-          <CardContent className="relative z-10">
-            <p className="text-sm text-neutral-600 mb-4">
-              Les informations suivantes (entreprise, ville, adresse, site, téléphone, email) sont visibles sur votre
-              profil professionnel public.
-            </p>
+        <Card>
+          <CardContent className="p-6">
+            <SectionHeader
+              icon={Building2}
+              title="Informations entreprise"
+              subtitle="Visibles sur votre profil professionnel public"
+            />
             <div className="grid md:grid-cols-2 gap-4">
-              <Input
-                label="Entreprise"
-                value={form.companyName}
-                onChange={(event) => setForm((prev) => ({ ...prev, companyName: event.target.value }))}
-              />
-              <Input
-                label="SIRET (prive)"
-                value={form.siret}
-                onChange={(event) => setForm((prev) => ({ ...prev, siret: event.target.value }))}
-              />
-              <Input
-                label="Adresse"
-                value={form.address}
-                onChange={(event) => setForm((prev) => ({ ...prev, address: event.target.value }))}
-              />
-              <Input
-                label="Ville"
-                value={form.city}
-                onChange={(event) => setForm((prev) => ({ ...prev, city: event.target.value }))}
-              />
-              <Input
-                label="Code postal"
-                value={form.postalCode}
-                onChange={(event) => setForm((prev) => ({ ...prev, postalCode: event.target.value }))}
-              />
-              <Input
-                label="Site web"
-                type="url"
-                value={form.companyWebsite}
-                onChange={(event) => setForm((prev) => ({ ...prev, companyWebsite: event.target.value }))}
-              />
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-neutral-500 uppercase tracking-wide flex items-center gap-1.5">
+                  <BriefcaseBusiness className="w-3 h-3" /> Entreprise
+                </label>
+                <input
+                  type="text"
+                  value={form.companyName}
+                  onChange={(e) => setForm((p) => ({ ...p, companyName: e.target.value }))}
+                  className="w-full px-3 py-2.5 text-sm border border-neutral-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition-all"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-neutral-500 uppercase tracking-wide flex items-center gap-1.5">
+                  <FileText className="w-3 h-3" /> SIRET (privé)
+                </label>
+                <input
+                  type="text"
+                  value={form.siret}
+                  onChange={(e) => setForm((p) => ({ ...p, siret: e.target.value }))}
+                  className="w-full px-3 py-2.5 text-sm border border-neutral-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition-all"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-neutral-500 uppercase tracking-wide flex items-center gap-1.5">
+                  <MapPin className="w-3 h-3" /> Adresse
+                </label>
+                <input
+                  type="text"
+                  value={form.address}
+                  onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))}
+                  className="w-full px-3 py-2.5 text-sm border border-neutral-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition-all"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-neutral-500 uppercase tracking-wide flex items-center gap-1.5">
+                  <MapPin className="w-3 h-3" /> Ville
+                </label>
+                <input
+                  type="text"
+                  value={form.city}
+                  onChange={(e) => setForm((p) => ({ ...p, city: e.target.value }))}
+                  className="w-full px-3 py-2.5 text-sm border border-neutral-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition-all"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-neutral-500 uppercase tracking-wide">
+                  Code postal
+                </label>
+                <input
+                  type="text"
+                  value={form.postalCode}
+                  onChange={(e) => setForm((p) => ({ ...p, postalCode: e.target.value }))}
+                  className="w-full px-3 py-2.5 text-sm border border-neutral-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition-all"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-neutral-500 uppercase tracking-wide flex items-center gap-1.5">
+                  <Globe className="w-3 h-3" /> Site web
+                </label>
+                <input
+                  type="url"
+                  value={form.companyWebsite}
+                  onChange={(e) => setForm((p) => ({ ...p, companyWebsite: e.target.value }))}
+                  placeholder="https://"
+                  className="w-full px-3 py-2.5 text-sm border border-neutral-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition-all"
+                />
+              </div>
             </div>
-            <div className="mt-4 space-y-2">
-              <label className="text-sm font-medium text-neutral-800">Presentation</label>
+
+            {/* Description */}
+            <div className="mt-4 space-y-1.5">
+              <label className="text-xs font-medium text-neutral-500 uppercase tracking-wide">
+                Présentation
+              </label>
               <textarea
                 value={form.companyDescription}
-                onChange={(event) => setForm((prev) => ({ ...prev, companyDescription: event.target.value }))}
-                className="w-full min-h-[120px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                placeholder="Résumé de votre activité et expertise."
+                onChange={(e) => setForm((p) => ({ ...p, companyDescription: e.target.value }))}
+                rows={4}
+                placeholder="Résumé de votre activité et expertise..."
+                className="w-full px-3 py-2.5 text-sm border border-neutral-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition-all resize-none"
               />
             </div>
-            <label className="mt-4 flex items-center justify-between">
-              <span className="text-neutral-800">Portfolio public actif</span>
-              <input
-                type="checkbox"
+
+            {/* Portfolio toggle */}
+            <div className="mt-4 flex items-center justify-between p-4 rounded-xl bg-neutral-50 border border-neutral-100">
+              <div>
+                <p className="text-sm font-medium text-neutral-800">Portfolio public actif</p>
+                <p className="text-xs text-neutral-500 mt-0.5">Rendre votre portfolio visible publiquement</p>
+              </div>
+              <Toggle
+                id="portfolio"
                 checked={form.publicPortfolioEnabled}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, publicPortfolioEnabled: event.target.checked }))
-                }
-                className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
+                onChange={(v) => setForm((p) => ({ ...p, publicPortfolioEnabled: v }))}
               />
-            </label>
+            </div>
           </CardContent>
         </Card>
       )}
 
-      <Card className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
-        <CardHeader className="relative z-10">
-          <h2 className="text-lg font-semibold text-neutral-900">Preferences</h2>
-        </CardHeader>
-        <CardContent className="relative z-10">
+      {/* Préférences & notifications */}
+      <Card>
+        <CardContent className="p-6">
+          <SectionHeader
+            icon={Bell}
+            title="Préférences & notifications"
+            subtitle="Gérez vos alertes et communications"
+          />
           <div className="space-y-3">
-            <label className="flex items-center justify-between">
-              <span className="text-neutral-800">Notifications email</span>
-              <input
-                type="checkbox"
-                checked={preferences.email_notifications}
-                onChange={(event) =>
-                  setPreferences((prev) => ({ ...prev, email_notifications: event.target.checked }))
-                }
-                className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
-              />
-            </label>
-            <label className="flex items-center justify-between">
-              <span className="text-neutral-800">Alertes projets</span>
-              <input
-                type="checkbox"
-                checked={preferences.project_alerts}
-                onChange={(event) =>
-                  setPreferences((prev) => ({ ...prev, project_alerts: event.target.checked }))
-                }
-                className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
-              />
-            </label>
-            <label className="flex items-center justify-between">
-              <span className="text-neutral-800">Nouveaux messages</span>
-              <input
-                type="checkbox"
-                checked={preferences.message_alerts}
-                onChange={(event) =>
-                  setPreferences((prev) => ({ ...prev, message_alerts: event.target.checked }))
-                }
-                className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
-              />
-            </label>
+            {[
+              {
+                id: "email_notif",
+                label: "Notifications email",
+                subtitle: "Recevez les mises à jour par email",
+                key: "email_notifications" as const,
+              },
+              {
+                id: "project_alerts",
+                label: "Alertes projets",
+                subtitle: "Soyez notifié des changements sur vos projets",
+                key: "project_alerts" as const,
+              },
+              {
+                id: "message_alerts",
+                label: "Nouveaux messages",
+                subtitle: "Notification lors de nouveaux messages",
+                key: "message_alerts" as const,
+              },
+            ].map((pref) => (
+              <div
+                key={pref.id}
+                className="flex items-center justify-between p-4 rounded-xl bg-neutral-50 border border-neutral-100"
+              >
+                <div>
+                  <p className="text-sm font-medium text-neutral-800">{pref.label}</p>
+                  <p className="text-xs text-neutral-500 mt-0.5">{pref.subtitle}</p>
+                </div>
+                <Toggle
+                  id={pref.id}
+                  checked={preferences[pref.key]}
+                  onChange={(v) => setPreferences((p) => ({ ...p, [pref.key]: v }))}
+                />
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
 
-      <div className="flex items-center justify-end">
-        <Button onClick={handleSave} disabled={saving}>
-          {saving ? "Sauvegarde..." : "Sauvegarder"}
-        </Button>
+      {/* Save button */}
+      <div className="flex items-center justify-end pb-6">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-primary-400 to-primary-600 text-white font-semibold text-sm shadow-sm hover:opacity-90 hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none"
+        >
+          <Save className="w-4 h-4" />
+          {saving ? "Sauvegarde..." : "Sauvegarder les modifications"}
+        </button>
       </div>
     </div>
   );
