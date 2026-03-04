@@ -1590,37 +1590,37 @@ export default function ProjectDetailPage() {
           id: "pro_plan",
           icon: "P",
           title: "Planning",
-          description: "Proposition de taches + dates",
+          description: "Proposition de tâches + dates",
           color: "indigo",
-          prompt: "Propose un planning detaille pour ce projet avec les taches principales et les delais.",
+          prompt: "Propose un planning détaillé pour ce projet avec les tâches principales et les délais.",
           forcePlan: true,
         },
         {
           id: "pro_devis_analyze",
           icon: "D",
           title: "Analyse devis",
-          description: "Postes principaux + coherences",
+          description: "Postes principaux + cohérences",
           color: "blue",
           prompt:
-            "Analyse le devis de ce projet. Quels sont les postes principaux ? Y a-t-il des incoherences ou des points a verifier ?",
+            "Analyse le devis de ce projet. Quels sont les postes principaux ? Y a-t-il des incohérences ou des points à vérifier ?",
           uiMode: "devis",
         },
         {
           id: "pro_devis_validate",
           icon: "C",
-          title: "Conformite",
+          title: "Conformité",
           description: "TVA, mentions, totaux",
           color: "green",
           prompt:
-            "Verifie la conformite du devis : TVA, mentions obligatoires, coherence des totaux, et conformite reglementaire.",
+            "Vérifie la conformité du devis : TVA, mentions obligatoires, cohérence des totaux, et conformité réglementaire.",
         },
         {
           id: "pro_budget",
           icon: "B",
           title: "Budget",
-          description: "Synthese couts + paiements",
+          description: "Synthèse coûts + paiements",
           color: "purple",
-          prompt: "Quel est le budget estime pour ce projet ? Y a-t-il des couts supplementaires a prevoir ?",
+          prompt: "Quel est le budget estimé pour ce projet ? Y a-t-il des coûts supplémentaires à prévoir ?",
           uiMode: "budget",
         },
         {
@@ -1630,7 +1630,7 @@ export default function ProjectDetailPage() {
           description: "Points d'attention chantier",
           color: "red",
           prompt:
-            "Quels sont les risques et points d'attention pour ce projet ? Y a-t-il des elements a surveiller particulierement ?",
+            "Quels sont les risques et points d'attention pour ce projet ? Y a-t-il des éléments à surveiller particulièrement ?",
           uiMode: "risks",
         },
         {
@@ -1646,27 +1646,27 @@ export default function ProjectDetailPage() {
           id: "pro_margins",
           icon: "M",
           title: "Marges",
-          description: "Rentabilite par poste",
+          description: "Rentabilité par poste",
           color: "purple",
-          prompt: "Calcule les marges et la rentabilite de ce projet. Quels sont les postes les plus rentables ?",
+          prompt: "Calcule les marges et la rentabilité de ce projet. Quels sont les postes les plus rentables ?",
         },
         {
           id: "pro_optimize",
           icon: "O",
           title: "Optimiser",
-          description: "Reduire sans degrader",
+          description: "Réduire sans dégrader",
           color: "blue",
           prompt:
-            "Optimise les couts de ce projet. Y a-t-il des postes ou on peut reduire les couts sans impacter la qualite ?",
+            "Optimise les coûts de ce projet. Y a-t-il des postes où on peut réduire les coûts sans impacter la qualité ?",
         },
         {
           id: "pro_improve",
           icon: "A",
-          title: "Ameliorations",
+          title: "Améliorations",
           description: "Alternatives & options",
           color: "green",
           prompt:
-            "Propose des ameliorations ou des alternatives pour ce projet. Y a-t-il des options plus performantes ou economiques ?",
+            "Propose des améliorations ou des alternatives pour ce projet. Y a-t-il des options plus performantes ou économiques ?",
         },
       ];
 

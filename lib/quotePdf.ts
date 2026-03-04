@@ -2,10 +2,11 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { QuotePreviewData } from "@/lib/quotesStore";
 import { calculateTotals, formatPreviewDate } from "@/lib/quotePreview";
+import { formatCurrency } from "@/lib/utils";
 
 const sanitizeFileName = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, "_");
 
-const formatAmount = (value: number) => `${value.toFixed(2)} EUR`;
+const formatAmount = (value: number) => formatCurrency(value);
 
 export const downloadQuotePdf = (data: QuotePreviewData, title: string) => {
   const doc = new jsPDF({ unit: "pt", format: "a4" });

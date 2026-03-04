@@ -83,14 +83,26 @@ export function ActionMenu({ actions, disabled, className }: ActionMenuProps) {
                 }}
                 className={cn(
                   "w-full text-left rounded-lg px-3 py-2",
-                  "transition-colors hover:bg-neutral-50",
+                  "transition-colors hover:bg-neutral-50 active:bg-neutral-100",
+                  "hover:ring-1 hover:ring-neutral-200/80",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2",
                   action.disabled && "opacity-60 cursor-not-allowed hover:bg-transparent"
                 )}
               >
                 <div className="flex items-start gap-3">
-                  <div className="mt-0.5 text-lg leading-none w-6 flex justify-center" aria-hidden>
-                    {action.icon}
+                  <div
+                    className={cn(
+                      "mt-0.5 h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0",
+                      action.color === "green" && "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/70",
+                      action.color === "blue" && "bg-blue-50 text-blue-700 ring-1 ring-blue-200/70",
+                      action.color === "indigo" && "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200/70",
+                      action.color === "purple" && "bg-violet-50 text-violet-700 ring-1 ring-violet-200/70",
+                      action.color === "orange" && "bg-amber-50 text-amber-700 ring-1 ring-amber-200/70",
+                      action.color === "red" && "bg-rose-50 text-rose-700 ring-1 ring-rose-200/70"
+                    )}
+                    aria-hidden
+                  >
+                    <span className="text-sm font-semibold leading-none">{action.icon}</span>
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-semibold text-neutral-900 leading-snug">{action.title}</div>

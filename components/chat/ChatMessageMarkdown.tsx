@@ -646,6 +646,40 @@ export function ChatMessageMarkdown({ content }: { content: string }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  const normalizedContent = useMemo(() => {
+    const raw = content || "";
+    const euroRe = /(\d[\d\s\u202f.,]*)\s*EUR\b/gi;
+    return raw.replace(euroRe, (full, num) => {
+      let cleaned = String(num || "").replace(/\u202f/g, "").replace(/\s/g, "");
+      if (!cleaned) return full;
+
+      const hasComma = cleaned.includes(",");
+      const hasDot = cleaned.includes(".");
+
+      if (hasComma && hasDot) {
+        const commaLast = cleaned.lastIndexOf(",");
+        const dotLast = cleaned.lastIndexOf(".");
+        if (commaLast > dotLast) {
+          cleaned = cleaned.replace(/\./g, "").replace(",", ".");
+        } else {
+          cleaned = cleaned.replace(/,/g, "");
+        }
+      } else if (hasComma && !hasDot) {
+        cleaned = cleaned.replace(",", ".");
+      } else if (hasDot && !hasComma) {
+        const dotLast = cleaned.lastIndexOf(".");
+        const decimals = cleaned.length - dotLast - 1;
+        if (decimals === 3) {
+          cleaned = cleaned.replace(/\./g, "");
+        }
+      }
+
+      const value = Number(cleaned);
+      if (!Number.isFinite(value)) return full;
+      return formatCurrency(value);
+    });
+  }, [content]);
+
   const projectContext = useMemo(() => {
     const match = (pathname || "").match(/\/dashboard\/projets\/([^\/?#]+)/);
     const projectId = match?.[1] ? decodeURIComponent(match[1]) : null;
@@ -693,7 +727,7 @@ export function ChatMessageMarkdown({ content }: { content: string }) {
     return `/dashboard/projets/${projectContext.projectId}?${next.toString()}`;
   };
 
-  const blocks = parseMarkdownBlocks(content);
+  const blocks = parseMarkdownBlocks(normalizedContent);
 
   return (
     <div className="space-y-2 text-sm leading-relaxed break-words">

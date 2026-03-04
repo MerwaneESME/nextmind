@@ -1,4 +1,5 @@
 import type { QuotePreviewData } from "@/lib/quotesStore";
+import { formatCurrency } from "@/lib/utils";
 
 type QuoteTotals = { ht: number; tva: number; ttc: number };
 
@@ -33,8 +34,8 @@ export const printPreviewData = (data: QuotePreviewData, title: string) => {
         <td>${escapeHtml(line.description || "-")}</td>
         <td>${escapeHtml(line.unit || "-")}</td>
         <td style="text-align:right;">${line.quantity}</td>
-        <td style="text-align:right;">${line.unitPrice.toFixed(2)} EUR</td>
-        <td style="text-align:right;">${lineTotal.toFixed(2)} EUR</td>
+        <td style="text-align:right;">${escapeHtml(formatCurrency(line.unitPrice))}</td>
+        <td style="text-align:right;">${escapeHtml(formatCurrency(lineTotal))}</td>
       </tr>`;
     })
     .join("");
@@ -78,9 +79,9 @@ export const printPreviewData = (data: QuotePreviewData, title: string) => {
       </tbody>
     </table>
     <div class="totals">
-      <div><span>Total HT</span><span>${totals.ht.toFixed(2)} EUR</span></div>
-      <div><span>TVA (20%)</span><span>${totals.tva.toFixed(2)} EUR</span></div>
-      <div class="grand"><span>Total TTC</span><span>${totals.ttc.toFixed(2)} EUR</span></div>
+      <div><span>Total HT</span><span>${escapeHtml(formatCurrency(totals.ht))}</span></div>
+      <div><span>TVA (20%)</span><span>${escapeHtml(formatCurrency(totals.tva))}</span></div>
+      <div class="grand"><span>Total TTC</span><span>${escapeHtml(formatCurrency(totals.ttc))}</span></div>
     </div>
   </body>
 </html>`;
