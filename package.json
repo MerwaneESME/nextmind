@@ -7,7 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "diagnostic:docx": "tsx scripts/generate-diagnostic-btp.ts"
+    "diagnostic:docx": "tsx scripts/generate-diagnostic-btp.ts",
+    "seed:users": "tsx scripts/seed-users.ts",
+    "seed:pros-paris-lille": "tsx scripts/seed-pros-paris-lille.ts",
+    "seed:particuliers-paris-lille": "tsx scripts/seed-particuliers-paris-lille.ts",
+    "seed:particuliers-projects": "tsx scripts/seed-particuliers-projects-only.ts",
+    "backfill:pro-rating": "tsx scripts/backfill-pro-rating.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
