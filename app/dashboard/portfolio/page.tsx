@@ -1,12 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Card, CardContent, CardHeader } from "@/components/ui/Card";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabaseClient";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import {
+  BookOpen,
+  Clock,
+  MapPin,
+  Euro,
+  Pen,
+  FileText,
+  Image as ImageIcon,
+  X,
+  Upload,
+} from "lucide-react";
 
 type PortfolioProject = {
   id: string;
@@ -32,6 +43,8 @@ type EditForm = {
   isPublic: boolean;
 };
 
+const PORTFOLIO_BUCKET = "portfolio-images";
+
 const normalizeText = (value: string) => {
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
@@ -52,12 +65,31 @@ const formatDurationLabel = (days: number | null) => {
   return `${years} an${years > 1 ? "s" : ""}`;
 };
 
+const getInitials = (title: string | null) => {
+  if (!title) return "NM";
+  return title
+    .split(" ")
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
+};
+
+const gradientColors = [
+  "from-neutral-200 to-neutral-300",
+  "from-neutral-100 to-neutral-200",
+  "from-slate-100 to-slate-200",
+  "from-neutral-200 to-slate-200",
+  "from-slate-100 to-neutral-200",
+];
+
 export default function PortfolioPage() {
   const { user, profile } = useAuth();
 
   const [projects, setProjects] = useState<PortfolioProject[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedProject, setSelectedProject] = useState<PortfolioProject | null>(null);
   const [form, setForm] = useState<EditForm>({
@@ -70,6 +102,8 @@ export default function PortfolioPage() {
     imagePath: "",
     isPublic: false,
   });
+
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const isPro = profile?.user_type === "pro";
 
@@ -101,6 +135,7 @@ export default function PortfolioPage() {
 
   const openEditor = (project: PortfolioProject) => {
     setSelectedProject(project);
+    setError(null);
     setForm({
       title: project.title ?? "",
       summary: project.summary ?? "",
@@ -115,6 +150,29 @@ export default function PortfolioPage() {
 
   const closeEditor = () => {
     setSelectedProject(null);
+    setError(null);
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user?.id) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const ext = file.name.split(".").pop() ?? "jpg";
+      const path = `${user.id}/${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from(PORTFOLIO_BUCKET)
+        .upload(path, file, { upsert: true, contentType: file.type });
+      if (uploadError) throw uploadError;
+      const { data } = supabase.storage.from(PORTFOLIO_BUCKET).getPublicUrl(path);
+      setForm((prev) => ({ ...prev, imagePath: data.publicUrl }));
+    } catch (err: any) {
+      setError(err?.message ?? "Erreur lors de l'upload de l'image.");
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
   };
 
   const handleSave = async () => {
@@ -151,180 +209,453 @@ export default function PortfolioPage() {
 
   const publicStatusLabel = useMemo(() => {
     if (!profile?.public_portfolio_enabled) {
-      return "Portfolio public desactive dans votre profil.";
+      return "Portfolio public désactivé dans votre profil.";
     }
     return "Les articles publics sont visibles dans la page pro.";
   }, [profile?.public_portfolio_enabled]);
 
   if (!user) {
-    return <div className="text-sm text-neutral-600">Connectez-vous pour acceder au portfolio.</div>;
+    return <div className="text-sm text-neutral-600">Connectez-vous pour accéder au portfolio.</div>;
   }
 
   if (!isPro) {
-    return <div className="text-sm text-neutral-600">Le portfolio est reserve aux professionnels.</div>;
+    return <div className="text-sm text-neutral-600">Le portfolio est réservé aux professionnels.</div>;
   }
+
+  const publicCount = projects.filter((p) => p.is_public).length;
+  const privateCount = projects.filter((p) => !p.is_public).length;
+  const totalBudget = projects.reduce((s, p) => s + (p.budget_total || 0), 0);
+  const featured = projects[0] ?? null;
+  const rest = projects.slice(1);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-4">
+      {/* Header card — même style que "Recherche pro" */}
+      <header className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <div className="relative flex items-start justify-between gap-6 p-6 sm:p-8">
+          <div className="flex items-start gap-4">
+            <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
+              <BookOpen className="h-6 w-6" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Mon Portfolio</h1>
+              <p className="text-neutral-600 mt-1">Gérez les projets publiés sur votre profil.</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-600">
+                <span className="rounded-full border border-neutral-200 bg-white px-3 py-1">
+                  {projects.length} article{projects.length !== 1 ? "s" : ""}
+                </span>
+                <span className="rounded-full border border-neutral-200 bg-white px-3 py-1">
+                  {publicCount} publié{publicCount !== 1 ? "s" : ""}
+                </span>
+                {projects.length > 0 && (
+                  <span className="rounded-full border border-neutral-200 bg-white px-3 py-1">
+                    Budget cumulé : {formatCurrency(totalBudget)}
+                  </span>
+                )}
+                <span
+                  className={cn(
+                    "rounded-full border px-3 py-1",
+                    profile?.public_portfolio_enabled
+                      ? "border-success-200 bg-success-50 text-success-700"
+                      : "border-neutral-200 bg-neutral-50 text-neutral-500"
+                  )}
+                >
+                  {profile?.public_portfolio_enabled ? "Portfolio public actif" : "Portfolio public désactivé"}
+                </span>
+              </div>
+            </div>
+          </div>
           <img
             src="/images/portfolio.png"
             alt="Portfolio"
-            className="h-28 w-28 object-contain logo-blend"
+            className="hidden sm:block h-20 w-20 object-contain opacity-90 logo-blend"
           />
-          <div>
-          <h1 className="text-3xl font-bold text-neutral-900">Mes articles</h1>
-          <p className="text-neutral-600">Gérez les projets publiés sur votre profil.</p>
-          </div>
         </div>
-      </div>
+      </header>
 
-      <Card>
-        <CardContent className="text-sm text-neutral-700 p-4">{publicStatusLabel}</CardContent>
-      </Card>
-
-      {error && (
+      {error && !selectedProject && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
         </div>
       )}
 
-      {loading && <div className="text-sm text-neutral-600">Chargement des articles...</div>}
-
-      {!loading && projects.length === 0 && (
-        <div className="text-sm text-neutral-600">Aucun article pour le moment.</div>
+      {loading && (
+        <div className="text-sm text-neutral-500">Chargement des articles...</div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {projects.map((project) => (
-          <Card key={project.id} className="border border-neutral-200">
-            <CardHeader>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-lg font-semibold text-neutral-900">
-                    {project.title || "Projet terminé"}
-                  </div>
-                  <div className="text-xs text-neutral-500">
-                    Publié le {project.created_at ? formatDate(project.created_at) : "-"}
-                  </div>
-                </div>
-                <Button size="sm" variant="outline" onClick={() => openEditor(project)}>
-                  Modifier
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm text-neutral-700">{project.summary || "Résumé non fourni."}</p>
-              <div className="flex flex-wrap gap-2 text-xs text-neutral-700">
-                <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1">
-                  Budget:{" "}
-                  {typeof project.budget_total === "number"
-                    ? formatCurrency(project.budget_total)
-                    : "-"}
-                </span>
-                <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1">
-                  Duree: {formatDurationLabel(project.duration_days)}
-                </span>
-                {(project.city || project.postal_code) && (
-                  <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1">
-                    Zone: {project.city || "-"} {project.postal_code || ""}
-                  </span>
-                )}
-                <span
-                  className={`rounded-full px-3 py-1 ${
-                    project.is_public ? "bg-emerald-50 text-emerald-700" : "bg-neutral-100 text-neutral-600"
-                  }`}
-                >
-                  {project.is_public ? "Public" : "Prive"}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {!loading && projects.length === 0 && (
+        <div className="rounded-xl border border-neutral-200 bg-neutral-50 py-16 text-center text-sm text-neutral-500">
+          Aucun article pour le moment.
+        </div>
+      )}
 
-      {selectedProject && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-lg w-full p-6">
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-neutral-900">Modifier l article</h3>
-                <p className="text-sm text-neutral-600">Ajustez les informations du projet.</p>
+      {/* Featured Article */}
+      {featured && (
+        <div
+          className="group overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => openEditor(featured)}
+        >
+          <div className="flex flex-col md:flex-row">
+            <div className="relative md:w-1/2 h-[260px] overflow-hidden flex-shrink-0">
+              {featured.image_path ? (
+                <img
+                  src={featured.image_path}
+                  alt={featured.title || ""}
+                  className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                />
+              ) : (
+                <div
+                  className={cn(
+                    "h-full w-full flex items-center justify-center bg-gradient-to-br",
+                    gradientColors[0]
+                  )}
+                >
+                  <span className="text-6xl font-bold text-neutral-400/40 select-none font-heading tracking-tight">
+                    {getInitials(featured.title)}
+                  </span>
+                </div>
+              )}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+              <div className="absolute bottom-4 left-4">
+                <span
+                  className={cn(
+                    "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium",
+                    featured.is_public
+                      ? "bg-success-50 text-success-700"
+                      : "bg-neutral-100 text-neutral-600"
+                  )}
+                >
+                  {featured.is_public ? "Public" : "Privé"}
+                </span>
               </div>
-              <Button variant="ghost" onClick={closeEditor}>
-                Fermer
-              </Button>
+              <button
+                className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity p-2 rounded-lg bg-white/90 shadow-sm hover:bg-white"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openEditor(featured);
+                }}
+                aria-label="Modifier l'article"
+              >
+                <Pen className="h-4 w-4 text-neutral-700" />
+              </button>
             </div>
-            <div className="space-y-4">
-              <Input
-                label="Titre"
-                value={form.title}
-                onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
-              />
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-neutral-800">Résumé</label>
-                <textarea
-                  value={form.summary}
-                  onChange={(event) => setForm((prev) => ({ ...prev, summary: event.target.value }))}
-                  className="w-full min-h-[120px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Input
-                  label="Budget total"
-                  type="number"
-                  inputMode="decimal"
-                  value={form.budgetTotal}
-                  onChange={(event) => setForm((prev) => ({ ...prev, budgetTotal: event.target.value }))}
-                />
-                <Input
-                  label="Duree (jours)"
-                  type="number"
-                  inputMode="numeric"
-                  value={form.durationDays}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, durationDays: event.target.value }))
-                  }
-                />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Input
-                  label="Ville"
-                  value={form.city}
-                  onChange={(event) => setForm((prev) => ({ ...prev, city: event.target.value }))}
-                />
-                <Input
-                  label="Code postal"
-                  value={form.postalCode}
-                  onChange={(event) => setForm((prev) => ({ ...prev, postalCode: event.target.value }))}
-                />
-              </div>
-              <Input
-                label="Image (URL ou chemin)"
-                value={form.imagePath}
-                onChange={(event) => setForm((prev) => ({ ...prev, imagePath: event.target.value }))}
-              />
-              <label className="flex items-center justify-between">
-                <span className="text-neutral-800">Publier cet article</span>
-                <input
-                  type="checkbox"
-                  checked={form.isPublic}
-                  onChange={(event) => setForm((prev) => ({ ...prev, isPublic: event.target.checked }))}
-                  className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
-                />
-              </label>
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <Button variant="ghost" onClick={closeEditor}>
-                  Annuler
-                </Button>
-                <Button onClick={handleSave} disabled={saving}>
-                  {saving ? "Sauvegarde..." : "Sauvegarder"}
-                </Button>
+            <div className="flex-1 p-6 flex flex-col justify-center">
+              <p className="text-xs text-neutral-400 mb-1 uppercase tracking-widest">
+                {featured.created_at ? formatDate(featured.created_at) : "—"}
+              </p>
+              <h2 className="text-xl font-bold font-heading text-neutral-900 mb-2 group-hover:text-primary-600 transition-colors">
+                {featured.title || "Projet terminé"}
+              </h2>
+              <p className="text-sm text-neutral-500 line-clamp-3 mb-4 leading-relaxed">
+                {featured.summary || "Résumé non fourni."}
+              </p>
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <span className="font-bold text-primary-600 flex items-center gap-1">
+                  <Euro className="h-3.5 w-3.5" />
+                  {typeof featured.budget_total === "number"
+                    ? formatCurrency(featured.budget_total)
+                    : "—"}
+                </span>
+                <span className="text-neutral-300">·</span>
+                <span className="text-neutral-500 flex items-center gap-1">
+                  <Clock className="h-3.5 w-3.5" />
+                  {formatDurationLabel(featured.duration_days)}
+                </span>
+                {featured.city && (
+                  <>
+                    <span className="text-neutral-300">·</span>
+                    <span className="text-neutral-500 flex items-center gap-1">
+                      <MapPin className="h-3.5 w-3.5" />
+                      {featured.city}
+                    </span>
+                  </>
+                )}
               </div>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Grid Articles */}
+      {rest.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {rest.map((project, idx) => (
+            <div
+              key={project.id}
+              className="group overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg"
+              onClick={() => openEditor(project)}
+            >
+              <div className="relative h-[200px] overflow-hidden">
+                {project.image_path ? (
+                  <img
+                    src={project.image_path}
+                    alt={project.title || ""}
+                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  />
+                ) : (
+                  <div
+                    className={cn(
+                      "h-full w-full flex items-center justify-center bg-gradient-to-br",
+                      gradientColors[(idx + 1) % gradientColors.length]
+                    )}
+                  >
+                    <span className="text-4xl font-bold text-neutral-400/40 select-none font-heading tracking-tight">
+                      {getInitials(project.title)}
+                    </span>
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+                <div className="absolute bottom-3 left-3">
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium",
+                      project.is_public
+                        ? "bg-success-50 text-success-700"
+                        : "bg-neutral-100 text-neutral-600"
+                    )}
+                  >
+                    {project.is_public ? "Public" : "Privé"}
+                  </span>
+                </div>
+                <button
+                  className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity p-2 rounded-lg bg-white/90 shadow-sm hover:bg-white"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openEditor(project);
+                  }}
+                  aria-label="Modifier l'article"
+                >
+                  <Pen className="h-4 w-4 text-neutral-700" />
+                </button>
+              </div>
+              <div className="p-5">
+                <p className="text-xs text-neutral-400 uppercase tracking-widest mb-1">
+                  {project.created_at ? formatDate(project.created_at) : "—"}
+                </p>
+                <h3 className="text-lg font-bold font-heading text-neutral-900 mb-1 group-hover:text-primary-600 transition-colors line-clamp-1">
+                  {project.title || "Projet terminé"}
+                </h3>
+                <p className="text-sm text-neutral-500 line-clamp-2 mb-3 leading-relaxed">
+                  {project.summary || "Résumé non fourni."}
+                </p>
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="font-bold text-primary-600">
+                    {typeof project.budget_total === "number"
+                      ? formatCurrency(project.budget_total)
+                      : "—"}
+                  </span>
+                  <span className="text-neutral-300">·</span>
+                  <span className="text-neutral-500 flex items-center gap-1">
+                    <Clock className="h-3 w-3" /> {formatDurationLabel(project.duration_days)}
+                  </span>
+                  {project.city && (
+                    <>
+                      <span className="text-neutral-300">·</span>
+                      <span className="text-neutral-500 flex items-center gap-1">
+                        <MapPin className="h-3 w-3" /> {project.city}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Slide-in Editor Panel — rendu via Portal pour éviter les problèmes de stacking context */}
+      {selectedProject && typeof document !== "undefined" && createPortal(
+        <>
+          <div
+            className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm"
+            onClick={closeEditor}
+          />
+          <div className="fixed top-0 right-0 z-[201] h-full w-full max-w-xl bg-white shadow-2xl overflow-y-auto">
+            {/* Sticky header */}
+            <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-white/95 backdrop-blur-md border-b border-neutral-200">
+              <div className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-primary-600" />
+                <h2 className="text-lg font-bold font-heading text-neutral-900">
+                  Modifier l&apos;article
+                </h2>
+              </div>
+              <button
+                onClick={closeEditor}
+                className="rounded-lg p-2 hover:bg-neutral-100 transition-colors"
+                aria-label="Fermer"
+              >
+                <X className="h-5 w-5 text-neutral-600" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {error && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {error}
+                </div>
+              )}
+
+              {/* Image preview + upload */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-neutral-800">Image</label>
+
+                {/* Preview */}
+                {form.imagePath ? (
+                  <div className="relative h-[200px] rounded-xl overflow-hidden group/img">
+                    <img
+                      src={form.imagePath}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-black/0 group-hover/img:bg-black/20 transition-colors" />
+                    <button
+                      type="button"
+                      onClick={() => setForm((prev) => ({ ...prev, imagePath: "" }))}
+                      className="absolute top-2 right-2 rounded-full bg-black/40 p-1.5 text-white opacity-0 group-hover/img:opacity-100 transition-opacity hover:bg-black/60"
+                      aria-label="Supprimer l'image"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="h-[180px] rounded-xl bg-neutral-100 border-2 border-dashed border-neutral-200 flex flex-col items-center justify-center gap-2">
+                    <ImageIcon className="h-10 w-10 text-neutral-300" />
+                    <p className="text-sm text-neutral-400">Aucune image</p>
+                  </div>
+                )}
+
+                {/* Upload button */}
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleImageUpload}
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => imageInputRef.current?.click()}
+                    disabled={uploading}
+                    className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-50 transition-colors disabled:opacity-50"
+                  >
+                    <Upload className="h-4 w-4 text-primary-600" />
+                    {uploading ? "Upload en cours..." : "Choisir une image"}
+                  </button>
+                  <span className="text-xs text-neutral-400">ou entrer une URL ci-dessous</span>
+                </div>
+
+                {/* URL fallback */}
+                <Input
+                  value={form.imagePath}
+                  onChange={(e) => setForm((prev) => ({ ...prev, imagePath: e.target.value }))}
+                  placeholder="https://... ou laisser vide"
+                />
+              </div>
+
+              {/* Title */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-neutral-800">Titre de l&apos;article</label>
+                <Input
+                  value={form.title}
+                  onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+                  placeholder="Titre du projet"
+                />
+              </div>
+
+              {/* Summary */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-neutral-800">Résumé</label>
+                <textarea
+                  value={form.summary}
+                  onChange={(e) => setForm((prev) => ({ ...prev, summary: e.target.value }))}
+                  placeholder="Description du projet..."
+                  rows={4}
+                  className="w-full px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm resize-none"
+                />
+              </div>
+
+              {/* Budget + Duration */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-neutral-800">Budget (€)</label>
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    value={form.budgetTotal}
+                    onChange={(e) => setForm((prev) => ({ ...prev, budgetTotal: e.target.value }))}
+                    placeholder="45000"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-neutral-800">Durée (jours)</label>
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    value={form.durationDays}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, durationDays: e.target.value }))
+                    }
+                    placeholder="30"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-neutral-800">Ville</label>
+                  <Input
+                    value={form.city}
+                    onChange={(e) => setForm((prev) => ({ ...prev, city: e.target.value }))}
+                    placeholder="Paris"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-neutral-800">Code postal</label>
+                  <Input
+                    value={form.postalCode}
+                    onChange={(e) => setForm((prev) => ({ ...prev, postalCode: e.target.value }))}
+                    placeholder="75000"
+                  />
+                </div>
+              </div>
+
+              {/* Publish toggle */}
+              <div className="flex items-center justify-between rounded-xl bg-neutral-50 border border-neutral-200 p-4">
+                <div>
+                  <p className="text-sm font-medium text-neutral-800">Visible sur mon profil</p>
+                  <p className="text-xs text-neutral-500">Les visiteurs pourront voir cet article</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={form.isPublic}
+                  onClick={() => setForm((prev) => ({ ...prev, isPublic: !prev.isPublic }))}
+                  className={cn(
+                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2",
+                    form.isPublic ? "bg-primary-600" : "bg-neutral-200"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform",
+                      form.isPublic ? "translate-x-6" : "translate-x-1"
+                    )}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {/* Sticky footer */}
+            <div className="sticky bottom-0 flex items-center justify-end gap-3 px-6 py-4 bg-white/95 backdrop-blur-md border-t border-neutral-200">
+              <Button variant="ghost" onClick={closeEditor}>
+                Annuler
+              </Button>
+              <Button variant="primary" onClick={handleSave} disabled={saving || uploading}>
+                {saving ? "Sauvegarde..." : "Sauvegarder"}
+              </Button>
+            </div>
+          </div>
+        </>,
+        document.body
       )}
     </div>
   );

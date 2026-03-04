@@ -1,18 +1,35 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useBreadcrumb } from "@/contexts/BreadcrumbContext";
 import { Card, CardHeader, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { ArrowLeft, Bot, Send } from "lucide-react";
+import StatCard from "@/components/ui/StatCard";
+import { ArrowLeft, Bot, Calendar, CheckCircle2, Clock, Euro, FileText, MapPin, Paperclip, Pencil, Plus, Send, TrendingUp, Users, Wrench, X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { mapUserTypeToRole, useAuth } from "@/hooks/useAuth";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, isValidDateRange, normalizeDateValue } from "@/lib/utils";
 import { deleteDevisWithItems, mapDevisRowToSummary } from "@/lib/devisDb";
 import { downloadQuotePdf } from "@/lib/quotePdf";
 import { deleteProjectCascade, inviteProjectMemberByEmail } from "@/lib/projectsDb";
+import { fetchLotsForProject, createLotForProject, createLot, getOrCreateDefaultPhase, type LotSummary } from "@/lib/lotsDb";
 import type { QuoteSummary } from "@/lib/quotesStore";
+import { ChatMessageMarkdown } from "@/components/chat/ChatMessageMarkdown";
+import ChatBox from "@/components/chat/ChatBox";
+import DocumentsList from "@/components/documents/DocumentsList";
+import type { AssistantActionButton } from "@/components/assistant/ActionButton";
+import { ActionMenu } from "@/components/assistant/ActionMenu";
+import { formatAssistantReply, type AssistantUiMode } from "@/lib/assistantResponses";
+import { ProjectGuidePanel } from "@/components/guide/ProjectGuidePanel";
+import {
+  sendPlanningMessageToAI,
+  type PlanningProposal,
+} from "@/lib/ai-service";
+import { createLotTask } from "@/lib/lotTasksDb";
+import { Badge } from "@/components/ui/Badge";
+import ProjectBudgetPanel from "@/components/project/ProjectBudgetPanel";
 
 type Project = {
   id: string;
@@ -40,14 +57,10 @@ type Member = {
   } | null;
 };
 
-type Message = {
-  id: string;
-  message: string;
-  created_at: string;
-  sender: {
-    full_name: string | null;
-    email: string | null;
-  } | null;
+const _firstOrNull = <T,>(value: T | T[] | null | undefined): T | null => {
+  if (!value) return null;
+  if (Array.isArray(value)) return (value[0] ?? null) as T | null;
+  return value as T;
 };
 
 type Task = {
@@ -73,24 +86,41 @@ type AssistantProposal = {
   tasks: AssistantTask[];
 };
 
+/** Extended proposal returned by the enriched planning engine */
+type AssistantPlanningProposal = PlanningProposal;
+
+type ProjectQuickAction = {
+  id: string;
+  label: string;
+  prompt: string;
+  icon?: string;
+};
+
 type AssistantMessage = {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
   proposal?: AssistantProposal | null;
+  planningProposal?: AssistantPlanningProposal | null;
   requires_devis?: boolean;
+  suggestions?: string[];
+  quickActions?: ProjectQuickAction[];
+  attachedFileName?: string | null;
 };
 
-type TabKey = "overview" | "chat" | "devis" | "planning" | "membres" | "assistant";
+type TabKey = "overview" | "interventions" | "budget" | "chat" | "devis" | "planning" | "membres" | "assistant" | "guide";
 type WorkflowStatus = "a_faire" | "envoye" | "valide" | "refuse";
 
 const tabItems: Array<{ key: TabKey; label: string; iconSrc: string }> = [
-  { key: "overview", label: "Aperçu", iconSrc: "/images/grey/eye.png" },
+  { key: "overview", label: "Apercu", iconSrc: "/images/grey/eye.png" },
+  { key: "interventions", label: "Interventions", iconSrc: "/images/grey/files.png" },
+  { key: "budget", label: "Budget", iconSrc: "/images/grey/files.png" },
   { key: "chat", label: "Chat", iconSrc: "/images/grey/chat-teardrop-dots.png" },
   { key: "devis", label: "Devis", iconSrc: "/images/grey/files.png" },
   { key: "planning", label: "Planning", iconSrc: "/images/grey/calendar%20(1).png" },
   { key: "membres", label: "Membres", iconSrc: "/images/grey/users-three%20(1).png" },
   { key: "assistant", label: "Assistant IA", iconSrc: "/images/grey/robot.png" },
+  { key: "guide", label: "Guide", iconSrc: "/images/clipboard-text.png" },
 ];
 
 const startOfWeek = (date: Date) => {
@@ -179,26 +209,32 @@ const getWorkflowBadge = (status: WorkflowStatus) => {
   return styles[status];
 };
 
-const formatMemberRole = (role?: string | null) => {
-  if (!role) return "Membre";
+const formatMemberRole = (role?: string | null): { label: string; color: string } => {
+  if (!role) return { label: "Membre", color: "bg-gray-100 text-gray-700" };
   const normalized = role.toLowerCase();
-  if (normalized === "owner") return "Propriétaire";
-  if (normalized === "client" || normalized === "particulier") return "Client";
-  if (normalized === "pro" || normalized === "professionnel") return "Professionnel";
-  if (normalized === "collaborator" || normalized === "collaborateur") return "Collaborateur";
-  return role;
+  if (normalized === "owner")
+    return { label: "Chef de projet", color: "bg-indigo-100 text-indigo-700" };
+  if (normalized === "collaborator" || normalized === "collaborateur")
+    return { label: "Collaborateur", color: "bg-blue-100 text-blue-700" };
+  if (normalized === "client" || normalized === "particulier")
+    return { label: "Client", color: "bg-amber-100 text-amber-700" };
+  if (normalized === "pro" || normalized === "professionnel")
+    return { label: "Professionnel", color: "bg-emerald-100 text-emerald-700" };
+  return { label: role, color: "bg-gray-100 text-gray-700" };
 };
 
-const formatMemberStatus = (status?: string | null) => {
-  if (!status) return "En attente";
+const formatMemberStatus = (status?: string | null): { label: string; color: string } => {
+  if (!status) return { label: "En attente", color: "text-amber-600" };
   const normalized = status.toLowerCase();
-  if (normalized === "accepted") return "Accepté";
-  if (normalized === "pending") return "En attente";
-  if (normalized === "invited") return "Invité";
-  if (normalized === "declined" || normalized === "refused") return "Refusé";
-  if (normalized === "removed") return "Retiré";
-  if (normalized === "active") return "Actif";
-  return status;
+  if (normalized === "accepted" || normalized === "active")
+    return { label: "Actif", color: "text-green-600" };
+  if (normalized === "pending" || normalized === "invited")
+    return { label: "En attente", color: "text-amber-600" };
+  if (normalized === "declined" || normalized === "refused")
+    return { label: "Refusé", color: "text-red-500" };
+  if (normalized === "removed")
+    return { label: "Retiré", color: "text-gray-400" };
+  return { label: status, color: "text-gray-500" };
 };
 
 const TASK_STATUS_OPTIONS = [
@@ -307,6 +343,13 @@ const normalizeLabel = (value: string) =>
     .trim()
     .replace(/\s+/g, " ");
 
+function splitTaskDescription(description: string | null) {
+  if (!description) return { time: null, text: null };
+  const match = description.match(/^\[\[time:([^\]]+)\]\]\s*(.*)$/);
+  if (!match) return { time: null, text: description };
+  return { time: match[1], text: match[2] || "" };
+}
+
 const computeDurationHours = (task: Task) => {
   const parsed = splitTaskDescription(task.description);
   const timeRange = parseTimeRange(parsed.time ?? null);
@@ -354,7 +397,7 @@ const pickTaskColor = (label: string) => {
 };
 
 const hourRange = { start: 7, end: 20 };
-const planningRowHeight = 80;
+const planningRowHeight = 64;
 
 const formatHourLabel = (hour: number) => `${hour.toString().padStart(2, "0")}:00`;
 
@@ -364,25 +407,45 @@ export default function ProjectDetailPage() {
   const searchParams = useSearchParams();
   const { user, profile } = useAuth();
   const roleParam = searchParams.get("role");
+  const tabParam = searchParams.get("tab");
+  const contextPhaseId = searchParams.get("phaseId");
+  const contextLotId = searchParams.get("lotId");
+  const guideSectionParam = searchParams.get("section");
+  const guideQueryParam = searchParams.get("q");
+  const guideTermParam = searchParams.get("term");
   const role = roleParam === "professionnel" ? "professionnel" : "particulier";
   const userRole = profile ? mapUserTypeToRole(profile.user_type) : role;
   const projectId = typeof params.id === "string" ? params.id : "";
+  const assistantContextType = contextLotId ? "lot" : contextPhaseId ? "phase" : "project";
 
   const [project, setProject] = useState<Project | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [quotes, setQuotes] = useState<QuoteSummary[]>([]);
   const [availableQuotes, setAvailableQuotes] = useState<QuoteSummary[]>([]);
-  const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [interventions, setInterventions] = useState<LotSummary[]>([]);
+  const [interventionsLoading, setInterventionsLoading] = useState(false);
+  const [interventionModalOpen, setInterventionModalOpen] = useState(false);
+  const [interventionSubmitting, setInterventionSubmitting] = useState(false);
+  const [interventionForm, setInterventionForm] = useState({
+    name: "",
+    description: "",
+    companyName: "",
+    startDate: "",
+    endDate: "",
+    budgetEstimated: "",
+  });
+  const isTabKey = (value: string | null): value is TabKey =>
+    !!value && tabItems.some((tab) => tab.key === value);
+  const [activeTab, setActiveTab] = useState<TabKey>(() => (isTabKey(tabParam) ? tabParam : "overview"));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [messageInput, setMessageInput] = useState("");
   const [taskName, setTaskName] = useState("");
   const [taskDates, setTaskDates] = useState({ start: "", end: "" });
   const [taskDescription, setTaskDescription] = useState("");
   const [taskTime, setTaskTime] = useState({ start: "", end: "" });
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [taskDetailOpen, setTaskDetailOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -395,6 +458,10 @@ export default function ProjectDetailPage() {
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [publishModalOpen, setPublishModalOpen] = useState(false);
   const [publishSubmitting, setPublishSubmitting] = useState(false);
+  const [rendezVousModalOpen, setRendezVousModalOpen] = useState(false);
+  const [editInfoModalOpen, setEditInfoModalOpen] = useState(false);
+  const [editInfoSubmitting, setEditInfoSubmitting] = useState(false);
+  const [editInfoForm, setEditInfoForm] = useState({ name: "", project_type: "", address: "", city: "", description: "" });
   const [publishForm, setPublishForm] = useState({
     title: "",
     summary: "",
@@ -406,12 +473,12 @@ export default function ProjectDetailPage() {
   });
   const getAssistantIntro = (roleValue: string) =>
     roleValue === "professionnel"
-      ? "Bonjour ! Je peux analyser le devis du projet et proposer un planning de tâches. Décrivez ce que vous voulez."
-      : "Bonjour ! Je suis votre conseiller : je peux expliquer les étapes du projet, clarifier les termes du BTP et vous aider à comprendre un devis.";
+      ? "Bonjour ! Je suis votre assistant IA BTP. J'ai accès à l'ensemble de votre projet : interventions, tâches, équipe et budget. Posez-moi vos questions sur l'avancement, les délais ou la planification."
+      : "Bonjour ! Je suis votre assistant IA BTP. Je suis au courant de l'avancement de votre projet et je peux répondre à toutes vos questions sur les travaux, les étapes et le budget.";
 
   const assistantIntroVariants = [
-    "Bonjour ! Je peux analyser le devis du projet et proposer un planning de tâches. Décrivez ce que vous voulez.",
-    "Bonjour ! Je suis votre conseiller : je peux expliquer les étapes du projet, clarifier les termes du BTP et vous aider à comprendre un devis.",
+    "Bonjour ! Je suis votre assistant IA BTP. J'ai accès à l'ensemble de votre projet : interventions, tâches, équipe et budget. Posez-moi vos questions sur l'avancement, les délais ou la planification.",
+    "Bonjour ! Je suis votre assistant IA BTP. Je suis au courant de l'avancement de votre projet et je peux répondre à toutes vos questions sur les travaux, les étapes et le budget.",
   ];
 
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([
@@ -423,10 +490,101 @@ export default function ProjectDetailPage() {
   ]);
   const [assistantInput, setAssistantInput] = useState("");
   const [assistantLoading, setAssistantLoading] = useState(false);
+  const [assistantStreamingContent, setAssistantStreamingContent] = useState<string | null>(null);
   const [assistantError, setAssistantError] = useState<string | null>(null);
   const [assistantNotice, setAssistantNotice] = useState<string | null>(null);
   const [pendingProposal, setPendingProposal] = useState<AssistantProposal | null>(null);
+  const [pendingPlanningProposal, setPendingPlanningProposal] = useState<AssistantPlanningProposal | null>(null);
+  const [assistantActiveAction, setAssistantActiveAction] = useState<AssistantActionButton["id"] | null>(null);
   const [applyLoading, setApplyLoading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const assistantSectionRef = useRef<HTMLDivElement | null>(null);
+  const assistantMessagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const assistantMessagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  const updateQuery = (patch: Record<string, string | null | undefined>) => {
+    const next = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null || value === undefined || value === "") next.delete(key);
+      else next.set(key, value);
+    }
+    router.replace(`/dashboard/projets/${projectId}?${next.toString()}`, { scroll: false });
+  };
+
+  const openGuide = (section?: string, patch?: Record<string, string | null | undefined>) => {
+    updateQuery({
+      tab: "guide",
+      section: section ?? null,
+      term: null,
+      q: null,
+      ...(patch || {}),
+    });
+  };
+
+  const openAssistantTab = () => {
+    setActiveTab("assistant");
+    updateQuery({ tab: "assistant", section: null, q: null, term: null });
+  };
+
+  const animateScrollTop = (
+    element: { scrollTop: number },
+    to: number,
+    durationMs = 650
+  ) => {
+    const from = element.scrollTop;
+    const delta = to - from;
+    if (!Number.isFinite(delta) || Math.abs(delta) < 2) return;
+
+    const start = performance.now();
+    const easeInOutCubic = (t: number) =>
+      t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+    const step = (now: number) => {
+      const elapsed = now - start;
+      const t = Math.min(1, elapsed / durationMs);
+      element.scrollTop = from + delta * easeInOutCubic(t);
+      if (t < 1) requestAnimationFrame(step);
+    };
+
+    requestAnimationFrame(step);
+  };
+
+  const { setBreadcrumb } = useBreadcrumb();
+  useEffect(() => {
+    setBreadcrumb([
+      { label: "Projets", href: `/dashboard?role=${role}` },
+      { label: project?.name ?? "Projet" },
+    ]);
+    return () => setBreadcrumb([]);
+  }, [project?.name, role]);
+
+  useEffect(() => {
+    if (!isTabKey(tabParam)) return;
+    if (tabParam === activeTab) return;
+    setActiveTab(tabParam);
+  }, [tabParam, activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== "assistant") return;
+    const id = window.setTimeout(() => {
+      const target = assistantSectionRef.current;
+      if (!target) return;
+      const rect = target.getBoundingClientRect();
+      const alreadyComfortable = rect.top >= 80 && rect.top <= window.innerHeight * 0.35;
+      if (alreadyComfortable) return;
+      animateScrollTop(window.document.documentElement, window.scrollY + rect.top - 80, 800);
+    }, 50);
+    return () => window.clearTimeout(id);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== "assistant") return;
+    const container = assistantMessagesContainerRef.current;
+    if (!container) return;
+    const target = container.scrollHeight;
+    animateScrollTop(container, target, 700);
+  }, [assistantLoading, assistantMessages.length, activeTab]);
 
   useEffect(() => {
     setAssistantMessages((prev) => {
@@ -462,7 +620,7 @@ export default function ProjectDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const [projectRes, membersRes, messagesRes, tasksRes, devisRes] = await Promise.all([
+      const [projectRes, membersRes, tasksRes, devisRes] = await Promise.all([
         supabase.from("projects").select("*").eq("id", projectId).maybeSingle(),
         supabase
           .from("project_members")
@@ -470,11 +628,6 @@ export default function ProjectDetailPage() {
             "id,role,status,invited_email,user:profiles!project_members_user_id_fkey(id,full_name,email,company_name)"
           )
           .eq("project_id", projectId),
-        supabase
-          .from("project_messages")
-          .select("id,message,created_at,sender:profiles!project_messages_sender_id_fkey(full_name,email)")
-          .eq("project_id", projectId)
-          .order("created_at", { ascending: true }),
         supabase
           .from("project_tasks")
           .select("id,name,status,start_date,end_date,description,completed_at")
@@ -489,14 +642,63 @@ export default function ProjectDetailPage() {
 
       if (projectRes.error) throw projectRes.error;
       if (membersRes.error) throw membersRes.error;
-      if (messagesRes.error) throw messagesRes.error;
       if (tasksRes.error) throw tasksRes.error;
       if (devisRes.error) throw devisRes.error;
 
       setProject((projectRes.data as Project) ?? null);
-      setMembers((membersRes.data as Member[]) ?? []);
-      setMessages((messagesRes.data as Message[]) ?? []);
-      setTasks((tasksRes.data as Task[]) ?? []);
+      const normalizedMembers: Member[] = (membersRes.data ?? []).map((row: any) => ({
+        id: String(row.id),
+        role: row.role ?? null,
+        status: row.status ?? null,
+        invited_email: row.invited_email ?? null,
+        user: _firstOrNull(row.user) as any,
+      }));
+      setMembers(normalizedMembers);
+
+      // Fetch intervention (lot) tasks and merge with project tasks
+      let allTasks: Task[] = (tasksRes.data as Task[]) ?? [];
+      try {
+        const phasesRes = await supabase.from("phases").select("id").eq("project_id", projectId);
+        if (!phasesRes.error && phasesRes.data && phasesRes.data.length > 0) {
+          const phaseIds = phasesRes.data.map((p: any) => p.id);
+          const lotsRes = await supabase.from("lots").select("id,name").in("phase_id", phaseIds);
+          if (!lotsRes.error && lotsRes.data && lotsRes.data.length > 0) {
+            const lotIds = lotsRes.data.map((l: any) => l.id);
+            const lotNameMap = new Map<string, string>(lotsRes.data.map((l: any) => [l.id, l.name]));
+            const lotTasksRes = await supabase
+              .from("lot_tasks")
+              .select("id,lot_id,title,description,status,due_date,completed_at")
+              .in("lot_id", lotIds)
+              .order("due_date", { ascending: true });
+            if (!lotTasksRes.error && lotTasksRes.data) {
+              const interventionTasks: Task[] = lotTasksRes.data.map((row: any) => {
+                const lotName = lotNameMap.get(row.lot_id) ?? "";
+                const prefix = lotName ? `[${lotName}] ` : "";
+                return {
+                  id: `lot-${row.id}`,
+                  name: `${prefix}${row.title}`,
+                  status: row.status ?? "todo",
+                  start_date: row.due_date ?? null,
+                  end_date: row.due_date ?? null,
+                  description: row.description ?? null,
+                  completed_at: row.completed_at ?? null,
+                };
+              });
+              allTasks = [...allTasks, ...interventionTasks];
+            }
+          }
+        }
+      } catch {
+        // Silently fail - project tasks still work
+      }
+
+      allTasks.sort((a, b) => {
+        const aDate = a.start_date ?? "";
+        const bDate = b.start_date ?? "";
+        return aDate.localeCompare(bDate);
+      });
+
+      setTasks(allTasks);
       const mappedQuotes = (devisRes.data ?? []).map((row) => mapDevisRowToSummary(row as any));
       setQuotes(mappedQuotes);
     } catch (err: any) {
@@ -519,9 +721,27 @@ export default function ProjectDetailPage() {
     setAvailableQuotes(mapped);
   };
 
+  const loadInterventions = async () => {
+    if (!projectId) return;
+    setInterventionsLoading(true);
+    try {
+      const data = await fetchLotsForProject(projectId);
+      setInterventions(data);
+    } catch {
+      setInterventions([]);
+    } finally {
+      setInterventionsLoading(false);
+    }
+  };
+
   useEffect(() => {
     void loadProject();
   }, [projectId, user?.id]);
+
+  useEffect(() => {
+    if (activeTab !== "interventions" && activeTab !== "overview" && activeTab !== "budget") return;
+    void loadInterventions();
+  }, [activeTab, projectId]);
 
   useEffect(() => {
     if (activeTab === "devis") {
@@ -529,26 +749,73 @@ export default function ProjectDetailPage() {
     }
   }, [activeTab]);
 
+  const planningDateParam = searchParams.get("planningDate");
+  const planningTaskIdParam = searchParams.get("planningTaskId");
+
   useEffect(() => {
     if (activeTab === "planning") {
-      setWeekStart(startOfWeek(new Date()));
+      if (planningDateParam) {
+        const d = new Date(`${planningDateParam}T00:00:00`);
+        if (!Number.isNaN(d.getTime())) setWeekStart(startOfWeek(d));
+      } else {
+        setWeekStart(startOfWeek(new Date()));
+      }
     }
-  }, [activeTab]);
+  }, [activeTab, planningDateParam]);
 
-  const handleSendMessage = async () => {
-    if (!messageInput.trim() || !user?.id) return;
-    const payload = {
-      project_id: projectId,
-      sender_id: user.id,
-      message: messageInput.trim(),
-    };
-    const { error: insertError } = await supabase.from("project_messages").insert(payload);
-    if (insertError) {
-      setError(insertError.message);
+  // Scroll vers l'événement ciblé quand on arrive sur le planning via "Voir planning"
+  useEffect(() => {
+    if (activeTab !== "planning" || !planningTaskIdParam) return;
+    const t = window.setTimeout(() => {
+      const el = document.querySelector(`[data-task-id="${planningTaskIdParam}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.add("ring-2", "ring-primary-500", "ring-offset-2");
+        window.setTimeout(() => el.classList.remove("ring-2", "ring-primary-500", "ring-offset-2"), 2500);
+      }
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [activeTab, planningTaskIdParam]);
+
+  const handleCreateIntervention = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canManageProject) {
+      setError("Acces refuse: vous ne pouvez pas creer une intervention.");
       return;
     }
-    setMessageInput("");
-    await loadProject();
+    if (!projectId || !interventionForm.name.trim()) return;
+    if (!isValidDateRange(interventionForm.startDate, interventionForm.endDate)) {
+      setFormError("La date de fin doit être supérieure ou égale à la date de début.");
+      return;
+    }
+    setInterventionSubmitting(true);
+    setFormError(null);
+    setError(null);
+    try {
+      await createLotForProject(projectId, {
+        name: interventionForm.name,
+        description: interventionForm.description || null,
+        companyName: interventionForm.companyName || null,
+        startDate: interventionForm.startDate || null,
+        endDate: interventionForm.endDate || null,
+        budgetEstimated: interventionForm.budgetEstimated ? Number(interventionForm.budgetEstimated) : 0,
+        status: "planifie",
+      });
+      setInterventionForm({
+        name: "",
+        description: "",
+        companyName: "",
+        startDate: "",
+        endDate: "",
+        budgetEstimated: "",
+      });
+      setInterventionModalOpen(false);
+      await loadInterventions();
+    } catch (err: any) {
+      setFormError(err?.message ?? "Impossible de creer l'intervention.");
+    } finally {
+      setInterventionSubmitting(false);
+    }
   };
 
   const buildTaskDescription = () => {
@@ -558,13 +825,6 @@ export default function ProjectDetailPage() {
     const timeLabel = `${taskTime.start || "--:--"}-${taskTime.end || "--:--"}`;
     const prefix = `[[time:${timeLabel}]]`;
     return notes ? `${prefix} ${notes}` : prefix;
-  };
-
-  const splitTaskDescription = (description: string | null) => {
-    if (!description) return { time: null, text: null };
-    const match = description.match(/^\[\[time:([^\]]+)\]\]\s*(.*)$/);
-    if (!match) return { time: null, text: description };
-    return { time: match[1], text: match[2] || "" };
   };
 
   const openTaskModal = (day: Date) => {
@@ -578,6 +838,7 @@ export default function ProjectDetailPage() {
     setTaskDates({ start: dayKey, end: dayKey });
     setTaskTime({ start: "", end: "" });
     setTaskDescription("");
+    setFormError(null);
     setIsTaskModalOpen(true);
   };
 
@@ -587,6 +848,10 @@ export default function ProjectDetailPage() {
       return;
     }
     if (!taskName.trim()) return;
+    if (!isValidDateRange(taskDates.start, taskDates.end)) {
+      setFormError("La date de fin doit être supérieure ou égale à la date de début.");
+      return;
+    }
     const payloadBase = {
       project_id: projectId,
       name: taskName.trim(),
@@ -611,7 +876,7 @@ export default function ProjectDetailPage() {
       }
     }
     if (insertError) {
-      setError(insertError.message ?? "Impossible d'ajouter la tâche.");
+      setFormError(insertError.message ?? "Impossible d'ajouter la tâche.");
       return;
     }
     setIsTaskModalOpen(false);
@@ -790,6 +1055,38 @@ export default function ProjectDetailPage() {
     setPublishModalOpen(false);
   };
 
+  const openEditInfoModal = () => {
+    setEditInfoForm({
+      name: project?.name ?? "",
+      project_type: project?.project_type ?? "",
+      address: project?.address ?? "",
+      city: project?.city ?? "",
+      description: project?.description ?? "",
+    });
+    setEditInfoModalOpen(true);
+  };
+
+  const handleSaveProjectInfo = async () => {
+    if (!canManageProject || !projectId) return;
+    setEditInfoSubmitting(true);
+    const { data, error: updateError } = await supabase
+      .from("projects")
+      .update({
+        name: editInfoForm.name.trim() || project?.name,
+        project_type: editInfoForm.project_type.trim() || null,
+        address: editInfoForm.address.trim() || null,
+        city: editInfoForm.city.trim() || null,
+        description: editInfoForm.description.trim() || null,
+      })
+      .eq("id", projectId)
+      .select()
+      .single();
+    setEditInfoSubmitting(false);
+    if (updateError) { setError(updateError.message); return; }
+    if (data) setProject(data as Project);
+    setEditInfoModalOpen(false);
+  };
+
   const buildAssistantTaskDescription = (task: AssistantTask) => {
     const timeRange = (task.time_range ?? "").trim();
     const base = (task.description ?? "").trim();
@@ -823,6 +1120,14 @@ export default function ProjectDetailPage() {
       return;
     }
     if (!pendingProposal || !projectId || !user?.id) return;
+    for (const task of pendingProposal.tasks) {
+      const start = (task.start_date ?? "").trim();
+      const end = (task.end_date ?? task.start_date ?? "").trim();
+      if (start && end && !isValidDateRange(start, end)) {
+        setAssistantError("Chaque tâche doit avoir une date de fin supérieure ou égale à la date de début.");
+        return;
+      }
+    }
     const shouldReplace = window.confirm(
       "Valider ce planning va remplacer les tâches actuelles du projet. Voulez-vous continuer ?"
     );
@@ -859,6 +1164,111 @@ export default function ProjectDetailPage() {
     setPendingProposal(null);
     setAssistantNotice("Planning mis à jour. Les tâches précédentes ont été remplacées.");
     await loadProject();
+  };
+
+  /**
+   * Apply the enriched planning proposal:
+   * - Add suggested tasks to existing interventions (lots)
+   * - Create new interventions (lots) with their tasks
+   */
+  const applyPlanningProposal = async () => {
+    if (!canUseAssistantPlanning) {
+      setAssistantNotice("Seuls les professionnels peuvent valider un planning.");
+      return;
+    }
+    if (!pendingPlanningProposal || !projectId || !user?.id) return;
+
+    const proposal = pendingPlanningProposal;
+    const hasSuggestedTasks = proposal.existing_interventions.some((i) => i.suggested_tasks.length > 0);
+    const hasNewInterventions = proposal.suggested_interventions.length > 0;
+
+    if (!hasSuggestedTasks && !hasNewInterventions) {
+      setAssistantNotice("Aucune suggestion à appliquer dans cette proposition.");
+      return;
+    }
+
+    for (const intervention of proposal.existing_interventions) {
+      for (const task of intervention.suggested_tasks) {
+        const start = (task.start_date ?? "").trim();
+        const end = (task.end_date ?? task.start_date ?? "").trim();
+        if (start && end && !isValidDateRange(start, end)) {
+          setAssistantError("Chaque tâche doit avoir une date de fin supérieure ou égale à la date de début.");
+          return;
+        }
+      }
+    }
+    for (const newIntervention of proposal.suggested_interventions) {
+      for (const task of newIntervention.suggested_tasks) {
+        const start = (task.start_date ?? "").trim();
+        const end = (task.end_date ?? task.start_date ?? "").trim();
+        if (start && end && !isValidDateRange(start, end)) {
+          setAssistantError("Chaque tâche doit avoir une date de fin supérieure ou égale à la date de début.");
+          return;
+        }
+      }
+    }
+
+    const confirmMsg = hasNewInterventions
+      ? `Ce planning va créer ${proposal.suggested_interventions.length} nouvelle(s) intervention(s) et ajouter des tâches. Continuer ?`
+      : "Ce planning va ajouter des tâches aux interventions existantes. Continuer ?";
+
+    if (!window.confirm(confirmMsg)) return;
+
+    setApplyLoading(true);
+    setAssistantError(null);
+    setAssistantNotice(null);
+
+    try {
+      const defaultPhaseId = await getOrCreateDefaultPhase(projectId);
+
+      // 1. Add suggested tasks to existing interventions
+      for (const intervention of proposal.existing_interventions) {
+        if (!intervention.intervention_id || intervention.intervention_id === "__project_tasks__") continue;
+        for (const task of intervention.suggested_tasks) {
+          if (!task.title?.trim()) continue;
+          await createLotTask(intervention.intervention_id, {
+            title: task.title.trim(),
+            description: task.description?.trim() || null,
+            dueDate: task.end_date ?? task.start_date ?? null,
+            status: "todo",
+          });
+        }
+      }
+
+      // 2. Create new interventions with their tasks
+      for (const newIntervention of proposal.suggested_interventions) {
+        if (!newIntervention.name?.trim()) continue;
+
+        const lotId = await createLot(defaultPhaseId, {
+          name: newIntervention.name.trim(),
+          lotType: newIntervention.lot_type?.trim() || null,
+          description: newIntervention.reason?.trim() || null,
+          status: "planifie",
+        });
+
+        // Add tasks to the new lot
+        for (let idx = 0; idx < newIntervention.suggested_tasks.length; idx++) {
+          const task = newIntervention.suggested_tasks[idx];
+          if (!task.title?.trim()) continue;
+          await createLotTask(lotId, {
+            title: task.title.trim(),
+            description: task.description?.trim() || null,
+            dueDate: task.end_date ?? task.start_date ?? null,
+            orderIndex: idx,
+            status: "todo",
+          });
+        }
+      }
+
+      setPendingPlanningProposal(null);
+      setPendingProposal(null);
+      setAssistantNotice("Planning appliqué avec succès. Les interventions et tâches ont été créées.");
+      await loadProject();
+    } catch (err: any) {
+      setAssistantError(err?.message ?? "Impossible d'appliquer le planning.");
+    } finally {
+      setApplyLoading(false);
+    }
   };
 
   const updateProposalSummary = (value: string) => {
@@ -899,21 +1309,48 @@ export default function ProjectDetailPage() {
     });
   };
 
-  const sendAssistantMessage = async (content: string, options?: { forcePlan?: boolean }) => {
+  const streamText = async (text: string) => {
+    const words = text.split(" ");
+    for (let i = 0; i < words.length; i++) {
+      setAssistantStreamingContent((prev) => (prev ?? "") + words[i] + (i < words.length - 1 ? " " : ""));
+      await new Promise<void>((r) => setTimeout(r, 20));
+    }
+  };
+
+  const sendAssistantMessage = async (
+    content: string,
+    options?: { forcePlan?: boolean; uiMode?: AssistantUiMode; actionId?: string; file?: File }
+  ) => {
     if (!user?.id || !projectId) return;
-    const trimmed = content.trim();
-    if (!trimmed || assistantLoading) return;
+    if (assistantLoading) return;
+
+    // Capture file before clearing state
+    const attachedFile = options?.file ?? selectedFile ?? null;
+    const attachedFileName = attachedFile?.name ?? null;
+
+    // Allow sending with file only — generate a default message
+    const rawTrimmed = content.trim();
+    const trimmed = rawTrimmed || (attachedFile ? `Analyse ce document : ${attachedFile.name}` : "");
+    if (!trimmed) return;
+
     setAssistantError(null);
     setAssistantNotice(null);
 
+    if (options?.actionId) {
+      setAssistantActiveAction(options.actionId);
+    }
+
     const userMessage: AssistantMessage = {
       role: "user",
-      content: trimmed,
+      content: rawTrimmed || `📎 ${attachedFile?.name ?? "fichier joint"}`,
       timestamp: new Date().toISOString(),
+      attachedFileName,
     };
     setAssistantMessages((prev) => [...prev, userMessage]);
     setAssistantInput("");
+    setSelectedFile(null);
     setAssistantLoading(true);
+    setAssistantStreamingContent("");
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_AI_API_URL;
@@ -923,30 +1360,202 @@ export default function ProjectDetailPage() {
 
       const history = [
         ...assistantMessages.slice(-5).map((item) => ({ role: item.role, content: item.content })),
-        { role: "user", content: trimmed },
+        { role: "user" as const, content: trimmed },
       ];
 
-      const assistantEndpoint =
-        userRole === "professionnel" ? "/project-chat" : "/project-chat-client";
-      const response = await fetch(`${apiUrl}${assistantEndpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project_id: projectId,
-          user_id: user.id,
-          user_role: userRole,
-          message: trimmed,
-          history,
-          force_plan: options?.forcePlan ?? false,
-        }),
-      });
+      const isForcePlan = options?.forcePlan ?? false;
+
+      // ── Enriched planning path ──────────────────────────────────
+      if (isForcePlan) {
+        const planningResult = await sendPlanningMessageToAI(
+          trimmed,
+          {
+            userId: user.id,
+            userRole,
+            projectId,
+            phaseId: contextPhaseId ?? undefined,
+            lotId: contextLotId ?? undefined,
+            contextType: assistantContextType as "project" | "phase" | "lot",
+            forcePlan: true,
+          },
+          history
+        );
+
+        await streamText(planningResult.message);
+
+        const assistantMessage: AssistantMessage = {
+          role: "assistant",
+          content: planningResult.message,
+          timestamp: new Date().toISOString(),
+          planningProposal: planningResult.proposal ?? null,
+          suggestions: planningResult.suggestions ?? [],
+        };
+        setAssistantMessages((prev) => [...prev, assistantMessage]);
+
+        if (planningResult.proposal) {
+          setPendingPlanningProposal(planningResult.proposal);
+          // Also set legacy proposal for backwards compatibility
+          const legacyTasks: AssistantTask[] = [
+            ...planningResult.proposal.existing_interventions.flatMap((i) =>
+              i.suggested_tasks.map((t) => ({
+                name: `[${i.intervention_name}] ${t.title}`,
+                description: t.description,
+                start_date: t.start_date,
+                end_date: t.end_date,
+              }))
+            ),
+            ...planningResult.proposal.suggested_interventions.flatMap((i) =>
+              i.suggested_tasks.map((t) => ({
+                name: `[${i.name}] ${t.title}`,
+                description: t.description,
+                start_date: t.start_date,
+                end_date: t.end_date,
+              }))
+            ),
+          ];
+          if (legacyTasks.length > 0) {
+            setPendingProposal({
+              summary: planningResult.proposal.summary,
+              tasks: legacyTasks,
+            });
+          }
+        }
+
+        return;
+      }
+
+      // ── Standard path (non-planning) ───────────────────────────
+      let response: Response;
+      if (attachedFile && userRole === "professionnel") {
+        // Multipart quand un fichier est joint (pros uniquement)
+        const formData = new FormData();
+        formData.append("project_id", projectId);
+        formData.append("user_id", user.id);
+        formData.append("user_role", userRole);
+        formData.append("message", trimmed);
+        formData.append("force_plan", "false");
+        formData.append("file", attachedFile, attachedFile.name);
+        response = await fetch(`${apiUrl}/project-chat-file`, {
+          method: "POST",
+          body: formData,
+        });
+      } else {
+        const assistantEndpoint =
+          userRole === "professionnel" ? "/project-chat" : "/project-chat-client";
+        response = await fetch(`${apiUrl}${assistantEndpoint}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            project_id: projectId,
+            phase_id: contextPhaseId ?? null,
+            lot_id: contextLotId ?? null,
+            context_type: assistantContextType,
+            user_id: user.id,
+            user_role: userRole,
+            message: trimmed,
+            history,
+            force_plan: false,
+          }),
+        });
+      }
       const data = await response.json();
+      const rawReply = (data.reply ?? "Je reviens vers vous avec une proposition.") as string;
+
+      const inferGuideLink = (question: string) => {
+        const q = (question || "").trim();
+        const lowered = q.toLowerCase();
+        const pickTerm = () => {
+          const match =
+            q.match(/(?:c['']est quoi|définition de|que signifie|ça veut dire)\s+(.+)/i) ||
+            q.match(/(?:terme|mot)\s+(.+)/i);
+          const term = (match?.[1] || "").trim().replace(/[?.!,;:]+$/g, "");
+          if (term && term.length <= 40) return term;
+          const lastToken = q
+            .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(-1)[0];
+          return lastToken && lastToken.length <= 24 ? lastToken : "";
+        };
+
+        if (/(ipn|dtu|tva|acompte|décennale|ragr[ée]age)/i.test(q) || lowered.includes("c'est quoi") || lowered.includes("définition")) {
+          return { section: "lexique", q: pickTerm() || q };
+        }
+        if (lowered.includes("délai") || lowered.includes("delai") || lowered.includes("combien de temps")) {
+          return { section: "delais-types" };
+        }
+        if (lowered.includes("risque") || lowered.includes("attention") || lowered.includes("amiante") || lowered.includes("humidité")) {
+          return { section: "points-attention" };
+        }
+        if (lowered.includes("budget") || lowered.includes("coût") || lowered.includes("prix") || lowered.includes("combien ça coûte")) {
+          return { section: "mon-budget" };
+        }
+        if (
+          lowered.includes("étapes") ||
+          lowered.includes("etapes") ||
+          lowered.includes("chronologie") ||
+          lowered.includes("planning")
+        ) {
+          return { section: "delais-types" };
+        }
+        if (lowered.includes("devis") || lowered.includes("inclus") || lowered.includes("poste")) {
+          return { section: "mon-devis" };
+        }
+        return null;
+      };
+
+      const withGuideLink = (text: string) => {
+        if (userRole !== "particulier") return text;
+        if (text.includes("#/guide?section=")) return text;
+        const inferred = inferGuideLink(trimmed);
+        if (!inferred) return text;
+        const params: string[] = [`section=${encodeURIComponent(inferred.section)}`];
+        if ("q" in inferred && inferred.q) {
+          const key = inferred.section === "lexique" ? "terme" : "q";
+          params.push(`${key}=${encodeURIComponent(inferred.q)}`);
+        }
+        const href = `#/guide?${params.join("&")}`;
+        const emojiBySection: Record<string, string> = {
+          lexique: "",
+          "delais-types": "",
+          "points-attention": "",
+          "mon-devis": "",
+          "mon-budget": "",
+        };
+        const labelBySection: Record<string, string> = {
+          lexique: "Voir le lexique",
+          "delais-types": "Délais types",
+          "points-attention": "Points d'attention",
+          "mon-devis": "Explique mon devis",
+          "mon-budget": "Voir mon budget",
+        };
+        const emoji = emojiBySection[inferred.section] ?? "";
+        const label = labelBySection[inferred.section] ?? "Ouvrir le Guide";
+        const prefix = emoji ? `${emoji} ` : "";
+        return `${text}\n\nPour en savoir plus : [${prefix}${label}](${href})`;
+      };
+
+      // formatAssistantReply génère des cartes "Guide" — réservé aux particuliers
+      const nextReply =
+        options?.uiMode && userRole !== "professionnel"
+          ? formatAssistantReply(options.uiMode, rawReply, {
+              projectName: project?.name ?? null,
+              projectType: project?.project_type ?? null,
+              totalBudgetTtc: totalBudget,
+              quotes,
+            })
+          : withGuideLink(rawReply);
+
+      await streamText(nextReply);
+
       const assistantMessage: AssistantMessage = {
         role: "assistant",
-        content: data.reply ?? "Je reviens vers vous avec une proposition.",
+        content: nextReply,
         timestamp: new Date().toISOString(),
         proposal: data.proposal ?? null,
         requires_devis: Boolean(data.requires_devis),
+        suggestions: data.suggested_questions ?? [],
+        quickActions: data.quick_actions ?? [],
       };
       setAssistantMessages((prev) => [...prev, assistantMessage]);
       if (data.proposal) {
@@ -964,8 +1573,185 @@ export default function ProjectDetailPage() {
       ]);
     } finally {
       setAssistantLoading(false);
+      setAssistantStreamingContent(null);
     }
   };
+
+  const assistantActionButtons = useMemo(() => {
+    if (userRole === "professionnel") {
+      const actions: Array<
+        AssistantActionButton & {
+          prompt: string;
+          uiMode?: AssistantUiMode;
+          forcePlan?: boolean;
+        }
+      > = [
+        {
+          id: "pro_plan",
+          icon: "P",
+          title: "Planning",
+          description: "Proposition de taches + dates",
+          color: "indigo",
+          prompt: "Propose un planning detaille pour ce projet avec les taches principales et les delais.",
+          forcePlan: true,
+        },
+        {
+          id: "pro_devis_analyze",
+          icon: "D",
+          title: "Analyse devis",
+          description: "Postes principaux + coherences",
+          color: "blue",
+          prompt:
+            "Analyse le devis de ce projet. Quels sont les postes principaux ? Y a-t-il des incoherences ou des points a verifier ?",
+          uiMode: "devis",
+        },
+        {
+          id: "pro_devis_validate",
+          icon: "C",
+          title: "Conformite",
+          description: "TVA, mentions, totaux",
+          color: "green",
+          prompt:
+            "Verifie la conformite du devis : TVA, mentions obligatoires, coherence des totaux, et conformite reglementaire.",
+        },
+        {
+          id: "pro_budget",
+          icon: "B",
+          title: "Budget",
+          description: "Synthese couts + paiements",
+          color: "purple",
+          prompt: "Quel est le budget estime pour ce projet ? Y a-t-il des couts supplementaires a prevoir ?",
+          uiMode: "budget",
+        },
+        {
+          id: "pro_risks",
+          icon: "R",
+          title: "Risques",
+          description: "Points d'attention chantier",
+          color: "red",
+          prompt:
+            "Quels sont les risques et points d'attention pour ce projet ? Y a-t-il des elements a surveiller particulierement ?",
+          uiMode: "risks",
+        },
+        {
+          id: "pro_terms",
+          icon: "T",
+          title: "Termes",
+          description: "Lexique BTP (devis)",
+          color: "orange",
+          prompt: "Peux-tu clarifier les termes techniques du devis ? Explique-moi les mots que je ne comprends pas.",
+          uiMode: "terms",
+        },
+        {
+          id: "pro_margins",
+          icon: "M",
+          title: "Marges",
+          description: "Rentabilite par poste",
+          color: "purple",
+          prompt: "Calcule les marges et la rentabilite de ce projet. Quels sont les postes les plus rentables ?",
+        },
+        {
+          id: "pro_optimize",
+          icon: "O",
+          title: "Optimiser",
+          description: "Reduire sans degrader",
+          color: "blue",
+          prompt:
+            "Optimise les couts de ce projet. Y a-t-il des postes ou on peut reduire les couts sans impacter la qualite ?",
+        },
+        {
+          id: "pro_improve",
+          icon: "A",
+          title: "Ameliorations",
+          description: "Alternatives & options",
+          color: "green",
+          prompt:
+            "Propose des ameliorations ou des alternatives pour ce projet. Y a-t-il des options plus performantes ou economiques ?",
+        },
+      ];
+
+      return actions.map(({ prompt, uiMode, forcePlan, ...a }) => ({
+        ...a,
+        disabled: assistantLoading,
+        onClick: () => void sendAssistantMessage(prompt, { forcePlan, uiMode, actionId: a.id }),
+      }));
+    }
+
+    const actions: Array<AssistantActionButton & { prompt: string; uiMode: AssistantUiMode }> = [
+      {
+        id: "client_devis",
+        icon: "D",
+        title: "Explique le devis",
+        description: "Comprendre les postes et inclusions",
+        color: "blue",
+        prompt: "",
+        uiMode: "devis",
+      },
+      {
+        id: "client_steps",
+        icon: "E",
+        title: "Les etapes",
+        description: "Chronologie des travaux",
+        color: "green",
+        prompt: "",
+        uiMode: "steps",
+      },
+      {
+        id: "client_budget",
+        icon: "B",
+        title: "Le budget",
+        description: "Couts, paiements, imprevus",
+        color: "purple",
+        prompt: "",
+        uiMode: "budget",
+      },
+      {
+        id: "client_terms",
+        icon: "T",
+        title: "Termes techniques",
+        description: "Vocabulaire BTP simplifie",
+        color: "orange",
+        prompt: "",
+        uiMode: "terms",
+      },
+      {
+        id: "client_delays",
+        icon: "H",
+        title: "Les delais",
+        description: "Duree et jalons",
+        color: "indigo",
+        prompt: "",
+        uiMode: "delays",
+      },
+      {
+        id: "client_risks",
+        icon: "R",
+        title: "Points d'attention",
+        description: "Risques et precautions",
+        color: "red",
+        prompt: "",
+        uiMode: "risks",
+      },
+    ];
+
+    const sectionByActionId: Record<string, string> = {
+      client_devis: "mon-devis",
+      client_steps: "delais-types",
+      client_budget: "mon-budget",
+      client_terms: "lexique",
+      client_delays: "delais-types",
+      client_risks: "points-attention",
+    };
+
+    return actions.map(({ uiMode, ...a }) => ({
+      ...a,
+      disabled: assistantLoading,
+      onClick: () => {
+        const section = sectionByActionId[a.id] ?? "lexique";
+        openGuide(section);
+      },
+    }));
+  }, [assistantLoading, sendAssistantMessage, userRole]);
 
   const handleDeleteProject = async () => {
     if (!canManageProject || !projectId) return;
@@ -1058,6 +1844,31 @@ export default function ProjectDetailPage() {
     setSelectedQuoteId("");
     await loadProject();
     await loadAvailableQuotes();
+
+    // Extraction du total PDF en arrière-plan (le devis lié peut être un PDF sans montant)
+    const apiUrl = process.env.NEXT_PUBLIC_AI_API_URL;
+    if (apiUrl && user?.id) {
+      fetch(`${apiUrl}/project-refresh-budget`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: projectId, user_id: user.id }),
+      })
+        .then((res) => res.json())
+        .then((result: { devis?: Array<{ id: string; total: number | null }> }) => {
+          if (result.devis) {
+            setQuotes((prev) =>
+              prev.map((q) => {
+                const updated = result.devis!.find((d) => d.id === q.id);
+                if (updated && updated.total != null && q.totalTtc == null) {
+                  return { ...q, totalTtc: updated.total };
+                }
+                return q;
+              })
+            );
+          }
+        })
+        .catch(() => {/* silencieux */});
+    }
   };
 
   const handleUpdateQuoteWorkflow = async (quote: QuoteSummary, nextStatus: WorkflowStatus) => {
@@ -1124,7 +1935,7 @@ export default function ProjectDetailPage() {
   };
 
   const normalizeStoragePath = (bucket?: string, path?: string) => {
-    if (!bucket || !path) return path ?? null;
+    if (!bucket || !path) return path;
     return path.startsWith(`${bucket}/`) ? path.slice(bucket.length + 1) : path;
   };
 
@@ -1175,13 +1986,25 @@ export default function ProjectDetailPage() {
 
   const lateTasks = useMemo(() => tasks.filter((task) => isTaskLate(task)), [tasks]);
 
-  const totalBudget = useMemo(
+  const interventionsBudgetTotal = useMemo(
+    () => interventions.reduce((sum, i) => sum + (Number(i.budgetEstimated) || 0), 0),
+    [interventions]
+  );
+  const interventionsBudgetActual = useMemo(
+    () => interventions.reduce((sum, i) => sum + (Number(i.budgetActual) || 0), 0),
+    [interventions]
+  );
+  const quotesBudgetTotal = useMemo(
     () => quotes.reduce((sum, quote) => sum + (quote.totalTtc ?? 0), 0),
     [quotes]
   );
+  const totalBudget = useMemo(
+    () => interventionsBudgetTotal + quotesBudgetTotal,
+    [interventionsBudgetTotal, quotesBudgetTotal]
+  );
   const hasBudget = useMemo(
-    () => quotes.some((quote) => typeof quote.totalTtc === "number"),
-    [quotes]
+    () => interventionsBudgetTotal > 0 || quotes.some((quote) => typeof quote.totalTtc === "number"),
+    [interventionsBudgetTotal, quotes]
   );
   const quoteStatusSummary = useMemo(() => {
     if (!quotes.length) return null;
@@ -1228,32 +2051,60 @@ export default function ProjectDetailPage() {
     return Math.max(1, diffDays);
   }, [tasks]);
 
+  /** Interventions à venir (au niveau lot) */
+  const upcomingInterventions = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return interventions
+      .filter((lot) => {
+        const dateStr = lot.startDate ?? lot.endDate;
+        if (!dateStr) return false;
+        const d = new Date(`${dateStr}T00:00:00`);
+        d.setHours(0, 0, 0, 0);
+        return d >= today;
+      })
+      .map((lot) => ({
+        id: lot.id,
+        name: lot.name,
+        date: new Date(`${(lot.startDate ?? lot.endDate) ?? ""}T00:00:00`),
+        companyName: lot.companyName ?? null,
+        description: lot.description ?? null,
+        kind: "intervention" as const,
+      }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+  }, [interventions]);
+
+  /** Tâches à venir (niveau projet + interventions) */
   const upcomingTasks = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+
     return tasks
-      .filter((task) => task.start_date && !isTaskCompleted(task.status))
-      .map((task) => {
-        const parsed = splitTaskDescription(task.description);
-        const timeRange = parseTimeRange(parsed.time ?? null);
-        const baseDate = new Date(`${task.start_date}T00:00:00`);
-        if (timeRange) {
-          baseDate.setHours(timeRange.startHour, timeRange.startMinute, 0, 0);
-        } else {
-          baseDate.setHours(8, 0, 0, 0);
-        }
-        return {
-          id: task.id,
-          name: task.name,
-          date: baseDate,
-          timeLabel: timeRange?.label ?? null,
-          description: parsed.text ?? null,
-        };
+      .filter((task) => {
+        if (task.completed_at) return false;
+        const dateStr = task.start_date ?? task.end_date;
+        if (!dateStr) return false;
+        const d = new Date(`${dateStr}T00:00:00`);
+        d.setHours(0, 0, 0, 0);
+        return d >= today;
       })
-      .filter((item) => item.date >= today)
-      .sort((a, b) => a.date.getTime() - b.date.getTime())
-      .slice(0, 3);
+      .map((task) => ({
+        id: task.id,
+        name: task.name,
+        date: new Date(`${(task.start_date ?? task.end_date) ?? ""}T00:00:00`),
+        companyName: null as string | null,
+        description: task.description,
+        kind: "task" as const,
+      }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
   }, [tasks]);
+
+  /** Combinaison pour les prochains rendez-vous (tâches + interventions) */
+  const upcomingItems = useMemo(() => {
+    const combined = [...upcomingTasks, ...upcomingInterventions];
+    combined.sort((a, b) => a.date.getTime() - b.date.getTime());
+    return combined;
+  }, [upcomingTasks, upcomingInterventions]);
 
   const dayKeys = useMemo(() => weekDays.map((day) => toDateKey(day)), [weekDays]);
   const dayKeySet = useMemo(() => new Set(dayKeys), [dayKeys]);
@@ -1264,6 +2115,44 @@ export default function ProjectDetailPage() {
   );
   const todayKey = toDateKey(new Date());
   const projectStatusValue = normalizeProjectStatus(project?.status ?? null);
+
+  const statusCardColorClass = useMemo(() => {
+    switch (projectStatusValue) {
+      case "termine":
+        return {
+          leftBorderColor: "#10b981",
+          bg: "bg-emerald-50/60",
+          iconBg: "bg-gradient-to-br from-emerald-100 to-emerald-50",
+          iconColor: "text-emerald-700",
+          selectClass: "border-emerald-200 text-emerald-700 hover:border-emerald-300",
+        };
+      case "en_cours":
+        return {
+          leftBorderColor: "#38b6ff",
+          bg: "bg-sky-50/60",
+          iconBg: "bg-gradient-to-br from-sky-100 to-sky-50",
+          iconColor: "text-sky-600",
+          selectClass: "border-sky-200 text-sky-700 hover:border-sky-300",
+        };
+      case "en_attente":
+        return {
+          leftBorderColor: "#fbbf24",
+          bg: "bg-amber-50/60",
+          iconBg: "bg-gradient-to-br from-amber-100 to-amber-50",
+          iconColor: "text-amber-700",
+          selectClass: "border-amber-200 text-amber-700 hover:border-amber-300",
+        };
+      default: // draft / à faire
+        return {
+          leftBorderColor: "#94a3b8",
+          bg: "bg-slate-50/60",
+          iconBg: "bg-gradient-to-br from-slate-100 to-slate-50",
+          iconColor: "text-slate-500",
+          selectClass: "border-slate-200 text-slate-600 hover:border-slate-300",
+        };
+    }
+  }, [projectStatusValue]);
+
   const selectedTaskInfo = selectedTask ? splitTaskDescription(selectedTask.description) : { time: null, text: null };
 
   const taskSlots = useMemo(() => {
@@ -1366,8 +2255,8 @@ export default function ProjectDetailPage() {
   return (
     <div className="space-y-6">
       <header className="space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-4">
             <img
               src="/images/projet2.png"
               alt="Projet"
@@ -1375,18 +2264,30 @@ export default function ProjectDetailPage() {
             />
             <div>
               <h1 className="text-3xl font-bold text-gray-900">{project?.name ?? "Projet"}</h1>
-              <p className="text-gray-600">{project?.description ?? "Aucune description."}</p>
+              <p className="text-sm text-gray-600">
+                Projet {project?.status ? project.status.replace("_", " ") : ""}
+                {project?.updated_at && (
+                  <> · Mis à jour {formatDate(project.updated_at)}</>
+                )}
+              </p>
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="inline-flex items-center gap-2 whitespace-nowrap"
-            onClick={() => router.push(`/dashboard/projets?role=${role}`)}
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Retour
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => {
+              // TODO: export action
+            }}>
+              <FileText className="h-4 w-4" />
+              Exporter
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              className="bg-gradient-to-r from-primary-400 to-primary-600 shadow-md hover:shadow-lg hover:brightness-105"
+              onClick={() => setEditInfoModalOpen(true)}
+            >
+              Modifier le projet
+            </Button>
+          </div>
         </div>
         {currentMember?.status === "pending" && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 flex flex-wrap items-center gap-2">
@@ -1402,304 +2303,550 @@ export default function ProjectDetailPage() {
         {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
       </header>
 
-      <nav className="flex flex-wrap gap-2">
-        {tabItems.map((tab) => {
-          const isActive = activeTab === tab.key;
-          return (
-            <Button
-              key={tab.key}
-              variant={isActive ? "primary" : "outline"}
-              size="sm"
-              className="inline-flex items-center gap-2 whitespace-nowrap"
-              onClick={() => setActiveTab(tab.key)}
-            >
-              <img
-                src={tab.iconSrc}
-                alt={tab.label}
-                className={`w-4 h-4 object-contain ${isActive ? "brightness-0 invert" : "logo-blend"}`}
-              />
-              {tab.label}
-            </Button>
-          );
-        })}
+      <nav className="sticky top-3 z-30" aria-label="Navigation du projet">
+        <div className="flex flex-wrap gap-1 rounded-2xl border border-neutral-100 bg-neutral-100/60 p-1 backdrop-blur">
+          {tabItems.map((tab) => {
+            const isActive = activeTab === tab.key;
+            const isGuideOrAssistant = tab.key === "guide" || tab.key === "assistant";
+
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                aria-current={isActive ? "page" : undefined}
+                className={[
+                  "group inline-flex items-center gap-2 whitespace-nowrap",
+                  "rounded-xl px-3 py-2 text-sm font-medium",
+                  "transition duration-200 ease-out transform-gpu",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2",
+                  isActive
+                    ? "bg-white text-primary-600 shadow-sm"
+                    : "text-neutral-600 hover:bg-white/80 hover:text-neutral-900",
+                  !isActive ? "hover:-translate-y-[1px]" : "",
+                ].join(" ")}
+                onClick={() => {
+                  setActiveTab(tab.key);
+                  updateQuery({ tab: tab.key, section: null, q: null, term: null });
+                }}
+              >
+                <img
+                  src={tab.iconSrc}
+                  alt=""
+                  aria-hidden
+                  className="w-4 h-4 object-contain transition logo-blend group-hover:scale-[1.02]"
+                />
+                <span className="text-inherit">{tab.label}</span>
+                {isActive && isGuideOrAssistant ? (
+                  <span
+                    aria-hidden
+                    className="ml-1 inline-flex h-2 w-2 rounded-full bg-primary-200 shadow-[0_0_0_3px_rgba(24,0,173,0.18)]"
+                  />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
       </nav>
 
       {loading && <div className="text-sm text-gray-500">Chargement...</div>}
 
       {!loading && activeTab === "overview" && (
         <section className="space-y-6">
+          {/* ── Stats cards ── */}
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <Card className="border-l-4 border-l-emerald-200 bg-emerald-50/20">
-              <CardHeader className="border-b border-emerald-100 bg-emerald-50/60">
-                <div className="text-sm text-gray-600">Budget estimé</div>
-              </CardHeader>
-              <CardContent className="text-2xl font-semibold text-gray-900">
-                {hasBudget ? formatCurrency(totalBudget) : "-"}
-                <div className="text-xs text-gray-500 mt-1">
-                  {quotes.length} devis lié{quotes.length > 1 ? "s" : ""}
-                </div>
-                {quoteStatusSummary && (
-                  <div className="text-xs text-gray-500 mt-1">{quoteStatusSummary}</div>
+            {/* stat grid generation */}
+            {[
+              {
+                key: "budget",
+                label: "Budget estimé",
+                value: hasBudget ? formatCurrency(totalBudget) : "—",
+                extra: interventionsBudgetActual > 0 ? (
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Dépensé : {formatCurrency(interventionsBudgetActual)}
+                  </p>
+                ) : null,
+                cta: interventions.length > 0 && (
+                  <button
+                    className="mt-2 inline-flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
+                    onClick={() => {
+                      setActiveTab("budget");
+                      updateQuery({ tab: "budget" });
+                    }}
+                  >
+                    Voir budget →
+                  </button>
+                ),
+                colorClass: {
+                  leftBorderColor: "#10b981",
+                  bg: "bg-emerald-50/60",
+                  iconBg: "bg-gradient-to-br from-emerald-100 to-emerald-50",
+                  iconColor: "text-emerald-700",
+                },
+                icon: Euro,
+              },
+              {
+                key: "progress",
+                label: "Avancement",
+                value: `${progressPercent}%`,
+                extra: (
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Sur {totalTasks} tâche{totalTasks !== 1 ? "s" : ""}
+                  </p>
+                ),
+                colorClass: {
+                  leftBorderColor: "#38b6ff",
+                  bg: "bg-sky-50/60",
+                  iconBg: "bg-gradient-to-br from-primary-100 to-primary-50",
+                  iconColor: "text-primary-600",
+                },
+                icon: TrendingUp,
+              },
+              {
+                key: "status",
+                label: "Statut projet",
+                value:
+                  PROJECT_STATUS_OPTIONS.find((o) => o.value === projectStatusValue)?.label || "—",
+                extra: (
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Mis à jour : {project?.updated_at ? formatDate(project.updated_at) : "—"}
+                  </p>
+                ),
+                cta: canManageProject ? (
+                  <select
+                    className={cn("mt-2 text-xs rounded-lg border bg-white px-2 py-1 cursor-pointer transition-colors", statusCardColorClass.selectClass)}
+                    value={projectStatusValue}
+                    onChange={(e) => void handleUpdateProjectStatus(e.target.value as ProjectStatusValue)}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {PROJECT_STATUS_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                ) : null,
+                colorClass: statusCardColorClass,
+                icon: CheckCircle2,
+              },
+              {
+                key: "participants",
+                label: "Participants",
+                value: String(members.length),
+                extra: <p className="text-xs text-neutral-500 mt-1">{members.filter((m) => formatMemberStatus(m.status).label === "Actif").length} actifs</p>,
+                colorClass: {
+                  leftBorderColor: "#1800ad",
+                  bg: "bg-violet-50/60",
+                  iconBg: "bg-gradient-to-br from-violet-100 to-violet-50",
+                  iconColor: "text-violet-700",
+                },
+                icon: Users,
+              },
+            ].map((stat) => (
+              <div
+                key={stat.key}
+                className={cn(
+                  "relative rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow border border-neutral-100",
+                  stat.colorClass.bg
                 )}
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-blue-200 bg-blue-50/20">
-              <CardHeader className="border-b border-blue-100 bg-blue-50/60">
-                <div className="text-sm text-gray-600">Avancement</div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-semibold text-gray-900">{progressPercent}%</div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {completedTasks}/{totalTasks} tâches terminées
-                </div>
-                {lateTasks.length > 0 && (
-                  <div className="text-xs font-semibold text-red-600 mt-1">
-                    {lateTasks.length} tâche{lateTasks.length > 1 ? "s" : ""} en retard
+                style={{ borderLeft: `3px solid ${stat.colorClass.leftBorderColor}` }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-neutral-500">{stat.label}</p>
+                    <p className="mt-1 text-3xl font-bold text-neutral-900">
+                      {stat.value}
+                    </p>
+                    {stat.extra}
+                    {stat.cta}
                   </div>
-                )}
-                <div className="mt-3 h-2 rounded-full bg-gray-100">
                   <div
-                    className="h-2 rounded-full bg-primary-600"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-amber-200 bg-amber-50/20">
-              <CardHeader className="border-b border-amber-100 bg-amber-50/60">
-                <div className="text-sm text-gray-600">Statut</div>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <select
-                  className="w-full rounded-lg border border-amber-200 bg-white px-2 py-1 text-sm"
-                  value={projectStatusValue}
-                  disabled={statusUpdating || !canManageProject}
-                  onChange={(event) =>
-                    handleUpdateProjectStatus(event.target.value as ProjectStatusValue)
-                  }
-                >
-                  {PROJECT_STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <div className="text-xs text-gray-500">
-                  Dernière maj : {project?.updated_at ? formatDate(project.updated_at) : "-"}
-                </div>
-                {projectStatusValue !== "termine" && canManageProject && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleUpdateProjectStatus("termine")}
-                    disabled={statusUpdating || !canManageProject}
+                    className={cn(
+                      "h-12 w-12 rounded-xl flex items-center justify-center flex-shrink-0",
+                      stat.colorClass.iconBg
+                    )}
                   >
-                    Cloturer le projet
-                  </Button>
-                )}
-                {projectStatusValue === "termine" && canManageProject && (
-                  <Button variant="outline" size="sm" onClick={openPublishModal}>
-                    Publier sur le profil
-                  </Button>
-                )}
-                {canManageProject && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-red-200 text-red-600"
-                    onClick={handleDeleteProject}
-                  >
-                    Supprimer le projet
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-violet-200 bg-violet-50/20">
-              <CardHeader className="border-b border-violet-100 bg-violet-50/60">
-                <div className="text-sm text-gray-600">Participants</div>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <div className="text-2xl font-semibold text-gray-900">{members.length}</div>
-                <div className="text-xs text-gray-500">Membres invites et actifs</div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Card className="lg:col-span-2 border-l-4 border-l-primary-200">
-              <CardHeader className="border-b border-primary-100 bg-primary-50/40">
-                <div className="font-semibold text-gray-900">Prochains rendez-vous</div>
-                <div className="text-sm text-gray-500">Tâches à venir.</div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {upcomingTasks.length === 0 && (
-                  <div className="text-sm text-gray-500">Aucun rendez-vous planifie.</div>
-                )}
-                {upcomingTasks.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3"
-                  >
-                    <div>
-                      <div className="font-semibold text-gray-900">{item.name}</div>
-                      <div className="text-xs text-gray-500 hidden">
-                        {formatDate(item.date)} {item.timeLabel ? `â€¢ ${item.timeLabel}` : ""}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {formatDate(item.date)} {item.timeLabel ? `à ${item.timeLabel}` : ""}
-                      </div>
-                      {item.description && (
-                        <div className="text-xs text-gray-500 mt-1">{item.description}</div>
-                      )}
-                    </div>
-                    <Button variant="outline" size="sm" onClick={() => setActiveTab("planning")}>
-                      Voir planning
-                    </Button>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-
-            <Card className="border-l-4 border-l-slate-200 bg-slate-50/30">
-              <CardHeader className="border-b border-slate-100 bg-slate-50/60">
-                <div className="font-semibold text-gray-900">Informations</div>
-                <div className="text-sm text-gray-500">Résumé du chantier.</div>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-gray-700">
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-gray-400">Type</div>
-                  <div>{project?.project_type || "Non défini"}</div>
-                </div>
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-gray-400">Localisation</div>
-                  <div>
-                    {project?.address || "-"} {project?.city || ""}
+                    <stat.icon className={cn("h-6 w-6", stat.colorClass.iconColor)} />
                   </div>
                 </div>
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-gray-400">Description</div>
-                  <div>{project?.description || "Aucune description."}</div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <div className="font-semibold text-gray-900">Suivi des tâches</div>
-              <div className="text-sm text-gray-500">
-                Mettez à jour l'état des tâches pour suivre l'avancement.
+                {stat.key === "progress" && (
+                  <div className="mt-3 h-1.5 rounded-full bg-neutral-100 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-primary-400 to-primary-600 transition-all progress-fill"
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
+                )}
               </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {tasks.length === 0 && (
-                <div className="text-sm text-gray-500">Aucune tâche pour le moment.</div>
-              )}
-              {tasks.map((task) => {
-                const statusValue = normalizeTaskStatus(task.status);
-                const dueDate = getTaskDueDate(task);
-                const delayLabel = getTaskDelayLabel(task);
-                return (
-                  <div
-                    key={task.id}
-                    className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 ${getTaskCardStyle(
-                      task
-                    )}`}
-                  >
-                    <div>
-                      <div className="font-semibold text-gray-900">{task.name}</div>
-                      <div className="text-xs text-gray-500">
-                        {dueDate ? `Échéance: ${formatDate(dueDate)}` : "Sans date définie"}
-                      </div>
-                      {delayLabel && (
-                        <div className="text-xs font-semibold text-red-600 mt-1">{delayLabel}</div>
-                      )}
+            ))}
+
+          </div>
+
+          {/* ── Main 2-column layout ── */}
+          <div className="grid gap-6 lg:grid-cols-3">
+            {/* Left column (2/3) */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* Informations */}
+              <div className="rounded-xl border border-neutral-100 bg-white shadow-sm overflow-hidden card-hover">
+                <div className="px-5 py-4 flex items-center justify-between">
+                  <h3 className="font-semibold text-neutral-900">Informations</h3>
+                  {canManageProject && (
+                    <button
+                      onClick={openEditInfoModal}
+                      className="h-8 w-8 rounded-lg bg-neutral-100 hover:bg-primary-50 flex items-center justify-center transition-colors"
+                      title="Modifier les informations"
+                    >
+                      <Pencil className="h-4 w-4 text-neutral-500 hover:text-primary-600" />
+                    </button>
+                  )}
+                </div>
+                <div className="px-5 pb-5 grid sm:grid-cols-2 gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-lg bg-primary-100 flex-shrink-0">
+                      <Wrench className="h-4 w-4 text-primary-600" />
                     </div>
-                    <div className="flex items-center gap-2">
-                      <select
-                        className="rounded-lg border border-gray-300 px-2 py-1 text-sm"
-                        value={statusValue}
-                        disabled={!canEditTasks}
-                        onChange={(event) =>
-                          handleUpdateTaskStatus(task, event.target.value as TaskStatusValue)
-                        }
-                      >
-                        {TASK_STATUS_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      {delayLabel && !isTaskCompleted(task.status) && (
-                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
-                          Retard
-                        </span>
-                      )}
+                    <div>
+                      <p className="text-xs text-neutral-500">Type de travaux</p>
+                      <p className="text-sm font-medium text-neutral-900 mt-0.5">{project?.project_type || "Non défini"}</p>
                     </div>
                   </div>
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-lg bg-primary-100 flex-shrink-0">
+                      <MapPin className="h-4 w-4 text-primary-600" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-neutral-500">Localisation</p>
+                      <p className="text-sm font-medium text-neutral-900 mt-0.5">
+                        {[project?.address, project?.city].filter(Boolean).join(", ") || "—"}
+                      </p>
+                    </div>
+                  </div>
+                  {project?.description && (
+                    <div className="sm:col-span-2 flex items-start gap-3">
+                      <div className="p-2 rounded-lg bg-primary-100 flex-shrink-0">
+                        <FileText className="h-4 w-4 text-primary-600" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-neutral-500">Description</p>
+                        <p className="text-sm font-medium text-neutral-900 mt-0.5 leading-relaxed">{project.description}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Suivi des interventions */}
+              <div className="rounded-xl border border-neutral-100 bg-white shadow-sm overflow-hidden card-hover">
+                <div className="px-5 py-4 flex items-center justify-between">
+                  <h3 className="font-semibold text-neutral-900">Suivi des tâches</h3>
+                  {interventions.length > 0 && (
+                    <button
+                      className="text-xs text-primary-600 hover:underline"
+                      onClick={() => { setActiveTab("interventions"); updateQuery({ tab: "interventions" }); }}
+                    >
+                      Voir tout →
+                    </button>
+                  )}
+                </div>
+                <div className="p-3 space-y-2">
+                  {interventionsLoading ? (
+                    <div className="px-4 py-6 text-sm text-neutral-500">Chargement...</div>
+                  ) : interventions.length === 0 ? (
+                    <div className="px-4 py-8 text-sm text-neutral-500 text-center">
+                      Aucune intervention pour le moment.
+                      {canManageProject && (
+                        <div className="mt-2">
+                          <Button size="sm" onClick={() => { setFormError(null); setInterventionModalOpen(true); }}>
+                            + Nouvelle intervention
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    interventions.map((intervention) => {
+                      const isDone = intervention.status === "termine" || intervention.status === "valide";
+                      const isInProgress = intervention.status === "en_cours";
+                      const isDevis = intervention.status === "devis_en_cours" || intervention.status === "devis_valide";
+                      const statusLabel = isDone ? "Terminé"
+                        : isInProgress ? "En cours"
+                        : isDevis ? "Devis"
+                        : "Planifié";
+                      const statusColor = isDone
+                        ? "bg-success-50 text-success-700"
+                        : isInProgress
+                        ? "bg-primary-50 text-primary-700"
+                        : isDevis
+                        ? "bg-amber-50 text-amber-700"
+                        : "bg-neutral-100 text-neutral-600";
+                      const dotColor = isDone
+                        ? "bg-success-500"
+                        : isInProgress
+                        ? "bg-primary-500"
+                        : isDevis
+                        ? "bg-amber-500"
+                        : "bg-neutral-400";
+                      const barGradient = isDone
+                        ? "bg-gradient-to-r from-success-500 to-success-700"
+                        : isInProgress
+                        ? "bg-gradient-to-r from-primary-400 to-primary-600"
+                        : isDevis
+                        ? "bg-gradient-to-r from-amber-400 to-amber-600"
+                        : "bg-neutral-300";
+                      return (
+                        <div
+                          key={intervention.id}
+                          className="px-4 py-4 rounded-xl cursor-pointer bg-white border border-neutral-100 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
+                          onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${intervention.id}?role=${role}`)}
+                        >
+                          <div className="flex items-center justify-between gap-3 mb-2">
+                            <span className="font-medium text-neutral-900 truncate">{intervention.name}</span>
+                            <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium flex-shrink-0", statusColor)}>
+                              <span className={cn("h-1.5 w-1.5 rounded-full flex-shrink-0", dotColor)} />
+                              {statusLabel}
+                            </span>
+                          </div>
+                          <div className="h-2 rounded-full bg-neutral-100 overflow-hidden">
+                            <div className={cn("h-full rounded-full transition-all progress-fill", barGradient)} style={{ width: `${intervention.progressPercentage}%` }} />
+                          </div>
+                          <div className="flex items-center justify-between mt-1.5">
+                            <span className="text-xs text-neutral-400">
+                              {intervention.tasksDone}/{intervention.tasksTotal} tâches
+                              {intervention.companyName ? ` · ${intervention.companyName}` : ""}
+                            </span>
+                            <span className="text-xs font-medium text-neutral-500">{intervention.progressPercentage}%</span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Right column (1/3) */}
+            <div className="space-y-6">
+              {/* Prochains rendez-vous */}
+              <div className="rounded-xl border border-neutral-100 bg-white shadow-sm overflow-hidden card-hover">
+                <div className="px-5 py-4 flex items-center justify-between">
+                  <h3 className="font-semibold text-neutral-900">Prochains rendez-vous</h3>
+                  {upcomingItems.length > 0 && (
+                    <button className="text-xs text-primary-600 hover:underline" onClick={() => setRendezVousModalOpen(true)}>
+                      Voir tout
+                    </button>
+                  )}
+                </div>
+                <div className="p-3 space-y-2">
+                  {upcomingItems.length === 0 ? (
+                    <div className="px-4 py-6 text-sm text-neutral-500 text-center">Aucun rendez-vous à venir.</div>
+                  ) : (
+                    upcomingItems.slice(0, 3).map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-start gap-3 p-3 rounded-lg bg-neutral-50/80 hover:bg-neutral-100/60 cursor-pointer transition-colors"
+                        onClick={() => {
+                          if (item.kind === "intervention") {
+                            router.push(`/dashboard/projets/${projectId}/interventions/${item.id}?role=${role}`);
+                          } else {
+                            updateQuery({ tab: "planning" });
+                          }
+                        }}
+                      >
+                        <div className="p-2 rounded-lg bg-primary-100 flex-shrink-0">
+                          <Calendar className="h-4 w-4 text-primary-600" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-neutral-900 truncate">{item.name}</p>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Clock className="h-3 w-3 text-neutral-400 flex-shrink-0" />
+                            <span className="text-xs text-neutral-500">
+                              {formatDate(item.date.toISOString().slice(0, 10))}
+                              {item.companyName ? ` · ${item.companyName}` : ""}
+                            </span>
+                          </div>
+                        </div>
+                        <Badge variant="info" className="text-[10px] flex-shrink-0 gap-1">
+                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-500" />
+                          {item.kind === "intervention" ? "Intervention" : "Tâche"}
+                        </Badge>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Membres */}
+              <div className="rounded-xl border border-neutral-100 bg-white shadow-sm overflow-hidden card-hover">
+                <div className="px-5 py-4 flex items-center justify-between">
+                  <h3 className="font-semibold text-neutral-900">Membres</h3>
+                  <span className="text-xs text-neutral-400">{members.length}</span>
+                </div>
+                <div className="divide-y divide-neutral-100">
+                  {members.length === 0 ? (
+                    <div className="px-5 py-6 text-sm text-neutral-500 text-center">Aucun membre.</div>
+                  ) : (
+                    members.slice(0, 5).map((member) => {
+                      const roleInfo = formatMemberRole(member.role);
+                      const name = member.user?.full_name || member.user?.email || member.invited_email || "Invité";
+                      return (
+                        <div key={member.id} className="flex items-center gap-3 px-5 py-3">
+                          <div className="h-8 w-8 rounded-full bg-primary-50 flex items-center justify-center flex-shrink-0">
+                            <span className="text-xs font-semibold text-primary-500">{name.charAt(0).toUpperCase()}</span>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-neutral-900 truncate">{name}</p>
+                            <p className="text-xs text-neutral-500">{roleInfo.label}</p>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {!loading && activeTab === "interventions" && (
+        <section className="space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Interventions ({interventions.length})</h2>
+              <p className="text-sm text-gray-500">Sous-traitants ou équipe interne — chaque intervention génère des tâches sur le chantier.</p>
+            </div>
+            {canManageProject && (
+              <Button size="sm" onClick={() => { setFormError(null); setInterventionModalOpen(true); }}>
+                + Nouvelle intervention
+              </Button>
+            )}
+          </div>
+
+          {interventionsLoading ? (
+            <div className="text-sm text-gray-500">Chargement des interventions...</div>
+          ) : interventions.length === 0 ? (
+            <Card>
+              <CardContent className="p-6 text-center">
+                <div className="text-sm text-gray-600 mb-3">
+                  Aucune intervention pour le moment.
+                </div>
+                {canManageProject && (
+                  <Button size="sm" onClick={() => { setFormError(null); setInterventionModalOpen(true); }}>
+                    + Creer une intervention
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
+              {interventions.map((intervention) => {
+                const lotStatus = intervention.status === "en_cours" ? "en_cours" : intervention.status === "termine" || intervention.status === "valide" ? "termine" : intervention.status === "devis_en_cours" || intervention.status === "devis_valide" ? intervention.status : "planifie";
+                return (
+                  <Card
+                    key={intervention.id}
+                    className="cursor-pointer hover:shadow-lg hover:border-primary-200 transition-all duration-200"
+                    onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${intervention.id}?role=${role}`)}
+                  >
+                    <CardHeader className="pb-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-gray-900 truncate">{intervention.name}</div>
+                          {intervention.description && (
+                            <div className="text-sm text-gray-500 mt-0.5 line-clamp-2">{intervention.description}</div>
+                          )}
+                        </div>
+                        <Badge type="lot" status={lotStatus} size="sm" className="shrink-0">
+                          {intervention.status === "en_cours" ? "En cours" : intervention.status === "termine" || intervention.status === "valide" ? "Terminé" : intervention.status?.replace(/_/g, " ") ?? "Planifié"}
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="text-sm text-gray-700 pt-0">
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                        <div>
+                          <div className="text-xs uppercase tracking-wide text-gray-400">Tâches</div>
+                          <div className="font-medium">{intervention.tasksDone}/{intervention.tasksTotal}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs uppercase tracking-wide text-gray-400">Budget</div>
+                          <div className="font-medium">{formatCurrency(intervention.budgetEstimated)}</div>
+                        </div>
+                        <div className="col-span-2">
+                          <div className="text-xs uppercase tracking-wide text-gray-400">Période</div>
+                          <div>
+                            {intervention.startDate ? formatDate(intervention.startDate) : "-"} → {intervention.endDate ? formatDate(intervention.endDate) : "-"}
+                          </div>
+                        </div>
+                        {intervention.companyName && (
+                          <div className="col-span-2">
+                            <div className="text-xs uppercase tracking-wide text-gray-400">Entreprise / responsable</div>
+                            <div>{intervention.companyName}</div>
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-3">
+                        <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                          <span>Avancement</span>
+                          <span className="font-semibold text-gray-700">{intervention.progressPercentage}%</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                          <div className="h-full rounded-full bg-primary-600 transition-all" style={{ width: `${intervention.progressPercentage}%` }} />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
                 );
               })}
-            </CardContent>
-          </Card>
+            </div>
+          )}
+        </section>
+      )}
+
+      {!loading && activeTab === "budget" && (
+        <section>
+          <ProjectBudgetPanel
+            projectId={projectId}
+            projectName={project?.name ?? null}
+            interventions={interventions}
+            role={role}
+          />
         </section>
       )}
 
       {!loading && activeTab === "chat" && (
         <section className="grid gap-6 lg:grid-cols-[2fr_1fr] items-start">
-          <Card>
-            <CardHeader>
-              <div className="font-semibold text-gray-900">Discussion projet</div>
-              <div className="text-sm text-gray-500">Échange avec les participants.</div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {!canInviteMembers && (
-                <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
-                  Seuls les professionnels peuvent inviter des membres.
-                </div>
-              )}
-              <div className="space-y-3 max-h-[420px] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4">
-                {messages.length === 0 && (
-                  <div className="text-sm text-gray-500">Aucun message pour le moment.</div>
-                )}
-                {messages.map((msg) => (
-                  <div key={msg.id} className="rounded-lg border border-gray-200 p-3">
-                    <div className="text-xs text-gray-500">
-                      {msg.sender?.full_name || msg.sender?.email || "Utilisateur"} -{" "}
-                      {new Date(msg.created_at).toLocaleString("fr-FR")}
-                    </div>
-                    <div className="text-sm text-gray-800">{msg.message}</div>
-                  </div>
-                ))}
+          <div className="space-y-3">
+            {!canInviteMembers && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                Seuls les professionnels peuvent inviter des membres.
               </div>
-              <div className="flex gap-2">
-                <Input
-                  value={messageInput}
-                  onChange={(event) => setMessageInput(event.target.value)}
-                  placeholder="Écrire un message..."
-                />
-                <Button onClick={handleSendMessage} disabled={!messageInput.trim()}>
-                  Envoyer
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+            )}
+            <ChatBox context={{ projectId }} title="Discussion projet" />
+          </div>
 
           <Card>
             <CardHeader>
               <div className="font-semibold text-gray-900">Participants</div>
               <div className="text-sm text-gray-500">Membres du projet</div>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {members.map((member) => (
-                <div key={member.id} className="text-sm text-gray-700">
-                  <div className="font-medium">
-                    {member.user?.full_name || member.user?.email || member.invited_email || "Invité"}
+            <CardContent className="space-y-2">
+              {members.map((member) => {
+                const roleInfo = formatMemberRole(member.role);
+                const statusInfo = formatMemberStatus(member.status);
+                return (
+                  <div key={member.id} className="flex items-center gap-2 text-sm">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-100 text-xs font-semibold text-primary-700">
+                      {(member.user?.full_name || member.user?.email || "?").charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-gray-900 truncate">
+                        {member.user?.full_name || member.user?.email || member.invited_email || "Invité"}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${roleInfo.color}`}>
+                          {roleInfo.label}
+                        </span>
+                        <span className={`text-[10px] ${statusInfo.color}`}>{statusInfo.label}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500">
-                    {formatMemberRole(member.role)} - {formatMemberStatus(member.status)}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </CardContent>
           </Card>
         </section>
@@ -1713,6 +2860,7 @@ export default function ProjectDetailPage() {
               <div className="text-sm text-gray-500">Documents liés au chantier.</div>
             </CardHeader>
             <CardContent className="space-y-3">
+              <DocumentsList context={{ projectId }} title="Documents (projet)" showUpload={canManageProject} />
               {quotes.length === 0 && (
                 <div className="text-sm text-gray-500">Aucun devis lié au projet.</div>
               )}
@@ -1842,6 +2990,16 @@ export default function ProjectDetailPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {canEditPlanning && (
+                    <Button
+                      size="sm"
+                      className="inline-flex items-center gap-2"
+                      onClick={() => openTaskModal(new Date())}
+                    >
+                      <Plus className="w-4 h-4" />
+                      Ajouter un événement
+                    </Button>
+                  )}
                   <Button variant="outline" size="sm" onClick={() => setWeekStart(addDays(weekStart, -7))}>
                     Semaine précédente
                   </Button>
@@ -1853,9 +3011,11 @@ export default function ProjectDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
-                <div className="min-w-[980px] rounded-lg border border-gray-200">
-                  <div className="grid grid-cols-[80px_repeat(7,minmax(0,1fr))] border-b border-gray-200">
-                    <div className="bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-500">Heure</div>
+                <div className="min-w-[1120px] rounded-lg border border-gray-200 bg-white">
+                  <div className="grid grid-cols-[80px_repeat(7,minmax(140px,1fr))] border-b border-gray-200">
+                    <div className="sticky left-0 z-30 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-500">
+                      Heure
+                    </div>
                     {weekDays.map((day) => {
                       const dayKey = toDateKey(day);
                       const isToday = dayKey === todayKey;
@@ -1879,8 +3039,8 @@ export default function ProjectDetailPage() {
                     })}
                   </div>
 
-                  <div className="grid grid-cols-[80px_repeat(7,minmax(0,1fr))] border-b border-gray-200">
-                    <div className="bg-gray-50 px-3 py-3 text-[11px] font-medium text-gray-500">
+                  <div className="grid grid-cols-[80px_repeat(7,minmax(140px,1fr))] border-b border-gray-200">
+                    <div className="sticky left-0 z-20 bg-gray-50 px-3 py-3 text-[11px] font-medium text-gray-500">
                       Toute la journée
                     </div>
                     {weekDays.map((day) => {
@@ -1910,17 +3070,22 @@ export default function ProjectDetailPage() {
                                 return (
                                   <div
                                     key={task.id}
+                                    data-task-id={task.id}
                                     onClick={(event) => event.stopPropagation()}
-                                    className={`rounded-md border-l-4 border px-2 py-1 text-[11px] shadow-sm ${colorClass}`}
+                                    className={cn(
+                                      "min-w-0 overflow-hidden break-words transition-shadow",
+                                      "rounded-md border-l-4 border px-2 py-1 text-[11px] shadow-sm",
+                                      colorClass
+                                    )}
                                   >
-                                    <div className="font-semibold">{task.name}</div>
+                                    <div className="font-medium text-gray-900">{task.name}</div>
                                     {parsed.time && (
                                       <div className="text-[10px] font-medium text-gray-700">
                                         {parsed.time}
                                       </div>
                                     )}
                                     {parsed.text && (
-                                      <div className="text-[10px] text-gray-600">{parsed.text}</div>
+                                      <div className="text-[10px] text-gray-600 break-words">{parsed.text}</div>
                                     )}
                                   </div>
                                 );
@@ -1932,8 +3097,8 @@ export default function ProjectDetailPage() {
                     })}
                   </div>
 
-                  <div className="grid grid-cols-[80px_repeat(7,minmax(0,1fr))] border-t border-gray-200">
-                    <div className="bg-gray-50 border-r border-gray-200">
+                  <div className="grid grid-cols-[80px_repeat(7,minmax(140px,1fr))] border-t border-gray-200">
+                    <div className="sticky left-0 z-20 bg-gray-50 border-r border-gray-200">
                       {timeSlots.map((hour) => (
                         <div
                           key={hour}
@@ -1987,12 +3152,17 @@ export default function ProjectDetailPage() {
                                     openTaskDetails(block.task);
                                   }
                                 }}
-                                className={`absolute left-2 right-2 rounded-md border-l-4 border px-3 py-2 text-[11px] shadow-sm overflow-hidden ${block.colorClass}`}
+                                className={cn(
+                                  "absolute left-2 right-2 rounded-md border-l-4 border px-3 py-2 text-[11px]",
+                                  "shadow-sm overflow-hidden break-words transition-shadow",
+                                  block.colorClass
+                                )}
                                 style={{ top: `${block.top}px`, height: `${block.height}px` }}
+                                data-task-id={block.task.id}
                               >
                                 <div className="flex items-center justify-between gap-2">
                                   <span
-                                    className="font-semibold leading-tight"
+                                    className="min-w-0 font-medium leading-tight"
                                     style={{
                                       display: "-webkit-box",
                                       WebkitLineClamp: 2,
@@ -2010,7 +3180,7 @@ export default function ProjectDetailPage() {
                                 </div>
                                 {block.description && (
                                   <div
-                                    className="text-[10px] text-gray-600 mt-1"
+                                    className="text-[10px] text-gray-600 mt-1 break-words"
                                     style={{
                                       display: "-webkit-box",
                                       WebkitLineClamp: 3,
@@ -2040,39 +3210,56 @@ export default function ProjectDetailPage() {
           <Card>
             <CardHeader>
               <div className="font-semibold text-gray-900">Membres du projet</div>
-              <div className="text-sm text-gray-500">Clients et collaborateurs.</div>
+              <div className="text-sm text-gray-500">Gestion des accès et permissions.</div>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {members.map((member) => (
-                <div key={member.id} className="rounded-lg border border-gray-200 p-4">
-                  <div className="font-semibold text-gray-900">
-                    {member.user?.full_name || member.user?.email || member.invited_email || "Invité"}
+            <CardContent className="space-y-2">
+              {members.map((member) => {
+                const roleInfo = formatMemberRole(member.role);
+                const statusInfo = formatMemberStatus(member.status);
+                return (
+                  <div key={member.id} className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary-700">
+                      {(member.user?.full_name || member.user?.email || "?").charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-gray-900 truncate">
+                        {member.user?.full_name || member.user?.email || member.invited_email || "Invité"}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${roleInfo.color}`}>
+                          {roleInfo.label}
+                        </span>
+                        <span className={`text-xs ${statusInfo.color}`}>{statusInfo.label}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500">
-                    {formatMemberRole(member.role)} - {formatMemberStatus(member.status)}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
               <div className="font-semibold text-gray-900">Inviter un membre</div>
-              <div className="text-sm text-gray-500">Ajoute un client ou collaborateur.</div>
+              <div className="text-sm text-gray-500">Ajoutez un collaborateur ou un client au projet.</div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <label className="text-sm font-medium">Role</label>
                 <select
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                   value={inviteRole}
                   disabled={!canInviteMembers}
                   onChange={(event) => setInvitéRole(event.target.value)}
                 >
-                  <option value="client">Client</option>
-                  <option value="collaborator">Collaborateur</option>
+                  <option value="collaborator">Collaborateur (peut modifier)</option>
+                  <option value="client">Client (lecture seule)</option>
                 </select>
+                <p className="text-xs text-gray-400">
+                  {inviteRole === "client"
+                    ? "Le client pourra consulter le projet sans le modifier."
+                    : "Le collaborateur pourra modifier le projet et les interventions."}
+                </p>
               </div>
 
               <form className="space-y-2" onSubmit={handleInvitéByEmail}>
@@ -2080,7 +3267,7 @@ export default function ProjectDetailPage() {
                 <Input
                   value={inviteEmail}
                   onChange={(event) => setInvitéEmail(event.target.value)}
-                  placeholder="client@email.com"
+                  placeholder="email@exemple.com"
                   type="email"
                   disabled={!canInviteMembers}
                 />
@@ -2092,19 +3279,38 @@ export default function ProjectDetailPage() {
           </Card>
         </section>
       )}
+      {!loading && activeTab === "guide" && (
+        <section className="space-y-6">
+          <ProjectGuidePanel
+            section={guideSectionParam}
+            query={guideQueryParam}
+            term={guideTermParam}
+            onOpenGuide={openGuide}
+            onOpenAssistant={openAssistantTab}
+            totalBudget={totalBudget}
+            hasBudget={hasBudget}
+            quotes={quotes}
+            projectType={project?.project_type ?? null}
+          />
+        </section>
+      )}
       {!loading && activeTab === "assistant" && (
-        <section className="grid gap-6 lg:grid-cols-[2fr_1fr] items-start">
+        <section ref={assistantSectionRef} className="grid gap-6">
           <div className="space-y-6">
-            <Card className="min-h-[420px]">
-              <CardHeader>
-                <div className="font-semibold text-gray-900">Assistant IA du projet</div>
-                <div className="text-sm text-gray-500">
-                  {userRole === "professionnel"
-                    ? "Analyse le devis et propose un planning personnalisé."
-                    : "Explique les étapes du projet et aide à comprendre le devis."}
+            <Card className="min-h-[520px] h-[calc(100vh-280px)] flex flex-col">
+              <CardContent className="flex flex-col gap-4 flex-1 min-h-0">
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-neutral-900">Actions rapides</div>
+                      <div className="text-xs text-neutral-500">
+                        Ouvrez le menu pour choisir une action (cartes, timeline, budget…).
+                      </div>
+                    </div>
+                    <ActionMenu actions={assistantActionButtons} disabled={assistantLoading} />
+                  </div>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
+
                 {assistantError && (
                   <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                     {assistantError}
@@ -2120,7 +3326,10 @@ export default function ProjectDetailPage() {
                     Vous pouvez poser vos questions, mais la modification du planning est réservée aux professionnels.
                   </div>
                 )}
-                <div className="space-y-3 max-h-[360px] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4">
+                <div
+                  ref={assistantMessagesContainerRef}
+                  className="flex-1 min-h-0 space-y-3 overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 sm:p-6"
+                >
                   {assistantMessages.map((msg, index) => (
                     <div
                       key={`${msg.timestamp}-${index}`}
@@ -2138,17 +3347,52 @@ export default function ProjectDetailPage() {
                       <div
                         className={`max-w-[80%] rounded-lg px-4 py-2 text-sm ${
                           msg.role === "user"
-                            ? "bg-primary-600 text-white shadow-sm"
+                            ? "bg-primary-400 text-white shadow-sm [&_*]:text-white"
                             : "bg-neutral-100 text-neutral-900 border border-neutral-200 shadow-sm"
                         }`}
                       >
-                        <p className={`whitespace-pre-wrap ${msg.role === "user" ? "text-white" : "text-neutral-900"}`}>
-                          {msg.content}
-                        </p>
+                        {msg.role === "user" && msg.attachedFileName && (
+                          <div className="flex items-center gap-1.5 mb-1.5 text-xs text-primary-100 opacity-90">
+                            <Paperclip className="w-3 h-3" />
+                            <span className="truncate max-w-[160px]">{msg.attachedFileName}</span>
+                          </div>
+                        )}
+                        <ChatMessageMarkdown content={msg.content} />
+                        {msg.role === "assistant" && msg.suggestions && msg.suggestions.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-neutral-200">
+                            {msg.suggestions.map((q, i) => (
+                              <button
+                                key={i}
+                                onClick={() => sendAssistantMessage(q)}
+                                disabled={assistantLoading}
+                                type="button"
+                                className="text-xs px-3 py-1.5 rounded-full border border-primary-300 text-primary-500 bg-white hover:bg-primary-50 hover:border-primary-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {q}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {msg.role === "assistant" && msg.quickActions && msg.quickActions.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-neutral-200">
+                            {msg.quickActions.map((action) => (
+                              <button
+                                key={action.id}
+                                onClick={() => sendAssistantMessage(action.prompt)}
+                                disabled={assistantLoading}
+                                type="button"
+                                className="text-xs px-3 py-1.5 rounded-full border border-primary-400 text-primary-600 bg-primary-50 hover:bg-primary-100 hover:border-primary-500 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {action.icon && <span className="mr-1">{action.icon}</span>}
+                                {action.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
-                  {assistantLoading && (
+                  {assistantLoading && !assistantStreamingContent && (
                     <div className="flex gap-3 justify-start">
                       <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
                         <img
@@ -2166,8 +3410,64 @@ export default function ProjectDetailPage() {
                       </div>
                     </div>
                   )}
+                  {assistantStreamingContent && (
+                    <div className="flex gap-3 justify-start">
+                      <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <img
+                          src="/images/grey/robot.png"
+                          alt="Assistant IA"
+                          className="w-5 h-5 object-contain logo-blend"
+                        />
+                      </div>
+                      <div className="max-w-[80%]">
+                        <div className="bg-neutral-100 border border-neutral-200 rounded-lg px-4 py-3 shadow-sm text-sm text-neutral-900 whitespace-pre-wrap">
+                          {assistantStreamingContent}
+                          <span className="inline-block w-0.5 h-4 bg-neutral-500 animate-pulse ml-0.5 align-middle" />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={assistantMessagesEndRef} />
                 </div>
-                <div className="flex gap-2">
+                {/* Chip fichier sélectionné */}
+                {selectedFile && (
+                  <div className="flex items-center gap-2 px-3 py-1.5 mb-1 bg-primary-50 border border-primary-200 rounded-lg text-sm text-primary-700 w-fit max-w-full">
+                    <Paperclip className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate max-w-[200px]">{selectedFile.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFile(null)}
+                      className="ml-1 hover:text-red-500 transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+                <div className="flex gap-2 pb-2">
+                  {/* Input fichier caché */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.docx,.png,.jpg,.jpeg,.txt"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      setSelectedFile(f);
+                      e.target.value = "";
+                    }}
+                  />
+                  {/* Bouton trombone — pros uniquement */}
+                  {userRole === "professionnel" && (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={assistantLoading}
+                      title="Joindre un fichier (PDF, DOCX, image…)"
+                      className="h-14 w-11 flex items-center justify-center border border-neutral-300 rounded-lg bg-white hover:bg-neutral-50 hover:border-primary-400 text-neutral-500 hover:text-primary-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                    >
+                      <Paperclip className="w-4 h-4" />
+                    </button>
+                  )}
                   <input
                     type="text"
                     value={assistantInput}
@@ -2177,13 +3477,18 @@ export default function ProjectDetailPage() {
                         void sendAssistantMessage(assistantInput);
                       }
                     }}
-                    placeholder="Demandez un planning ou une aide sur ce projet..."
-                    className="flex-1 px-4 py-2 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white"
+                    placeholder={
+                      assistantActiveAction
+                        ? "Complétez ou posez une question liée à l’action…"
+                        : "Posez une question (devis, étapes, budget, délais, risques)…"
+                    }
+                    className="flex-1 h-14 px-4 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 bg-white selection:bg-primary-200 selection:text-neutral-900 text-base"
                     disabled={assistantLoading}
                   />
                   <Button
                     onClick={() => sendAssistantMessage(assistantInput)}
-                    disabled={assistantLoading || !assistantInput.trim()}
+                    disabled={assistantLoading || (!assistantInput.trim() && !selectedFile)}
+                    className="h-14"
                   >
                     <Send className="w-4 h-4" />
                   </Button>
@@ -2191,26 +3496,158 @@ export default function ProjectDetailPage() {
               </CardContent>
             </Card>
 
+            {userRole === "professionnel" && (
             <Card>
               <CardHeader>
                 <div className="font-semibold text-gray-900">Proposition de planning</div>
-                <div className="text-sm text-gray-500">À valider avant insertion des tâches.</div>
+                <div className="text-sm text-gray-500">À valider avant insertion des tâches et interventions.</div>
               </CardHeader>
               <CardContent className="space-y-4">
-                {!pendingProposal && (
+                {!pendingProposal && !pendingPlanningProposal && (
                   <div className="text-sm text-gray-500">
                     Aucune proposition pour le moment. Demandez un planning à l'assistant.
                   </div>
                 )}
 
-                {pendingProposal && (
+                {/* ── Enriched planning proposal (interventions + tasks) ── */}
+                {pendingPlanningProposal && (
+                  <div className="space-y-4">
+                    {pendingPlanningProposal.summary && (
+                      <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                        {pendingPlanningProposal.summary}
+                      </div>
+                    )}
+
+                    {pendingPlanningProposal.warnings.length > 0 && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 space-y-1">
+                        {pendingPlanningProposal.warnings.map((w, i) => (
+                          <div key={i}>{w}</div>
+                        ))}
+                      </div>
+                    )}
+
+                    {pendingPlanningProposal.existing_interventions.length > 0 && (
+                      <div className="space-y-3">
+                        <div className="text-sm font-semibold text-gray-800">Interventions existantes</div>
+                        {pendingPlanningProposal.existing_interventions.map((intervention) => (
+                          <div key={intervention.intervention_id} className="rounded-lg border border-gray-200 p-3 bg-white space-y-2">
+                            <div className="font-medium text-gray-900">{intervention.intervention_name}</div>
+                            {intervention.existing_tasks.length > 0 && (
+                              <div className="space-y-1">
+                                {intervention.existing_tasks.map((task) => (
+                                  <div key={task.task_id} className="text-xs text-gray-600 flex items-center gap-2">
+                                    <span className={cn(
+                                      "inline-block w-2 h-2 rounded-full",
+                                      task.status === "done" ? "bg-green-500" : task.status === "in_progress" ? "bg-blue-500" : "bg-gray-400"
+                                    )} />
+                                    {task.title}
+                                    {task.note && <span className="text-amber-600">({task.note})</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {intervention.suggested_tasks.length > 0 && (
+                              <div className="space-y-1 border-t border-dashed border-gray-200 pt-2">
+                                <div className="text-xs font-medium text-indigo-700">Tâches suggérées :</div>
+                                {intervention.suggested_tasks.map((task, idx) => (
+                                  <div key={idx} className="text-xs text-gray-700 pl-2 border-l-2 border-indigo-300">
+                                    <span className="font-medium">{task.title}</span>
+                                    {task.start_date && task.end_date && (
+                                      <span className="text-gray-500 ml-1">({task.start_date} → {task.end_date})</span>
+                                    )}
+                                    {task.description && <div className="text-gray-500 italic">{task.description}</div>}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {pendingPlanningProposal.suggested_interventions.length > 0 && (
+                      <div className="space-y-3">
+                        <div className="text-sm font-semibold text-emerald-800">Nouvelles interventions suggérées</div>
+                        {pendingPlanningProposal.suggested_interventions.map((intervention, iIdx) => (
+                          <div key={iIdx} className="rounded-lg border border-emerald-200 bg-emerald-50/30 p-3 space-y-2">
+                            <div className="font-medium text-gray-900">
+                              {intervention.name}
+                              {intervention.lot_type && (
+                                <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">{intervention.lot_type}</span>
+                              )}
+                            </div>
+                            {intervention.reason && (
+                              <div className="text-xs text-gray-600 italic">{intervention.reason}</div>
+                            )}
+                            {intervention.suggested_tasks.length > 0 && (
+                              <div className="space-y-1">
+                                {intervention.suggested_tasks.map((task, tIdx) => (
+                                  <div key={tIdx} className="text-xs text-gray-700 pl-2 border-l-2 border-emerald-300">
+                                    <span className="font-medium">{task.title}</span>
+                                    {task.start_date && task.end_date && (
+                                      <span className="text-gray-500 ml-1">({task.start_date} → {task.end_date})</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {pendingPlanningProposal.next_week_priorities.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-sm font-semibold text-gray-800">Priorités de la semaine</div>
+                        {pendingPlanningProposal.next_week_priorities.map((p, i) => (
+                          <div key={i} className="text-xs text-gray-700">{i + 1}. {p}</div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                      Valider ajoutera les interventions et tâches suggérées au projet.
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        onClick={applyPlanningProposal}
+                        disabled={applyLoading || !canUseAssistantPlanning}
+                      >
+                        {applyLoading ? "Application..." : "Valider le planning"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setPendingPlanningProposal(null);
+                          setPendingProposal(null);
+                          sendAssistantMessage("Refais un autre planning, plus adapté.", { forcePlan: true });
+                        }}
+                        disabled={assistantLoading || !canUseAssistantPlanning}
+                      >
+                        Refaire
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setPendingPlanningProposal(null);
+                          setPendingProposal(null);
+                        }}
+                      >
+                        Annuler
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Legacy flat proposal (backwards compat) ── */}
+                {pendingProposal && !pendingPlanningProposal && (
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-gray-800">Résumé du planning</label>
                       <textarea
                         value={pendingProposal.summary ?? ""}
                         onChange={(event) => updateProposalSummary(event.target.value)}
-                        className="w-full min-h-[90px] px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        className="w-full min-h-[90px] px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 selection:bg-primary-200 selection:text-neutral-900"
                         placeholder="Résumé rapide du planning proposé."
                       />
                     </div>
@@ -2234,7 +3671,7 @@ export default function ProjectDetailPage() {
                             <textarea
                               value={task.description ?? ""}
                               onChange={(event) => updateProposalTask(index, { description: event.target.value })}
-                              className="w-full min-h-[80px] px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                              className="w-full min-h-[80px] px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 selection:bg-primary-200 selection:text-neutral-900"
                               placeholder="Détails utiles pour la tâche."
                             />
                           </div>
@@ -2243,13 +3680,13 @@ export default function ProjectDetailPage() {
                               label="Debut"
                               type="date"
                               value={task.start_date ?? ""}
-                              onChange={(event) => updateProposalTask(index, { start_date: event.target.value })}
+                              onChange={(event) => updateProposalTask(index, { start_date: normalizeDateValue(event.target.value) || event.target.value })}
                             />
                             <Input
                               label="Fin"
                               type="date"
                               value={task.end_date ?? ""}
-                              onChange={(event) => updateProposalTask(index, { end_date: event.target.value })}
+                              onChange={(event) => updateProposalTask(index, { end_date: normalizeDateValue(event.target.value) || event.target.value })}
                             />
                             <Input
                               label="Creneau"
@@ -2290,206 +3727,9 @@ export default function ProjectDetailPage() {
                 )}
               </CardContent>
             </Card>
+            )}
           </div>
 
-          <Card>
-            <CardHeader>
-              <div className="font-semibold text-gray-900">Actions IA</div>
-              <div className="text-sm text-gray-500">
-                {userRole === "professionnel"
-                  ? "Déclencher d'autres actions IA."
-                  : "Actions rapides pour comprendre votre projet."}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {userRole === "professionnel" ? (
-                <>
-                  <div className="space-y-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Propose un planning détaillé pour ce projet avec les tâches principales et les délais.", { forcePlan: true })}
-                      disabled={assistantLoading || !canUseAssistantPlanning}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                        </svg>
-                        Proposer un planning
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Analyse le devis de ce projet. Quels sont les postes principaux ? Y a-t-il des incohérences ou des points à vérifier ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        Analyser le devis
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Vérifie la conformité du devis : TVA, mentions obligatoires, cohérence des totaux, et conformité réglementaire.", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Vérifier la conformité
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Calcule les marges et la rentabilité de ce projet. Quels sont les postes les plus rentables ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Calculer les marges
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Optimise les coûts de ce projet. Y a-t-il des postes où on peut réduire les coûts sans impacter la qualité ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
-                        Optimiser les coûts
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Quels sont les risques et points d'attention pour ce projet ? Y a-t-il des éléments à surveiller particulièrement ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        Risques et points d'attention
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Propose des améliorations ou des alternatives pour ce projet. Y a-t-il des options plus performantes ou économiques ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                        Proposer des améliorations
-                      </span>
-                    </Button>
-                  </div>
-                  <div className="text-xs text-gray-500 pt-2 border-t border-gray-200">
-                    Actions rapides pour optimiser et gérer votre projet professionnel.
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Explique-moi le devis de ce projet en détail. Qu'est-ce qui est inclus ? Quels sont les postes principaux ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        Explique-moi le devis
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Quelles sont les étapes principales de ce projet ? Comment va se dérouler le chantier ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                        </svg>
-                        Quelles sont les étapes ?
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Quel est le budget estimé pour ce projet ? Y a-t-il des coûts supplémentaires à prévoir ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Quel est le budget ?
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Peux-tu clarifier les termes techniques du devis ? Explique-moi les mots que je ne comprends pas.", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Clarifier les termes techniques
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Quels sont les délais prévus pour ce projet ? Combien de temps va prendre chaque étape ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Quels sont les délais ?
-                      </span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => sendAssistantMessage("Y a-t-il des points d'attention ou des risques à connaître pour ce projet ?", {})}
-                      disabled={assistantLoading}
-                      className="w-full justify-start text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        Points d'attention
-                      </span>
-                    </Button>
-                  </div>
-                  <div className="text-xs text-gray-500 pt-2 border-t border-gray-200">
-                    Ces actions vous aident à mieux comprendre votre projet et le devis associé.
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
         </section>
       )}
       {taskDetailOpen && selectedTask && (
@@ -2550,6 +3790,90 @@ export default function ProjectDetailPage() {
           </div>
         </div>
       )}
+      {interventionModalOpen && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-lg w-full p-6">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-neutral-900">Nouvelle intervention</h3>
+                <p className="text-sm text-neutral-600">Ajoutez une intervention au projet.</p>
+              </div>
+              <Button variant="ghost" onClick={() => { setInterventionModalOpen(false); setFormError(null); }}>
+                Fermer
+              </Button>
+            </div>
+            {formError && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {formError}
+              </div>
+            )}
+            <form className="space-y-4" onSubmit={handleCreateIntervention}>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Nom *</label>
+                <Input
+                  value={interventionForm.name}
+                  onChange={(event) => setInterventionForm({ ...interventionForm, name: event.target.value })}
+                  placeholder="Demolition, Electricite, Plomberie..."
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Description</label>
+                <Input
+                  value={interventionForm.description}
+                  onChange={(event) => setInterventionForm({ ...interventionForm, description: event.target.value })}
+                  placeholder="Details de l'intervention"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Entreprise</label>
+                <Input
+                  value={interventionForm.companyName}
+                  onChange={(event) => setInterventionForm({ ...interventionForm, companyName: event.target.value })}
+                  placeholder="Nom de l'entreprise (optionnel)"
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Budget estime</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={interventionForm.budgetEstimated}
+                    onChange={(event) => setInterventionForm({ ...interventionForm, budgetEstimated: event.target.value })}
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Debut</label>
+                  <Input
+                    type="date"
+                    value={interventionForm.startDate}
+                    onChange={(event) => setInterventionForm({ ...interventionForm, startDate: normalizeDateValue(event.target.value) || event.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Fin</label>
+                  <Input
+                    type="date"
+                    value={interventionForm.endDate}
+                    onChange={(event) => setInterventionForm({ ...interventionForm, endDate: normalizeDateValue(event.target.value) || event.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => { setInterventionModalOpen(false); setFormError(null); }}>
+                  Annuler
+                </Button>
+                <Button type="submit" disabled={interventionSubmitting || !canManageProject}>
+                  {interventionSubmitting ? "Creation..." : "Creer l'intervention"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       {isTaskModalOpen && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-lg w-full p-6">
@@ -2560,10 +3884,15 @@ export default function ProjectDetailPage() {
                   <p className="text-sm text-neutral-600">Jour: {formatDate(selectedDay)}</p>
                 )}
               </div>
-              <Button variant="ghost" onClick={() => setIsTaskModalOpen(false)}>
+              <Button variant="ghost" onClick={() => { setIsTaskModalOpen(false); setFormError(null); }}>
                 Fermer
               </Button>
             </div>
+            {formError && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {formError}
+              </div>
+            )}
             <div className="space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Nom *</label>
@@ -2579,7 +3908,7 @@ export default function ProjectDetailPage() {
                   <Input
                     type="date"
                     value={taskDates.start}
-                    onChange={(event) => setTaskDates({ ...taskDates, start: event.target.value })}
+                    onChange={(event) => setTaskDates({ ...taskDates, start: normalizeDateValue(event.target.value) || event.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -2597,7 +3926,7 @@ export default function ProjectDetailPage() {
                   <Input
                     type="date"
                     value={taskDates.end}
-                    onChange={(event) => setTaskDates({ ...taskDates, end: event.target.value })}
+                    onChange={(event) => setTaskDates({ ...taskDates, end: normalizeDateValue(event.target.value) || event.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -2614,7 +3943,7 @@ export default function ProjectDetailPage() {
                 <textarea
                   value={taskDescription}
                   onChange={(event) => setTaskDescription(event.target.value)}
-                  className="w-full min-h-[120px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full min-h-[120px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 selection:bg-primary-200 selection:text-neutral-900"
                   placeholder="Précisions sur la tâche"
                 />
               </div>
@@ -2626,6 +3955,88 @@ export default function ProjectDetailPage() {
                   Ajouter
                 </Button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit project info modal ── */}
+      {editInfoModalOpen && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-neutral-200 max-w-lg w-full p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h2 className="text-base font-semibold text-neutral-900">Modifier les informations</h2>
+                <p className="text-sm text-neutral-500">Mettez à jour les détails du projet</p>
+              </div>
+              <button onClick={() => setEditInfoModalOpen(false)} className="h-8 w-8 rounded-lg bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center transition-colors">
+                <X className="h-4 w-4 text-neutral-600" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Nom du projet</label>
+                <input
+                  className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition"
+                  value={editInfoForm.name}
+                  onChange={(e) => setEditInfoForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="Ex : Rénovation cuisine"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Type de travaux</label>
+                <input
+                  className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition"
+                  value={editInfoForm.project_type}
+                  onChange={(e) => setEditInfoForm((f) => ({ ...f, project_type: e.target.value }))}
+                  placeholder="Ex : Extension, Rénovation…"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Adresse</label>
+                  <input
+                    className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition"
+                    value={editInfoForm.address}
+                    onChange={(e) => setEditInfoForm((f) => ({ ...f, address: e.target.value }))}
+                    placeholder="8 Rue du Parc"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Ville</label>
+                  <input
+                    className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition"
+                    value={editInfoForm.city}
+                    onChange={(e) => setEditInfoForm((f) => ({ ...f, city: e.target.value }))}
+                    placeholder="Versailles"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Description</label>
+                <textarea
+                  rows={3}
+                  className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition resize-none"
+                  value={editInfoForm.description}
+                  onChange={(e) => setEditInfoForm((f) => ({ ...f, description: e.target.value }))}
+                  placeholder="Description du chantier…"
+                />
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={() => setEditInfoModalOpen(false)}
+                className="rounded-xl border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleSaveProjectInfo}
+                disabled={editInfoSubmitting}
+                className="rounded-xl bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors"
+              >
+                {editInfoSubmitting ? "Enregistrement…" : "Enregistrer"}
+              </button>
             </div>
           </div>
         </div>
@@ -2656,7 +4067,7 @@ export default function ProjectDetailPage() {
                 <textarea
                   value={publishForm.summary}
                   onChange={(event) => setPublishForm((prev) => ({ ...prev, summary: event.target.value }))}
-                  className="w-full min-h-[120px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="w-full min-h-[120px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 selection:bg-primary-200 selection:text-neutral-900"
                   placeholder="Décrivez le projet terminé."
                 />
               </div>
@@ -2705,6 +4116,70 @@ export default function ProjectDetailPage() {
                   {publishSubmitting ? "Publication..." : "Publier"}
                 </Button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rendezVousModalOpen && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-2xl w-full max-h-[85vh] flex flex-col">
+            <div className="flex items-start justify-between gap-3 p-6 border-b border-neutral-200">
+              <div>
+                <h3 className="text-lg font-semibold text-neutral-900">Tous les rendez-vous à venir</h3>
+                <p className="text-sm text-neutral-600">
+                  Liste de toutes les interventions planifiées.
+                </p>
+              </div>
+              <Button variant="ghost" onClick={() => setRendezVousModalOpen(false)}>
+                Fermer
+              </Button>
+            </div>
+                <div className="flex-1 overflow-y-auto p-6 space-y-3">
+              {upcomingItems.length === 0 ? (
+                <div className="text-sm text-gray-500">Aucun rendez-vous à venir.</div>
+              ) : (
+                upcomingItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50 transition"
+                    onClick={() => {
+                      setRendezVousModalOpen(false);
+                      if (item.kind === "intervention") {
+                        router.push(`/dashboard/projets/${projectId}/interventions/${item.id}?role=${role}`);
+                      } else {
+                        updateQuery({ tab: "planning" });
+                      }
+                    }}
+                  >
+                    <div>
+                      <div className="font-semibold text-gray-900">{item.name}</div>
+                      <div className="text-xs text-gray-500">
+                        {formatDate(item.date.toISOString().slice(0, 10))}
+                        {item.companyName ? ` • ${item.companyName}` : ""}
+                      </div>
+                      {item.description && (
+                        <div className="text-xs text-gray-500 mt-1 line-clamp-2">{item.description}</div>
+                      )}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRendezVousModalOpen(false);
+                        if (item.kind === "intervention") {
+                          router.push(`/dashboard/projets/${projectId}/interventions/${item.id}?role=${role}`);
+                        } else {
+                          updateQuery({ tab: "planning" });
+                        }
+                      }}
+                    >
+                      {item.kind === "intervention" ? "Voir intervention" : "Voir dans le planning"}
+                    </Button>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

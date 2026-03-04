@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardContent } from "@/components/ui/Card";
 import { Table, TableHeader, TableRow, TableHead, TableCell } from "@/components/ui/Table";
 import { Button } from "@/components/ui/Button";
-import { Eye, Plus, FileText, Download, Upload, Paperclip, Trash2 } from "lucide-react";
+import { Eye, Plus, FileText, Download, Upload, Paperclip, Trash2, Clock, Send, CheckCircle2, Euro } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { QuoteSummary } from "@/lib/quotesStore";
 import { attachPdfToDevis, deleteDevisWithItems, fetchDevisForUser, saveUploadedDevis } from "@/lib/devisDb";
@@ -218,52 +218,68 @@ export default function DevisPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <header className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <div className="relative flex items-start justify-between gap-6 p-6 sm:p-8">
+          <div className="flex items-start gap-4">
+            <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
+              <FileText className="h-6 w-6" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Devis</h1>
+              <p className="text-neutral-600 mt-1">Gérez vos devis et factures</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-600">
+                <span className="rounded-full border border-neutral-200 bg-white px-3 py-1">
+                  {quotes.length} devis
+                </span>
+                {quotes.filter((q) => resolveWorkflowStatus(q) === "valide").length > 0 && (
+                  <span className="rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 px-3 py-1">
+                    {quotes.filter((q) => resolveWorkflowStatus(q) === "valide").length} validé{quotes.filter((q) => resolveWorkflowStatus(q) === "valide").length !== 1 ? "s" : ""}
+                  </span>
+                )}
+                {quotes.filter((q) => resolveWorkflowStatus(q) === "envoye").length > 0 && (
+                  <span className="rounded-full border border-primary-200 bg-primary-50 text-primary-700 px-3 py-1">
+                    {quotes.filter((q) => resolveWorkflowStatus(q) === "envoye").length} envoyé{quotes.filter((q) => resolveWorkflowStatus(q) === "envoye").length !== 1 ? "s" : ""}
+                  </span>
+                )}
+                <button
+                  onClick={handleUploadClick}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-neutral-300 bg-white text-neutral-700 font-medium text-xs hover:bg-neutral-50 transition-colors"
+                >
+                  <Upload className="w-3 h-3" />
+                  Uploader un devis
+                </button>
+                <button
+                  onClick={handleCreate}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-primary-400 to-primary-600 text-white font-semibold text-xs shadow-sm hover:opacity-90 transition-opacity"
+                >
+                  <Plus className="w-3 h-3" />
+                  Nouveau devis
+                </button>
+              </div>
+            </div>
+          </div>
           <img
             src="/images/devis.png"
             alt="Devis"
-            className="h-28 w-28 object-contain logo-blend"
+            className="hidden sm:block h-20 w-20 object-contain opacity-90 logo-blend flex-shrink-0"
           />
-          <div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Devis</h1>
-          <p className="text-gray-600">Gérez vos devis et factures</p>
-          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            size="sm"
-            className="inline-flex items-center gap-2 whitespace-nowrap"
-            onClick={handleUploadClick}
-          >
-            <Upload className="w-4 h-4" />
-            Uploader un devis
-          </Button>
-          <Button
-            size="sm"
-            className="inline-flex items-center gap-2 whitespace-nowrap"
-            onClick={handleCreate}
-          >
-            <Plus className="w-4 h-4" />
-            Nouveau devis
-          </Button>
-        </div>
-        <input
-          ref={uploadInputRef}
-          type="file"
-          accept="application/pdf"
-          className="hidden"
-          onChange={handleUploadFile}
-        />
-        <input
-          ref={attachInputRef}
-          type="file"
-          accept="application/pdf"
-          className="hidden"
-          onChange={handleAttachFile}
-        />
-      </div>
+      </header>
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept="application/pdf"
+        className="hidden"
+        onChange={handleUploadFile}
+      />
+      <input
+        ref={attachInputRef}
+        type="file"
+        accept="application/pdf"
+        className="hidden"
+        onChange={handleAttachFile}
+      />
 
       {error && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
@@ -272,44 +288,48 @@ export default function DevisPage() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFilter("a_faire")} role="button">
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFilter("a_faire")} role="button">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 mb-1">En étude</p>
                 <p className="text-2xl font-bold text-gray-900">{stats.a_faire}</p>
               </div>
-              <FileText className="w-8 h-8 text-gray-400" />
+              <Clock className="w-8 h-8 text-neutral-400" />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFilter("envoye")} role="button">
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFilter("envoye")} role="button">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 mb-1">Envoyés</p>
                 <p className="text-2xl font-bold text-gray-900">{stats.envoye}</p>
               </div>
-              <FileText className="w-8 h-8 text-blue-400" />
+              <Send className="w-8 h-8 text-primary-400" />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFilter("valide")} role="button">
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFilter("valide")} role="button">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 mb-1">Validés</p>
                 <p className="text-2xl font-bold text-gray-900">{stats.valide}</p>
               </div>
-              <FileText className="w-8 h-8 text-green-400" />
+              <CheckCircle2 className="w-8 h-8 text-emerald-400" />
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="p-6">
+        <Card className="relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 mb-1">Total</p>
@@ -317,14 +337,15 @@ export default function DevisPage() {
                   {formatCurrency(stats.total)}
                 </p>
               </div>
-              <FileText className="w-8 h-8 text-primary-400" />
+              <Euro className="w-8 h-8 text-primary-400" />
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
+      <Card className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <CardHeader className="relative z-10">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900">
               Liste des devis ({filteredQuotes.length})
@@ -336,7 +357,7 @@ export default function DevisPage() {
             )}
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="relative z-10">
           {loading ? (
             <p className="text-sm text-gray-500">Chargement des devis...</p>
           ) : (

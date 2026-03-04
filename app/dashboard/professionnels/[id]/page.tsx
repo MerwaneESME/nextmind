@@ -2,11 +2,22 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { Mail, MapPin, Phone } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import {
+  ArrowLeft,
+  ArrowRight,
+  MapPin,
+  Phone,
+  Mail,
+  Globe,
+  Clock,
+  Euro,
+  Building2,
+  Briefcase,
+  X,
+} from "lucide-react";
 
 type ProProfile = {
   pro_id: string;
@@ -48,9 +59,14 @@ const formatDurationLabel = (days: number | null) => {
   return `${years} an${years > 1 ? "s" : ""}`;
 };
 
-const normalizeImageSrc = (value: string | null) => {
-  if (!value) return null;
-  return value;
+const getInitials = (name: string | null) => {
+  if (!name) return "NM";
+  return name
+    .split(" ")
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
 };
 
 export default function ProProfilePage() {
@@ -115,202 +131,356 @@ export default function ProProfilePage() {
     [profile]
   );
 
+  const featured = projects[0] ?? null;
+  const rest = projects.slice(1);
+
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold text-neutral-900">{displayName}</h1>
-          {profile?.company_description && (
-            <p className="text-neutral-600 mt-1">{profile.company_description}</p>
-          )}
+      {/* Back button */}
+      <button
+        onClick={() => router.push(`/dashboard/professionnels?role=${role}`)}
+        className="inline-flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-900 transition-colors"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Retour aux professionnels
+      </button>
+
+      {/* Profile header card */}
+      <header className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <div className="relative flex items-start justify-between gap-6 p-6 sm:p-8">
+          <div className="flex items-start gap-4">
+            <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
+              <Building2 className="h-6 w-6" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-2xl sm:text-3xl font-bold font-heading text-neutral-900">{displayName}</h1>
+              {profile?.company_description && (
+                <p className="text-neutral-500 mt-1 text-sm line-clamp-2">{profile.company_description}</p>
+              )}
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-600">
+                {profile?.city && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-3 py-1">
+                    <MapPin className="h-3 w-3 text-primary-600" />
+                    {profile.city}
+                    {profile.postal_code ? ` ${profile.postal_code}` : ""}
+                  </span>
+                )}
+                {specialties.slice(0, 4).map((s) => (
+                  <span
+                    key={s}
+                    className="rounded-full border border-primary-100 bg-primary-50 px-3 py-1 text-primary-700"
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
-        <Button variant="outline" onClick={() => router.push(`/dashboard/professionnels?role=${role}`)}>
-          Retour
-        </Button>
-      </div>
+      </header>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="mx-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 mb-4">
           {error}
         </div>
       )}
 
-      {loading && <div className="text-sm text-neutral-600">Chargement du profil...</div>}
-
-      {!loading && profile && (
-        <Card>
-          <CardHeader>
-            <div className="font-semibold text-neutral-900">Informations de contact</div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex flex-wrap gap-4 text-sm text-neutral-700">
-              {profile.city && (
-                <span className="inline-flex items-center gap-1">
-                  <MapPin className="w-4 h-4" />
-                  {profile.city}
-                  {profile.postal_code ? ` (${profile.postal_code})` : ""}
-                </span>
-              )}
-              {profile.phone && (
-                <span className="inline-flex items-center gap-1">
-                  <Phone className="w-4 h-4" />
-                  {profile.phone}
-                </span>
-              )}
-              {profile.email && (
-                <span className="inline-flex items-center gap-1">
-                  <Mail className="w-4 h-4" />
-                  {profile.email}
-                </span>
-              )}
-            </div>
-            {profile.address && <div className="text-sm text-neutral-700">{profile.address}</div>}
-            {profile.company_website && (
-              <div className="text-sm text-neutral-600">{profile.company_website}</div>
-            )}
-
-            {specialties.length > 0 && (
-              <div className="flex flex-wrap gap-2 pt-2">
-                {specialties.map((service) => (
-                  <span
-                    key={service}
-                    className="px-3 py-1 rounded-full bg-neutral-100 text-neutral-800 text-xs border border-neutral-200"
-                  >
-                    {service}
-                  </span>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {loading && (
+        <div className="text-sm text-neutral-500 mb-4">Chargement du profil...</div>
       )}
 
-      <section className="space-y-4">
-        <div>
-          <h2 className="text-xl font-semibold text-neutral-900">Articles du portfolio</h2>
-          <p className="text-sm text-neutral-600">Projets publiés par ce professionnel.</p>
-        </div>
+      {/* Contact info card */}
+      {!loading && profile && (
+        <div className="mb-8 rounded-2xl border border-neutral-200 bg-white shadow-sm p-6 space-y-4">
+          {/* Description */}
+          {profile.company_description && (
+            <p className="text-neutral-600 italic leading-relaxed">
+              {profile.company_description}
+            </p>
+          )}
 
-        {projects.length === 0 && (
-          <div className="text-sm text-neutral-600">Aucun projet public pour le moment.</div>
-        )}
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          {projects.map((project) => {
-            const imageSrc = normalizeImageSrc(project.image_path);
-            return (
-              <article
-                key={project.id}
-                className="group overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          {/* Contact chips */}
+          <div className="flex flex-wrap gap-2">
+            {profile.email && (
+              <a
+                href={`mailto:${profile.email}`}
+                className="inline-flex items-center gap-2 rounded-lg bg-neutral-100 px-3 py-2 text-sm text-neutral-800 hover:bg-primary-50 transition-colors"
               >
-                <div className="grid md:grid-cols-[220px_1fr]">
-                  <div className="relative h-44 md:h-full">
-                    {imageSrc ? (
+                <Mail className="h-4 w-4 text-primary-600" />
+                {profile.email}
+              </a>
+            )}
+            {profile.phone && (
+              <a
+                href={`tel:${profile.phone}`}
+                className="inline-flex items-center gap-2 rounded-lg bg-neutral-100 px-3 py-2 text-sm text-neutral-800 hover:bg-primary-50 transition-colors"
+              >
+                <Phone className="h-4 w-4 text-primary-600" />
+                {profile.phone}
+              </a>
+            )}
+            {profile.company_website && (
+              <a
+                href={profile.company_website}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-lg bg-neutral-100 px-3 py-2 text-sm text-neutral-800 hover:bg-primary-50 transition-colors"
+              >
+                <Globe className="h-4 w-4 text-primary-600" />
+                Site web
+              </a>
+            )}
+            {profile.address && (
+              <span className="inline-flex items-center gap-2 rounded-lg bg-neutral-100 px-3 py-2 text-sm text-neutral-500">
+                <Building2 className="h-4 w-4 text-primary-600" />
+                {profile.address}
+              </span>
+            )}
+          </div>
+
+          {/* Specialty badges */}
+          {specialties.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {specialties.map((s) => (
+                <span
+                  key={s}
+                  className="rounded-full border border-primary-200 bg-primary-50 px-3 py-1 text-xs font-medium text-primary-700"
+                >
+                  {s}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Articles section */}
+      {!loading && projects.length > 0 && (
+        <>
+          <div className="mb-6 flex items-center justify-between">
+            <h2 className="text-2xl font-bold font-heading text-neutral-900">Réalisations</h2>
+            <span className="text-sm text-neutral-500">
+              {projects.length} projet{projects.length !== 1 ? "s" : ""} publié{projects.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+
+          {/* Featured article */}
+          {featured && (
+            <div
+              className="relative mb-6 rounded-2xl overflow-hidden cursor-pointer group"
+              onClick={() => setSelectedProject(featured)}
+            >
+              <div className="h-[340px] overflow-hidden">
+                {featured.image_path ? (
+                  <img
+                    src={featured.image_path}
+                    alt={featured.title || ""}
+                    className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                  />
+                ) : (
+                  <div className="h-full w-full bg-gradient-to-br from-neutral-200 to-neutral-300 flex items-center justify-center">
+                    <span className="text-7xl font-bold text-neutral-400/40 select-none font-heading tracking-tight">
+                      {getInitials(featured.title)}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+              <div className="absolute bottom-0 left-0 right-0 p-6">
+                <p className="text-white/70 text-xs uppercase tracking-widest mb-2">
+                  {featured.created_at ? formatDate(featured.created_at) : "—"}
+                </p>
+                <h3 className="text-2xl font-bold text-white font-heading mb-3">
+                  {featured.title || "Projet terminé"}
+                </h3>
+                <div className="flex items-center gap-3">
+                  {typeof featured.budget_total === "number" && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-white/20 backdrop-blur-sm px-3 py-1 text-xs text-white">
+                      <Euro className="h-3 w-3" /> {formatCurrency(featured.budget_total)}
+                    </span>
+                  )}
+                  <span className="inline-flex items-center gap-1 rounded-full bg-white/20 backdrop-blur-sm px-3 py-1 text-xs text-white">
+                    <Clock className="h-3 w-3" /> {formatDurationLabel(featured.duration_days)}
+                  </span>
+                </div>
+              </div>
+              <div className="absolute bottom-6 right-6">
+                <Button variant="primary" size="sm" className="shadow-lg flex items-center gap-2">
+                  Lire l&apos;article <ArrowRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Grid rest */}
+          {rest.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
+              {rest.map((article) => (
+                <div
+                  key={article.id}
+                  className="group overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
+                  onClick={() => setSelectedProject(article)}
+                >
+                  <div className="relative h-[200px] overflow-hidden">
+                    {article.image_path ? (
                       <img
-                        src={imageSrc}
-                        alt={project.title ?? "Projet"}
-                        className="h-full w-full object-cover"
+                        src={article.image_path}
+                        alt={article.title || ""}
+                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                       />
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-neutral-100 via-neutral-50 to-neutral-200">
-                        <span className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">
-                          Projet
+                      <div className="h-full w-full bg-gradient-to-br from-neutral-100 to-neutral-200 flex items-center justify-center">
+                        <span className="text-5xl font-bold text-neutral-300/60 select-none font-heading tracking-tight">
+                          {getInitials(article.title)}
                         </span>
                       </div>
                     )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent" />
                   </div>
-
-                  <div className="flex h-full flex-col gap-3 p-5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h3 className="text-lg font-semibold text-neutral-900">
-                          {project.title || "Projet terminé"}
-                        </h3>
-                        <div className="text-xs text-neutral-500 mt-1">
-                          Publié le {project.created_at ? formatDate(project.created_at) : "-"}
-                        </div>
-                      </div>
-                      <Button variant="outline" size="sm" onClick={() => setSelectedProject(project)}>
-                        Lire l article
-                      </Button>
-                    </div>
-
-                    <p className="text-sm text-neutral-700">
-                      {project.summary || "Résumé non fourni."}
+                  <div className="p-5">
+                    <h3 className="font-semibold font-heading text-neutral-900 mb-1 group-hover:text-primary-600 transition-colors line-clamp-1">
+                      {article.title || "Projet terminé"}
+                    </h3>
+                    <p className="text-sm text-neutral-500 line-clamp-3 mb-3 leading-relaxed">
+                      {article.summary || "Résumé non fourni."}
                     </p>
-
-                    <div className="mt-auto flex flex-wrap gap-2 text-xs text-neutral-700">
-                      <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1">
-                        Budget:{" "}
-                        {typeof project.budget_total === "number"
-                          ? formatCurrency(project.budget_total)
-                          : "-"}
+                    <div className="flex flex-wrap items-center gap-2 text-sm mb-3">
+                      {typeof article.budget_total === "number" && (
+                        <>
+                          <span className="font-bold text-primary-600">
+                            {formatCurrency(article.budget_total)}
+                          </span>
+                          <span className="text-neutral-300">·</span>
+                        </>
+                      )}
+                      <span className="text-neutral-500">
+                        {formatDurationLabel(article.duration_days)}
                       </span>
-                      <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1">
-                        Duree: {formatDurationLabel(project.duration_days)}
-                      </span>
-                      {(project.city || project.postal_code) && (
-                        <span className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1">
-                          Zone: {project.city || "-"} {project.postal_code || ""}
-                        </span>
+                      {article.city && (
+                        <>
+                          <span className="text-neutral-300">·</span>
+                          <span className="text-neutral-500">{article.city}</span>
+                        </>
                       )}
                     </div>
+                    <span className="text-xs font-medium text-primary-600 group-hover:underline flex items-center gap-1">
+                      Lire l&apos;article <ArrowRight className="h-3 w-3" />
+                    </span>
                   </div>
                 </div>
-              </article>
-            );
-          })}
-        </div>
-      </section>
-
-      {selectedProject && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-2xl w-full p-6">
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div>
-                <h3 className="text-xl font-semibold text-neutral-900">
-                  {selectedProject.title || "Projet terminé"}
-                </h3>
-                <p className="text-sm text-neutral-600">
-                  Publié le {selectedProject.created_at ? formatDate(selectedProject.created_at) : "-"}
-                </p>
-              </div>
-              <Button variant="ghost" onClick={() => setSelectedProject(null)}>
-                Fermer
-              </Button>
+              ))}
             </div>
-            {selectedProject.image_path && (
-              <div className="mb-4 overflow-hidden rounded-lg border border-neutral-200">
-                <img
-                  src={selectedProject.image_path}
-                  alt={selectedProject.title ?? "Projet"}
-                  className="w-full h-56 object-cover"
-                />
-              </div>
-            )}
-            <div className="space-y-3 text-sm text-neutral-700">
-              <p>{selectedProject.summary || "Résumé non fourni."}</p>
-              <div className="flex flex-wrap gap-3 text-xs text-neutral-600">
-                <span>
-                  Budget:{" "}
-                  {typeof selectedProject.budget_total === "number"
-                    ? formatCurrency(selectedProject.budget_total)
-                    : "-"}
+          )}
+        </>
+      )}
+
+      {!loading && profile && projects.length === 0 && (
+        <div className="rounded-xl border border-neutral-200 bg-neutral-50 py-12 text-center text-sm text-neutral-500">
+          Aucun projet public pour le moment.
+        </div>
+      )}
+
+      {/* Article Modal */}
+      {selectedProject && (
+        <>
+          <div
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md"
+            onClick={() => setSelectedProject(null)}
+          />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
+              {/* Image header */}
+              <div className="relative h-[300px] overflow-hidden">
+                {selectedProject.image_path ? (
+                  <img
+                    src={selectedProject.image_path}
+                    alt={selectedProject.title || ""}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="h-full w-full bg-gradient-to-br from-neutral-200 to-neutral-300 flex items-center justify-center">
+                    <span className="text-7xl font-bold text-neutral-400/40 select-none font-heading tracking-tight">
+                      {getInitials(selectedProject.title)}
+                    </span>
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+                <span className="absolute top-4 left-4 inline-flex items-center rounded-full bg-success-50 text-success-700 px-3 py-1 text-xs font-medium">
+                  Chantier terminé
                 </span>
-                <span>Duree: {formatDurationLabel(selectedProject.duration_days)}</span>
-                {(selectedProject.city || selectedProject.postal_code) && (
-                  <span>
-                    Zone: {selectedProject.city || "-"} {selectedProject.postal_code || ""}
-                  </span>
+                <button
+                  onClick={() => setSelectedProject(null)}
+                  className="absolute top-4 right-4 rounded-full bg-black/30 backdrop-blur-sm p-2 text-white hover:bg-black/50 transition-colors"
+                  aria-label="Fermer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 space-y-4">
+                <p className="text-xs text-neutral-400 uppercase tracking-widest">
+                  {selectedProject.created_at ? formatDate(selectedProject.created_at) : "—"}
+                </p>
+                <h2 className="text-2xl font-bold font-heading text-neutral-900">
+                  {selectedProject.title || "Projet terminé"}
+                </h2>
+                <div
+                  className="h-0.5 w-10 rounded-full"
+                  style={{
+                    background: "linear-gradient(to right, #38b6ff, transparent)",
+                  }}
+                />
+                <p className="text-neutral-600 leading-relaxed">
+                  {selectedProject.summary || "Résumé non fourni."}
+                </p>
+
+                {/* Key info grid */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="rounded-xl bg-neutral-50 border border-neutral-100 p-4 text-center">
+                    <Euro className="h-5 w-5 mx-auto mb-1 text-primary-600" />
+                    <p className="text-xs text-neutral-500">Budget</p>
+                    <p className="font-bold text-neutral-900 text-sm">
+                      {typeof selectedProject.budget_total === "number"
+                        ? formatCurrency(selectedProject.budget_total)
+                        : "—"}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-neutral-50 border border-neutral-100 p-4 text-center">
+                    <Clock className="h-5 w-5 mx-auto mb-1 text-primary-600" />
+                    <p className="text-xs text-neutral-500">Durée</p>
+                    <p className="font-bold text-neutral-900 text-sm">
+                      {formatDurationLabel(selectedProject.duration_days)}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-neutral-50 border border-neutral-100 p-4 text-center">
+                    <MapPin className="h-5 w-5 mx-auto mb-1 text-primary-600" />
+                    <p className="text-xs text-neutral-500">Localisation</p>
+                    <p className="font-bold text-neutral-900 text-sm">
+                      {selectedProject.city || "—"}
+                      {selectedProject.postal_code ? ` ${selectedProject.postal_code}` : ""}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-neutral-200">
+                <Button variant="outline" onClick={() => setSelectedProject(null)}>
+                  Fermer
+                </Button>
+                {profile?.email && (
+                  <a href={`mailto:${profile.email}`}>
+                    <Button variant="primary" className="flex items-center gap-2">
+                      <Briefcase className="h-4 w-4" />
+                      Contacter ce pro
+                    </Button>
+                  </a>
                 )}
               </div>
             </div>
-            <div className="mt-6 flex justify-end">
-              <Button onClick={() => setSelectedProject(null)}>Fermer</Button>
-            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
