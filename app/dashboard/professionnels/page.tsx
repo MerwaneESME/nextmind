@@ -39,7 +39,12 @@ type Filters = {
   specialty: string;
 };
 
-const buildSearchPattern = (value: string) => `%${value}%`;
+// PostgREST utilise * comme alias de % pour éviter l'encodage URL (sinon % devient %25 et casse le pattern)
+// On échappe % et _ pour qu'ils soient traités comme littéraux en ILIKE
+const buildSearchPattern = (value: string) => {
+  const escaped = value.replace(/[%_\\]/g, (c) => `\\${c}`);
+  return `*${escaped}*`;
+};
 
 type UserLocation = { lat: number; lng: number };
 
@@ -159,7 +164,7 @@ export default function ProfessionnelsPage() {
 
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [distanceKm, setDistanceKm] = useState(50);
-  const [sortBy, setSortBy] = useState<"distance" | "note" | "popularite">("distance");
+  const [sortBy, setSortBy] = useState<"distance" | "note" | "popularite" | "score">("score");
   const [selectedProId, setSelectedProId] = useState<string | null>(null);
   const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
   const [geocodedCoords, setGeocodedCoords] = useState<Record<string, UserLocation>>({});
@@ -647,6 +652,7 @@ export default function ProfessionnelsPage() {
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as any)}
                 >
+                  <option value="score">Tri: Score (recommandé)</option>
                   <option value="distance">Tri: Distance</option>
                   <option value="note">Tri: Note</option>
                   <option value="popularite">Tri: Popularité</option>
