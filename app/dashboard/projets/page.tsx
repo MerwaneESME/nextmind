@@ -424,9 +424,16 @@ function ProjectCard({
   progress: number;
   onOpen: () => void;
 }) {
+  const accentClass: Record<StatusKey, string> = {
+    draft: "bg-neutral-300",
+    en_cours: "bg-primary-500",
+    termine: "bg-emerald-500",
+    en_attente: "bg-amber-500",
+  };
+
   return (
     <div
-      className="group relative overflow-hidden border rounded-xl hover:shadow-lg transition-all cursor-pointer"
+      className="group relative overflow-hidden rounded-2xl bg-white ring-1 ring-neutral-200/70 shadow-sm hover:shadow-md hover:ring-primary-200 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
       onClick={onOpen}
       role="button"
       tabIndex={0}
@@ -434,12 +441,13 @@ function ProjectCard({
         if (e.key === "Enter" || e.key === " ") onOpen();
       }}
     >
-      <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
-      <div className="relative z-10 p-6">
-      <div className="flex items-start justify-between mb-4 gap-3">
+      <div className="absolute inset-0 bg-gradient-to-br from-white via-white to-primary-50/40" />
+      <div className={`absolute left-0 top-0 h-full w-1.5 ${accentClass[statusKey]}`} aria-hidden />
+      <div className="relative z-10 p-6 pl-7">
+        <div className="flex items-start justify-between mb-4 gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 mb-2 flex-wrap">
-            <h3 className="text-xl font-semibold group-hover:text-blue-600 transition-colors">
+            <h3 className="text-xl font-semibold text-neutral-900 group-hover:text-primary-700 transition-colors">
               {project.name}
             </h3>
             <Badge type="project" status={statusKey}>
@@ -448,10 +456,10 @@ function ProjectCard({
           </div>
 
           {project.description ? (
-            <p className="text-gray-600 text-sm mb-3 line-clamp-2">{project.description}</p>
+            <p className="text-neutral-600 text-sm mb-3 line-clamp-2">{project.description}</p>
           ) : null}
 
-          <div className="flex items-center gap-4 text-sm text-gray-500 flex-wrap">
+          <div className="flex items-center gap-4 text-sm text-neutral-500 flex-wrap">
             <span className="flex items-center gap-1" title="Sous-traitants ou équipe interne">
               {project.lotsCount ?? 0} intervention{((project.lotsCount ?? 0) !== 1) ? "s" : ""}
             </span>
@@ -459,7 +467,7 @@ function ProjectCard({
           </div>
         </div>
 
-        <div className="text-xs text-gray-500 whitespace-nowrap">
+        <div className="text-xs text-neutral-500 whitespace-nowrap">
           {project.updatedAt ? `Màj: ${formatDate(project.updatedAt)}` : ""}
         </div>
       </div>
@@ -468,9 +476,9 @@ function ProjectCard({
         <ProgressBar percentage={progress} showLabel />
       </div>
 
-      <div className="flex items-center justify-between text-sm pt-3 border-t">
-        <span className="text-gray-600">Budget</span>
-        <span className="font-semibold text-gray-900">
+      <div className="flex items-center justify-between text-sm pt-3 border-t border-neutral-100">
+        <span className="text-neutral-600">Budget</span>
+        <span className="font-semibold text-neutral-900">
           {typeof project.budgetTotal === "number"
             ? `${project.budgetTotal.toLocaleString("fr-FR")} €`
             : "-"}

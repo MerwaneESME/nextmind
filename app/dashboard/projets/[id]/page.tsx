@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useBreadcrumb } from "@/contexts/BreadcrumbContext";
 import { Card, CardHeader, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { ArrowLeft, Bot, Paperclip, Plus, Send, X } from "lucide-react";
+import StatCard from "@/components/ui/StatCard";
+import { ArrowLeft, Bot, Calendar, CheckCircle2, Clock, Euro, FileText, MapPin, Paperclip, Pencil, Plus, Send, TrendingUp, Users, Wrench, X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { mapUserTypeToRole, useAuth } from "@/hooks/useAuth";
 import { cn, formatCurrency, formatDate, isValidDateRange, normalizeDateValue } from "@/lib/utils";
@@ -457,6 +459,9 @@ export default function ProjectDetailPage() {
   const [publishModalOpen, setPublishModalOpen] = useState(false);
   const [publishSubmitting, setPublishSubmitting] = useState(false);
   const [rendezVousModalOpen, setRendezVousModalOpen] = useState(false);
+  const [editInfoModalOpen, setEditInfoModalOpen] = useState(false);
+  const [editInfoSubmitting, setEditInfoSubmitting] = useState(false);
+  const [editInfoForm, setEditInfoForm] = useState({ name: "", project_type: "", address: "", city: "", description: "" });
   const [publishForm, setPublishForm] = useState({
     title: "",
     summary: "",
@@ -544,6 +549,15 @@ export default function ProjectDetailPage() {
 
     requestAnimationFrame(step);
   };
+
+  const { setBreadcrumb } = useBreadcrumb();
+  useEffect(() => {
+    setBreadcrumb([
+      { label: "Projets", href: `/dashboard?role=${role}` },
+      { label: project?.name ?? "Projet" },
+    ]);
+    return () => setBreadcrumb([]);
+  }, [project?.name, role]);
 
   useEffect(() => {
     if (!isTabKey(tabParam)) return;
@@ -1039,6 +1053,38 @@ export default function ProjectDetailPage() {
     }
     setPublishSubmitting(false);
     setPublishModalOpen(false);
+  };
+
+  const openEditInfoModal = () => {
+    setEditInfoForm({
+      name: project?.name ?? "",
+      project_type: project?.project_type ?? "",
+      address: project?.address ?? "",
+      city: project?.city ?? "",
+      description: project?.description ?? "",
+    });
+    setEditInfoModalOpen(true);
+  };
+
+  const handleSaveProjectInfo = async () => {
+    if (!canManageProject || !projectId) return;
+    setEditInfoSubmitting(true);
+    const { data, error: updateError } = await supabase
+      .from("projects")
+      .update({
+        name: editInfoForm.name.trim() || project?.name,
+        project_type: editInfoForm.project_type.trim() || null,
+        address: editInfoForm.address.trim() || null,
+        city: editInfoForm.city.trim() || null,
+        description: editInfoForm.description.trim() || null,
+      })
+      .eq("id", projectId)
+      .select()
+      .single();
+    setEditInfoSubmitting(false);
+    if (updateError) { setError(updateError.message); return; }
+    if (data) setProject(data as Project);
+    setEditInfoModalOpen(false);
   };
 
   const buildAssistantTaskDescription = (task: AssistantTask) => {
@@ -2005,7 +2051,7 @@ export default function ProjectDetailPage() {
     return Math.max(1, diffDays);
   }, [tasks]);
 
-  /** Interventions à venir (uniquement les interventions, pas les tâches) */
+  /** Interventions à venir (au niveau lot) */
   const upcomingInterventions = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -2023,9 +2069,42 @@ export default function ProjectDetailPage() {
         date: new Date(`${(lot.startDate ?? lot.endDate) ?? ""}T00:00:00`),
         companyName: lot.companyName ?? null,
         description: lot.description ?? null,
+        kind: "intervention" as const,
       }))
       .sort((a, b) => a.date.getTime() - b.date.getTime());
   }, [interventions]);
+
+  /** Tâches à venir (niveau projet + interventions) */
+  const upcomingTasks = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return tasks
+      .filter((task) => {
+        if (task.completed_at) return false;
+        const dateStr = task.start_date ?? task.end_date;
+        if (!dateStr) return false;
+        const d = new Date(`${dateStr}T00:00:00`);
+        d.setHours(0, 0, 0, 0);
+        return d >= today;
+      })
+      .map((task) => ({
+        id: task.id,
+        name: task.name,
+        date: new Date(`${(task.start_date ?? task.end_date) ?? ""}T00:00:00`),
+        companyName: null as string | null,
+        description: task.description,
+        kind: "task" as const,
+      }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+  }, [tasks]);
+
+  /** Combinaison pour les prochains rendez-vous (tâches + interventions) */
+  const upcomingItems = useMemo(() => {
+    const combined = [...upcomingTasks, ...upcomingInterventions];
+    combined.sort((a, b) => a.date.getTime() - b.date.getTime());
+    return combined;
+  }, [upcomingTasks, upcomingInterventions]);
 
   const dayKeys = useMemo(() => weekDays.map((day) => toDateKey(day)), [weekDays]);
   const dayKeySet = useMemo(() => new Set(dayKeys), [dayKeys]);
@@ -2036,6 +2115,44 @@ export default function ProjectDetailPage() {
   );
   const todayKey = toDateKey(new Date());
   const projectStatusValue = normalizeProjectStatus(project?.status ?? null);
+
+  const statusCardColorClass = useMemo(() => {
+    switch (projectStatusValue) {
+      case "termine":
+        return {
+          leftBorderColor: "#10b981",
+          bg: "bg-emerald-50/60",
+          iconBg: "bg-gradient-to-br from-emerald-100 to-emerald-50",
+          iconColor: "text-emerald-700",
+          selectClass: "border-emerald-200 text-emerald-700 hover:border-emerald-300",
+        };
+      case "en_cours":
+        return {
+          leftBorderColor: "#38b6ff",
+          bg: "bg-sky-50/60",
+          iconBg: "bg-gradient-to-br from-sky-100 to-sky-50",
+          iconColor: "text-sky-600",
+          selectClass: "border-sky-200 text-sky-700 hover:border-sky-300",
+        };
+      case "en_attente":
+        return {
+          leftBorderColor: "#fbbf24",
+          bg: "bg-amber-50/60",
+          iconBg: "bg-gradient-to-br from-amber-100 to-amber-50",
+          iconColor: "text-amber-700",
+          selectClass: "border-amber-200 text-amber-700 hover:border-amber-300",
+        };
+      default: // draft / à faire
+        return {
+          leftBorderColor: "#94a3b8",
+          bg: "bg-slate-50/60",
+          iconBg: "bg-gradient-to-br from-slate-100 to-slate-50",
+          iconColor: "text-slate-500",
+          selectClass: "border-slate-200 text-slate-600 hover:border-slate-300",
+        };
+    }
+  }, [projectStatusValue]);
+
   const selectedTaskInfo = selectedTask ? splitTaskDescription(selectedTask.description) : { time: null, text: null };
 
   const taskSlots = useMemo(() => {
@@ -2138,15 +2255,38 @@ export default function ProjectDetailPage() {
   return (
     <div className="space-y-6">
       <header className="space-y-2">
-        <div className="flex flex-wrap items-center gap-4">
-          <img
-            src="/images/projet2.png"
-            alt="Projet"
-            className="h-28 w-28 object-contain logo-blend"
-          />
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">{project?.name ?? "Projet"}</h1>
-            <p className="text-gray-600">{project?.description ?? "Aucune description."}</p>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <img
+              src="/images/projet2.png"
+              alt="Projet"
+              className="h-28 w-28 object-contain logo-blend"
+            />
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">{project?.name ?? "Projet"}</h1>
+              <p className="text-sm text-gray-600">
+                Projet {project?.status ? project.status.replace("_", " ") : ""}
+                {project?.updated_at && (
+                  <> · Mis à jour {formatDate(project.updated_at)}</>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => {
+              // TODO: export action
+            }}>
+              <FileText className="h-4 w-4" />
+              Exporter
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              className="bg-gradient-to-r from-primary-400 to-primary-600 shadow-md hover:shadow-lg hover:brightness-105"
+              onClick={() => setEditInfoModalOpen(true)}
+            >
+              Modifier le projet
+            </Button>
           </div>
         </div>
         {currentMember?.status === "pending" && (
@@ -2164,7 +2304,7 @@ export default function ProjectDetailPage() {
       </header>
 
       <nav className="sticky top-3 z-30" aria-label="Navigation du projet">
-        <div className="flex flex-wrap gap-1 rounded-2xl border border-neutral-200 bg-white/70 p-1 shadow-[0_18px_55px_-45px_rgba(0,0,0,0.35)] backdrop-blur">
+        <div className="flex flex-wrap gap-1 rounded-2xl border border-neutral-100 bg-neutral-100/60 p-1 backdrop-blur">
           {tabItems.map((tab) => {
             const isActive = activeTab === tab.key;
             const isGuideOrAssistant = tab.key === "guide" || tab.key === "assistant";
@@ -2180,8 +2320,8 @@ export default function ProjectDetailPage() {
                   "transition duration-200 ease-out transform-gpu",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2",
                   isActive
-                    ? "bg-primary-600 text-white shadow-[0_16px_40px_-28px_rgba(24,0,173,0.45)]"
-                    : "text-neutral-700 hover:bg-white hover:text-neutral-900",
+                    ? "bg-white text-primary-600 shadow-sm"
+                    : "text-neutral-600 hover:bg-white/80 hover:text-neutral-900",
                   !isActive ? "hover:-translate-y-[1px]" : "",
                 ].join(" ")}
                 onClick={() => {
@@ -2193,7 +2333,7 @@ export default function ProjectDetailPage() {
                   src={tab.iconSrc}
                   alt=""
                   aria-hidden
-                  className={`w-4 h-4 object-contain transition ${isActive ? "brightness-0 invert" : "logo-blend group-hover:scale-[1.02]"}`}
+                  className="w-4 h-4 object-contain transition logo-blend group-hover:scale-[1.02]"
                 />
                 <span className="text-inherit">{tab.label}</span>
                 {isActive && isGuideOrAssistant ? (
@@ -2212,300 +2352,355 @@ export default function ProjectDetailPage() {
 
       {!loading && activeTab === "overview" && (
         <section className="space-y-6">
+          {/* ── Stats cards ── */}
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <Card className="border-l-4 border-l-emerald-200 bg-emerald-50/20">
-              <CardHeader className="border-b border-emerald-100 bg-emerald-50/60">
-                <div className="text-sm text-gray-600">Budget estimé</div>
-              </CardHeader>
-              <CardContent className="text-2xl font-semibold text-gray-900">
-                {hasBudget ? formatCurrency(totalBudget) : "-"}
-                {interventionsBudgetActual > 0 && (
-                  <div className="text-sm text-gray-600 mt-1">
-                    Dépenses réelles : {formatCurrency(interventionsBudgetActual)}
-                  </div>
-                )}
-                <div className="text-xs text-gray-500 mt-1">
-                  {interventions.length > 0 && (
-                    <span>{interventions.length} intervention{interventions.length > 1 ? "s" : ""}</span>
-                  )}
-                  {interventions.length > 0 && quotes.length > 0 && " · "}
-                  {quotes.length > 0 && (
-                    <span>{quotes.length} devis lié{quotes.length > 1 ? "s" : ""}</span>
-                  )}
-                </div>
-                {quoteStatusSummary && (
-                  <div className="text-xs text-gray-500 mt-1">{quoteStatusSummary}</div>
-                )}
-                {interventions.length > 0 && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-2"
+            {/* stat grid generation */}
+            {[
+              {
+                key: "budget",
+                label: "Budget estimé",
+                value: hasBudget ? formatCurrency(totalBudget) : "—",
+                extra: interventionsBudgetActual > 0 ? (
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Dépensé : {formatCurrency(interventionsBudgetActual)}
+                  </p>
+                ) : null,
+                cta: interventions.length > 0 && (
+                  <button
+                    className="mt-2 inline-flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
                     onClick={() => {
                       setActiveTab("budget");
                       updateQuery({ tab: "budget" });
                     }}
                   >
-                    Voir budget détaillé
-                  </Button>
+                    Voir budget →
+                  </button>
+                ),
+                colorClass: {
+                  leftBorderColor: "#10b981",
+                  bg: "bg-emerald-50/60",
+                  iconBg: "bg-gradient-to-br from-emerald-100 to-emerald-50",
+                  iconColor: "text-emerald-700",
+                },
+                icon: Euro,
+              },
+              {
+                key: "progress",
+                label: "Avancement",
+                value: `${progressPercent}%`,
+                extra: (
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Sur {totalTasks} tâche{totalTasks !== 1 ? "s" : ""}
+                  </p>
+                ),
+                colorClass: {
+                  leftBorderColor: "#38b6ff",
+                  bg: "bg-sky-50/60",
+                  iconBg: "bg-gradient-to-br from-primary-100 to-primary-50",
+                  iconColor: "text-primary-600",
+                },
+                icon: TrendingUp,
+              },
+              {
+                key: "status",
+                label: "Statut projet",
+                value:
+                  PROJECT_STATUS_OPTIONS.find((o) => o.value === projectStatusValue)?.label || "—",
+                extra: (
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Mis à jour : {project?.updated_at ? formatDate(project.updated_at) : "—"}
+                  </p>
+                ),
+                cta: canManageProject ? (
+                  <select
+                    className={cn("mt-2 text-xs rounded-lg border bg-white px-2 py-1 cursor-pointer transition-colors", statusCardColorClass.selectClass)}
+                    value={projectStatusValue}
+                    onChange={(e) => void handleUpdateProjectStatus(e.target.value as ProjectStatusValue)}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {PROJECT_STATUS_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                ) : null,
+                colorClass: statusCardColorClass,
+                icon: CheckCircle2,
+              },
+              {
+                key: "participants",
+                label: "Participants",
+                value: String(members.length),
+                extra: <p className="text-xs text-neutral-500 mt-1">{members.filter((m) => formatMemberStatus(m.status).label === "Actif").length} actifs</p>,
+                colorClass: {
+                  leftBorderColor: "#1800ad",
+                  bg: "bg-violet-50/60",
+                  iconBg: "bg-gradient-to-br from-violet-100 to-violet-50",
+                  iconColor: "text-violet-700",
+                },
+                icon: Users,
+              },
+            ].map((stat) => (
+              <div
+                key={stat.key}
+                className={cn(
+                  "relative rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow border border-neutral-100",
+                  stat.colorClass.bg
                 )}
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-blue-200 bg-blue-50/20">
-              <CardHeader className="border-b border-blue-100 bg-blue-50/60">
-                <div className="text-sm text-gray-600">Avancement</div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-semibold text-gray-900">{progressPercent}%</div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {completedTasks}/{totalTasks} tâches terminées
+                style={{ borderLeft: `3px solid ${stat.colorClass.leftBorderColor}` }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-neutral-500">{stat.label}</p>
+                    <p className="mt-1 text-3xl font-bold text-neutral-900">
+                      {stat.value}
+                    </p>
+                    {stat.extra}
+                    {stat.cta}
+                  </div>
+                  <div
+                    className={cn(
+                      "h-12 w-12 rounded-xl flex items-center justify-center flex-shrink-0",
+                      stat.colorClass.iconBg
+                    )}
+                  >
+                    <stat.icon className={cn("h-6 w-6", stat.colorClass.iconColor)} />
+                  </div>
                 </div>
-                {lateTasks.length > 0 && (
-                  <div className="text-xs font-semibold text-red-600 mt-1">
-                    {lateTasks.length} tâche{lateTasks.length > 1 ? "s" : ""} en retard
+                {stat.key === "progress" && (
+                  <div className="mt-3 h-1.5 rounded-full bg-neutral-100 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-primary-400 to-primary-600 transition-all progress-fill"
+                      style={{ width: `${progressPercent}%` }}
+                    />
                   </div>
                 )}
-                <div className="mt-3 h-2 rounded-full bg-gray-100">
-                  <div
-                    className="h-2 rounded-full bg-primary-600"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-amber-200 bg-amber-50/20">
-              <CardHeader className="border-b border-amber-100 bg-amber-50/60">
-                <div className="text-sm text-gray-600">Statut</div>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <select
-                  className="w-full rounded-lg border border-amber-200 bg-white px-2 py-1 text-sm"
-                  value={projectStatusValue}
-                  disabled={statusUpdating || !canManageProject}
-                  onChange={(event) =>
-                    handleUpdateProjectStatus(event.target.value as ProjectStatusValue)
-                  }
-                >
-                  {PROJECT_STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <div className="text-xs text-gray-500">
-                  Dernière maj : {project?.updated_at ? formatDate(project.updated_at) : "-"}
-                </div>
-                {projectStatusValue !== "termine" && canManageProject && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleUpdateProjectStatus("termine")}
-                    disabled={statusUpdating || !canManageProject}
-                  >
-                    Cloturer le projet
-                  </Button>
-                )}
-                {projectStatusValue === "termine" && canManageProject && (
-                  <Button variant="outline" size="sm" onClick={openPublishModal}>
-                    Publier sur le profil
-                  </Button>
-                )}
-                {canManageProject && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-red-200 text-red-600"
-                    onClick={handleDeleteProject}
-                  >
-                    Supprimer le projet
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-            <Card className="border-l-4 border-l-violet-200 bg-violet-50/20">
-              <CardHeader className="border-b border-violet-100 bg-violet-50/60">
-                <div className="text-sm text-gray-600">Participants</div>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <div className="text-2xl font-semibold text-gray-900">{members.length}</div>
-                <div className="text-xs text-gray-500">Membres invites et actifs</div>
-              </CardContent>
-            </Card>
+              </div>
+            ))}
+
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Card className="lg:col-span-2 border-l-4 border-l-primary-200">
-              <CardHeader className="border-b border-primary-100 bg-primary-50/40 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="font-semibold text-gray-900">Prochains rendez-vous</div>
-                  <div className="text-sm text-gray-500">
-                    Interventions à venir.
-                  </div>
-                </div>
-                {upcomingInterventions.length > 0 && (
-                  <Button variant="outline" size="sm" onClick={() => setRendezVousModalOpen(true)}>
-                    Voir tout
-                  </Button>
-                )}
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {upcomingInterventions.length === 0 ? (
-                  <div className="text-sm text-gray-500">Aucune intervention à venir.</div>
-                ) : (
-                  upcomingInterventions.slice(0, 2).map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50 transition"
-                      onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${item.id}?role=${role}`)}
+          {/* ── Main 2-column layout ── */}
+          <div className="grid gap-6 lg:grid-cols-3">
+            {/* Left column (2/3) */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* Informations */}
+              <div className="rounded-xl border border-neutral-100 bg-white shadow-sm overflow-hidden card-hover">
+                <div className="px-5 py-4 flex items-center justify-between">
+                  <h3 className="font-semibold text-neutral-900">Informations</h3>
+                  {canManageProject && (
+                    <button
+                      onClick={openEditInfoModal}
+                      className="h-8 w-8 rounded-lg bg-neutral-100 hover:bg-primary-50 flex items-center justify-center transition-colors"
+                      title="Modifier les informations"
                     >
-                      <div>
-                        <div className="font-semibold text-gray-900">{item.name}</div>
-                        <div className="text-xs text-gray-500">
-                          {formatDate(item.date.toISOString().slice(0, 10))}
-                          {item.companyName ? ` • ${item.companyName}` : ""}
-                        </div>
-                        {item.description && (
-                          <div className="text-xs text-gray-500 mt-1 line-clamp-2">{item.description}</div>
-                        )}
+                      <Pencil className="h-4 w-4 text-neutral-500 hover:text-primary-600" />
+                    </button>
+                  )}
+                </div>
+                <div className="px-5 pb-5 grid sm:grid-cols-2 gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-lg bg-primary-100 flex-shrink-0">
+                      <Wrench className="h-4 w-4 text-primary-600" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-neutral-500">Type de travaux</p>
+                      <p className="text-sm font-medium text-neutral-900 mt-0.5">{project?.project_type || "Non défini"}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-lg bg-primary-100 flex-shrink-0">
+                      <MapPin className="h-4 w-4 text-primary-600" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-neutral-500">Localisation</p>
+                      <p className="text-sm font-medium text-neutral-900 mt-0.5">
+                        {[project?.address, project?.city].filter(Boolean).join(", ") || "—"}
+                      </p>
+                    </div>
+                  </div>
+                  {project?.description && (
+                    <div className="sm:col-span-2 flex items-start gap-3">
+                      <div className="p-2 rounded-lg bg-primary-100 flex-shrink-0">
+                        <FileText className="h-4 w-4 text-primary-600" />
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          router.push(`/dashboard/projets/${projectId}/interventions/${item.id}?role=${role}`);
+                      <div>
+                        <p className="text-xs text-neutral-500">Description</p>
+                        <p className="text-sm font-medium text-neutral-900 mt-0.5 leading-relaxed">{project.description}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Suivi des interventions */}
+              <div className="rounded-xl border border-neutral-100 bg-white shadow-sm overflow-hidden card-hover">
+                <div className="px-5 py-4 flex items-center justify-between">
+                  <h3 className="font-semibold text-neutral-900">Suivi des tâches</h3>
+                  {interventions.length > 0 && (
+                    <button
+                      className="text-xs text-primary-600 hover:underline"
+                      onClick={() => { setActiveTab("interventions"); updateQuery({ tab: "interventions" }); }}
+                    >
+                      Voir tout →
+                    </button>
+                  )}
+                </div>
+                <div className="p-3 space-y-2">
+                  {interventionsLoading ? (
+                    <div className="px-4 py-6 text-sm text-neutral-500">Chargement...</div>
+                  ) : interventions.length === 0 ? (
+                    <div className="px-4 py-8 text-sm text-neutral-500 text-center">
+                      Aucune intervention pour le moment.
+                      {canManageProject && (
+                        <div className="mt-2">
+                          <Button size="sm" onClick={() => { setFormError(null); setInterventionModalOpen(true); }}>
+                            + Nouvelle intervention
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    interventions.map((intervention) => {
+                      const isDone = intervention.status === "termine" || intervention.status === "valide";
+                      const isInProgress = intervention.status === "en_cours";
+                      const isDevis = intervention.status === "devis_en_cours" || intervention.status === "devis_valide";
+                      const statusLabel = isDone ? "Terminé"
+                        : isInProgress ? "En cours"
+                        : isDevis ? "Devis"
+                        : "Planifié";
+                      const statusColor = isDone
+                        ? "bg-success-50 text-success-700"
+                        : isInProgress
+                        ? "bg-primary-50 text-primary-700"
+                        : isDevis
+                        ? "bg-amber-50 text-amber-700"
+                        : "bg-neutral-100 text-neutral-600";
+                      const dotColor = isDone
+                        ? "bg-success-500"
+                        : isInProgress
+                        ? "bg-primary-500"
+                        : isDevis
+                        ? "bg-amber-500"
+                        : "bg-neutral-400";
+                      const barGradient = isDone
+                        ? "bg-gradient-to-r from-success-500 to-success-700"
+                        : isInProgress
+                        ? "bg-gradient-to-r from-primary-400 to-primary-600"
+                        : isDevis
+                        ? "bg-gradient-to-r from-amber-400 to-amber-600"
+                        : "bg-neutral-300";
+                      return (
+                        <div
+                          key={intervention.id}
+                          className="px-4 py-4 rounded-xl cursor-pointer bg-white border border-neutral-100 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
+                          onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${intervention.id}?role=${role}`)}
+                        >
+                          <div className="flex items-center justify-between gap-3 mb-2">
+                            <span className="font-medium text-neutral-900 truncate">{intervention.name}</span>
+                            <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium flex-shrink-0", statusColor)}>
+                              <span className={cn("h-1.5 w-1.5 rounded-full flex-shrink-0", dotColor)} />
+                              {statusLabel}
+                            </span>
+                          </div>
+                          <div className="h-2 rounded-full bg-neutral-100 overflow-hidden">
+                            <div className={cn("h-full rounded-full transition-all progress-fill", barGradient)} style={{ width: `${intervention.progressPercentage}%` }} />
+                          </div>
+                          <div className="flex items-center justify-between mt-1.5">
+                            <span className="text-xs text-neutral-400">
+                              {intervention.tasksDone}/{intervention.tasksTotal} tâches
+                              {intervention.companyName ? ` · ${intervention.companyName}` : ""}
+                            </span>
+                            <span className="text-xs font-medium text-neutral-500">{intervention.progressPercentage}%</span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Right column (1/3) */}
+            <div className="space-y-6">
+              {/* Prochains rendez-vous */}
+              <div className="rounded-xl border border-neutral-100 bg-white shadow-sm overflow-hidden card-hover">
+                <div className="px-5 py-4 flex items-center justify-between">
+                  <h3 className="font-semibold text-neutral-900">Prochains rendez-vous</h3>
+                  {upcomingItems.length > 0 && (
+                    <button className="text-xs text-primary-600 hover:underline" onClick={() => setRendezVousModalOpen(true)}>
+                      Voir tout
+                    </button>
+                  )}
+                </div>
+                <div className="p-3 space-y-2">
+                  {upcomingItems.length === 0 ? (
+                    <div className="px-4 py-6 text-sm text-neutral-500 text-center">Aucun rendez-vous à venir.</div>
+                  ) : (
+                    upcomingItems.slice(0, 3).map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-start gap-3 p-3 rounded-lg bg-neutral-50/80 hover:bg-neutral-100/60 cursor-pointer transition-colors"
+                        onClick={() => {
+                          if (item.kind === "intervention") {
+                            router.push(`/dashboard/projets/${projectId}/interventions/${item.id}?role=${role}`);
+                          } else {
+                            updateQuery({ tab: "planning" });
+                          }
                         }}
                       >
-                        Voir intervention
-                      </Button>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
+                        <div className="p-2 rounded-lg bg-primary-100 flex-shrink-0">
+                          <Calendar className="h-4 w-4 text-primary-600" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-neutral-900 truncate">{item.name}</p>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Clock className="h-3 w-3 text-neutral-400 flex-shrink-0" />
+                            <span className="text-xs text-neutral-500">
+                              {formatDate(item.date.toISOString().slice(0, 10))}
+                              {item.companyName ? ` · ${item.companyName}` : ""}
+                            </span>
+                          </div>
+                        </div>
+                        <Badge variant="info" className="text-[10px] flex-shrink-0 gap-1">
+                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-500" />
+                          {item.kind === "intervention" ? "Intervention" : "Tâche"}
+                        </Badge>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
 
-            <Card className="border-l-4 border-l-slate-200 bg-slate-50/30">
-              <CardHeader className="border-b border-slate-100 bg-slate-50/60">
-                <div className="font-semibold text-gray-900">Informations</div>
-                <div className="text-sm text-gray-500">Résumé du chantier.</div>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-gray-700">
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-gray-400">Type</div>
-                  <div>{project?.project_type || "Non défini"}</div>
+              {/* Membres */}
+              <div className="rounded-xl border border-neutral-100 bg-white shadow-sm overflow-hidden card-hover">
+                <div className="px-5 py-4 flex items-center justify-between">
+                  <h3 className="font-semibold text-neutral-900">Membres</h3>
+                  <span className="text-xs text-neutral-400">{members.length}</span>
                 </div>
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-gray-400">Localisation</div>
-                  <div>
-                    {project?.address || "-"} {project?.city || ""}
-                  </div>
+                <div className="divide-y divide-neutral-100">
+                  {members.length === 0 ? (
+                    <div className="px-5 py-6 text-sm text-neutral-500 text-center">Aucun membre.</div>
+                  ) : (
+                    members.slice(0, 5).map((member) => {
+                      const roleInfo = formatMemberRole(member.role);
+                      const name = member.user?.full_name || member.user?.email || member.invited_email || "Invité";
+                      return (
+                        <div key={member.id} className="flex items-center gap-3 px-5 py-3">
+                          <div className="h-8 w-8 rounded-full bg-primary-50 flex items-center justify-center flex-shrink-0">
+                            <span className="text-xs font-semibold text-primary-500">{name.charAt(0).toUpperCase()}</span>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-neutral-900 truncate">{name}</p>
+                            <p className="text-xs text-neutral-500">{roleInfo.label}</p>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-gray-400">Description</div>
-                  <div>{project?.description || "Aucune description."}</div>
-                </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </div>
-
-          {userRole !== "professionnel" && (
-            <Card>
-              <CardHeader>
-                <div className="font-semibold text-gray-900">Suivi des tâches</div>
-                <div className="text-sm text-gray-500">
-                  Mettez à jour l'état des tâches pour suivre l'avancement.
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {tasks.length === 0 && (
-                  <div className="text-sm text-gray-500">Aucune tâche pour le moment.</div>
-                )}
-                {tasks.map((task) => {
-                  const statusValue = normalizeTaskStatus(task.status);
-                  const dueDate = getTaskDueDate(task);
-                  const delayLabel = getTaskDelayLabel(task);
-                  return (
-                    <div
-                      key={task.id}
-                      className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 ${getTaskCardStyle(
-                        task
-                      )}`}
-                    >
-                      <div>
-                        <div className="font-semibold text-gray-900">{task.name}</div>
-                        <div className="text-xs text-gray-500">
-                          {dueDate ? `Échéance: ${formatDate(dueDate)}` : "Sans date définie"}
-                        </div>
-                        {delayLabel && (
-                          <div className="text-xs font-semibold text-red-600 mt-1">{delayLabel}</div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <select
-                          className="rounded-lg border border-gray-300 px-2 py-1 text-sm"
-                          value={statusValue}
-                          disabled={!canEditTasks}
-                          onChange={(event) =>
-                            handleUpdateTaskStatus(task, event.target.value as TaskStatusValue)
-                          }
-                        >
-                          {TASK_STATUS_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                        {delayLabel && !isTaskCompleted(task.status) && (
-                          <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
-                            Retard
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          )}
-
-          {interventions.length > 0 && (
-            <Card>
-              <CardHeader className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="font-semibold text-gray-900">Interventions ({interventions.length})</div>
-                  <div className="text-sm text-gray-500">Progression des interventions du projet.</div>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => { setActiveTab("interventions"); updateQuery({ tab: "interventions" }); }}>
-                  Voir tout
-                </Button>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {interventions.slice(0, 4).map((intervention) => (
-                  <div
-                    key={intervention.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50 transition"
-                    onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${intervention.id}?role=${role}`)}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium text-gray-900">{intervention.name}</div>
-                      <div className="text-xs text-gray-500">
-                        {intervention.tasksDone}/{intervention.tasksTotal} taches
-                        {intervention.companyName ? ` - ${intervention.companyName}` : ""}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="w-24">
-                        <div className="h-2 rounded-full bg-gray-100">
-                          <div className="h-2 rounded-full bg-primary-600" style={{ width: `${intervention.progressPercentage}%` }} />
-                        </div>
-                      </div>
-                      <span className="text-xs font-medium text-gray-700 w-10 text-right">{intervention.progressPercentage}%</span>
-                    </div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
         </section>
       )}
 
@@ -3765,6 +3960,88 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
+      {/* ── Edit project info modal ── */}
+      {editInfoModalOpen && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-neutral-200 max-w-lg w-full p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h2 className="text-base font-semibold text-neutral-900">Modifier les informations</h2>
+                <p className="text-sm text-neutral-500">Mettez à jour les détails du projet</p>
+              </div>
+              <button onClick={() => setEditInfoModalOpen(false)} className="h-8 w-8 rounded-lg bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center transition-colors">
+                <X className="h-4 w-4 text-neutral-600" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Nom du projet</label>
+                <input
+                  className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition"
+                  value={editInfoForm.name}
+                  onChange={(e) => setEditInfoForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="Ex : Rénovation cuisine"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Type de travaux</label>
+                <input
+                  className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition"
+                  value={editInfoForm.project_type}
+                  onChange={(e) => setEditInfoForm((f) => ({ ...f, project_type: e.target.value }))}
+                  placeholder="Ex : Extension, Rénovation…"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Adresse</label>
+                  <input
+                    className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition"
+                    value={editInfoForm.address}
+                    onChange={(e) => setEditInfoForm((f) => ({ ...f, address: e.target.value }))}
+                    placeholder="8 Rue du Parc"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Ville</label>
+                  <input
+                    className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition"
+                    value={editInfoForm.city}
+                    onChange={(e) => setEditInfoForm((f) => ({ ...f, city: e.target.value }))}
+                    placeholder="Versailles"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Description</label>
+                <textarea
+                  rows={3}
+                  className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition resize-none"
+                  value={editInfoForm.description}
+                  onChange={(e) => setEditInfoForm((f) => ({ ...f, description: e.target.value }))}
+                  placeholder="Description du chantier…"
+                />
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={() => setEditInfoModalOpen(false)}
+                className="rounded-xl border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleSaveProjectInfo}
+                disabled={editInfoSubmitting}
+                className="rounded-xl bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors"
+              >
+                {editInfoSubmitting ? "Enregistrement…" : "Enregistrer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {publishModalOpen && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
           <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-lg w-full p-6">
@@ -3849,7 +4126,7 @@ export default function ProjectDetailPage() {
           <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-2xl w-full max-h-[85vh] flex flex-col">
             <div className="flex items-start justify-between gap-3 p-6 border-b border-neutral-200">
               <div>
-                <h3 className="text-lg font-semibold text-neutral-900">Toutes les interventions à venir</h3>
+                <h3 className="text-lg font-semibold text-neutral-900">Tous les rendez-vous à venir</h3>
                 <p className="text-sm text-neutral-600">
                   Liste de toutes les interventions planifiées.
                 </p>
@@ -3858,17 +4135,21 @@ export default function ProjectDetailPage() {
                 Fermer
               </Button>
             </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-3">
-              {upcomingInterventions.length === 0 ? (
-                <div className="text-sm text-gray-500">Aucune intervention à venir.</div>
+                <div className="flex-1 overflow-y-auto p-6 space-y-3">
+              {upcomingItems.length === 0 ? (
+                <div className="text-sm text-gray-500">Aucun rendez-vous à venir.</div>
               ) : (
-                upcomingInterventions.map((item) => (
+                upcomingItems.map((item) => (
                   <div
                     key={item.id}
                     className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50 transition"
                     onClick={() => {
                       setRendezVousModalOpen(false);
-                      router.push(`/dashboard/projets/${projectId}/interventions/${item.id}?role=${role}`);
+                      if (item.kind === "intervention") {
+                        router.push(`/dashboard/projets/${projectId}/interventions/${item.id}?role=${role}`);
+                      } else {
+                        updateQuery({ tab: "planning" });
+                      }
                     }}
                   >
                     <div>
@@ -3887,10 +4168,14 @@ export default function ProjectDetailPage() {
                       onClick={(e) => {
                         e.stopPropagation();
                         setRendezVousModalOpen(false);
-                        router.push(`/dashboard/projets/${projectId}/interventions/${item.id}?role=${role}`);
+                        if (item.kind === "intervention") {
+                          router.push(`/dashboard/projets/${projectId}/interventions/${item.id}?role=${role}`);
+                        } else {
+                          updateQuery({ tab: "planning" });
+                        }
                       }}
                     >
-                      Voir intervention
+                      {item.kind === "intervention" ? "Voir intervention" : "Voir dans le planning"}
                     </Button>
                   </div>
                 ))

@@ -8,6 +8,7 @@ import { UserRole } from "@/types";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
+import { BreadcrumbProvider } from "@/contexts/BreadcrumbContext";
 
 export default function DashboardLayout({
   children,
@@ -70,28 +71,31 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-neutral-50">
-      <Sidebar
-        userRole={activeUser.role}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
-      />
-      <div
-        className={cn(
-          "transition-[margin] duration-200 ease-in-out",
-          sidebarCollapsed ? "ml-16" : "ml-64"
-        )}
-      >
-        <Header user={activeUser} />
-        <main className="p-6">{children}</main>
-      </div>
-      {!hideChatWidget && (
-        <ChatWidget
+    <BreadcrumbProvider>
+      <div className="min-h-screen bg-neutral-50">
+        <Sidebar
           userRole={activeUser.role}
-          userId={activeUser.id}
-          offsetBottom={pathname?.includes("/dashboard/messages") ? 96 : undefined}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+          user={{ name: activeUser.name, role: activeUser.role }}
         />
-      )}
-    </div>
+        <div
+          className={cn(
+            "transition-[margin] duration-200 ease-in-out",
+            sidebarCollapsed ? "ml-16" : "ml-64"
+          )}
+        >
+          <Header user={activeUser} />
+          <main className="p-6">{children}</main>
+        </div>
+        {!hideChatWidget && (
+          <ChatWidget
+            userRole={activeUser.role}
+            userId={activeUser.id}
+            offsetBottom={pathname?.includes("/dashboard/messages") ? 96 : undefined}
+          />
+        )}
+      </div>
+    </BreadcrumbProvider>
   );
 }

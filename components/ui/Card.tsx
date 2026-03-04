@@ -9,7 +9,10 @@ export function Card({ children, className, ...props }: CardProps) {
   return (
     <div
       {...props}
-      className={cn("bg-white rounded-lg shadow-sm border border-gray-200", className)}
+      className={cn(
+        "bg-white rounded-xl shadow-sm border border-neutral-100 card-hover",
+        className
+      )}
     >
       {children}
     </div>
@@ -22,7 +25,7 @@ interface CardHeaderProps extends HTMLAttributes<HTMLDivElement> {
 
 export function CardHeader({ children, className, ...props }: CardHeaderProps) {
   return (
-    <div {...props} className={cn("px-6 py-4 border-b border-gray-200", className)}>
+    <div {...props} className={cn("px-6 py-4", className)}>
       {children}
     </div>
   );
