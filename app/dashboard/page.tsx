@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardHeader, CardContent } from "@/components/ui/Card";
 import { Table, TableHeader, TableRow, TableHead, TableCell } from "@/components/ui/Table";
 import { Button } from "@/components/ui/Button";
@@ -14,6 +14,8 @@ import {
   FileText,
   Eye,
   Download,
+  ImagePlus,
+  Trash2,
   TrendingUp,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -22,7 +24,14 @@ import {
   fetchProjectsForUser,
   ProjectSummary,
   type CreateProjectParticulierInput,
+  type QuestionnaireData,
 } from "@/lib/projectsDb";
+import { inferTypeFromFile, uploadDocument } from "@/lib/db/documentsDb";
+import {
+  PROJECT_TYPES_PARTICULIER,
+  getQuestionnaireFields,
+  type QuestionnaireField,
+} from "@/lib/projectQuestionnaire";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { QuoteSummary } from "@/lib/quotesStore";
@@ -92,7 +101,7 @@ const getStatusLabel = (status: string) => {
   return labels[status] || status;
 };
 
-export default function DashboardPage() {
+function DashboardContent() {
   const searchParams = useSearchParams();
   const roleParam = searchParams.get("role");
   const userRole: "particulier" | "professionnel" =
@@ -103,6 +112,18 @@ export default function DashboardPage() {
   }
 
   return <ParticulierDashboard />;
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-[400px] flex items-center justify-center text-neutral-600">
+        Chargement du tableau de bord...
+      </div>
+    }>
+      <DashboardContent />
+    </Suspense>
+  );
 }
 
 function ProfessionalDashboard() {
@@ -122,39 +143,48 @@ function ProfessionalDashboard() {
     return path.startsWith(`${bucket}/`) ? path.slice(bucket.length + 1) : path;
   };
 
-  const loadProjects = async () => {
+  const loadProjects = async (silent = false) => {
     if (!user?.id) return;
-    setProjectsLoading(true);
-    setProjectsError(null);
+    if (!silent) setProjectsLoading(true);
+    if (!silent) setProjectsError(null);
     try {
       const data = await fetchProjectsForUser(user.id);
       setProjects(data);
     } catch (err: any) {
-      setProjectsError(err?.message ?? "Impossible de charger les projets.");
+      if (!silent) setProjectsError(err?.message ?? "Impossible de charger les projets.");
       setProjects([]);
     } finally {
-      setProjectsLoading(false);
+      if (!silent) setProjectsLoading(false);
     }
   };
 
-  const loadQuotes = async () => {
+  const loadQuotes = async (silent = false) => {
     if (!user?.id) return;
-    setQuotesLoading(true);
-    setQuotesError(null);
+    if (!silent) setQuotesLoading(true);
+    if (!silent) setQuotesError(null);
     try {
       const data = await fetchDevisForUser(user.id);
       setQuotes(data);
     } catch (err: any) {
-      setQuotesError(err?.message ?? "Impossible de charger les devis.");
+      if (!silent) setQuotesError(err?.message ?? "Impossible de charger les devis.");
       setQuotes([]);
     } finally {
-      setQuotesLoading(false);
+      if (!silent) setQuotesLoading(false);
     }
   };
 
   useEffect(() => {
     void loadProjects();
     void loadQuotes();
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const interval = setInterval(() => {
+      void loadProjects(true);
+      void loadQuotes(true);
+    }, 20000);
+    return () => clearInterval(interval);
   }, [user?.id]);
 
   const monthSeries = useMemo(() => {
@@ -884,23 +914,11 @@ function ProfessionalDashboard() {
   );
 }
 
-const PROJECT_TYPES_PARTICULIER = [
-  { value: "", label: "Sélectionnez le type de travaux" },
-  { value: "renovation", label: "Rénovation globale" },
-  { value: "construction", label: "Construction neuve" },
-  { value: "extension", label: "Extension" },
-  { value: "plomberie", label: "Plomberie" },
-  { value: "electricite", label: "Électricité" },
-  { value: "peinture", label: "Peinture" },
-  { value: "carrelage", label: "Carrelage / Faïence" },
-  { value: "menuiserie", label: "Menuiserie" },
-  { value: "chauffage", label: "Chauffage / Climatisation" },
-  { value: "toiture", label: "Toiture / Zinguerie" },
-  { value: "isolation", label: "Isolation" },
-  { value: "autre", label: "Autre" },
-];
-
-const initialParticulierForm: CreateProjectParticulierInput & { budgetStr: string; surfaceSqmStr: string } = {
+const initialParticulierForm: CreateProjectParticulierInput & {
+  budgetStr: string;
+  surfaceSqmStr: string;
+  questionnaire: Record<string, string | number>;
+} = {
   name: "",
   description: "",
   projectType: "",
@@ -910,7 +928,85 @@ const initialParticulierForm: CreateProjectParticulierInput & { budgetStr: strin
   budgetStr: "",
   surfaceSqmStr: "",
   desiredStartDate: "",
+  questionnaire: {},
 };
+
+function QuestionnaireFieldInput({
+  field,
+  value,
+  onChange,
+}: {
+  field: QuestionnaireField;
+  value: string | number;
+  onChange: (value: string | number) => void;
+}) {
+  const val = value ?? "";
+  const commonClass = "w-full px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent";
+  if (field.type === "textarea") {
+    return (
+      <div>
+        <label className="block text-sm font-medium text-neutral-800 mb-1">{field.label}</label>
+        <textarea
+          value={String(val)}
+          onChange={(e) => onChange(e.target.value)}
+          className={`${commonClass} min-h-[100px]`}
+          placeholder={field.placeholder}
+          required
+        />
+      </div>
+    );
+  }
+  if (field.type === "select") {
+    const selectId = `q-${field.key}`;
+    return (
+      <div>
+        <label htmlFor={selectId} className="block text-sm font-medium text-neutral-800 mb-1">{field.label}</label>
+        <select
+          id={selectId}
+          aria-label={field.label}
+          value={String(val)}
+          onChange={(e) => onChange(e.target.value)}
+          className={commonClass}
+          required
+        >
+          {(field.options ?? []).map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+  if (field.type === "number") {
+    return (
+      <Input
+        label={field.label}
+        type="number"
+        min={field.min}
+        max={field.max}
+        step={field.step}
+        value={String(val)}
+        onChange={(e) => {
+          const v = e.target.value;
+          onChange(v ? Number(v) : "");
+        }}
+        placeholder={field.placeholder}
+        required
+      />
+    );
+  }
+  return (
+    <Input
+      label={field.label}
+      value={String(val)}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={field.placeholder}
+      required
+    />
+  );
+}
+
+const ACCEPTED_FILE_TYPES = "image/*,application/pdf,.doc,.docx,.xls,.xlsx";
+const MAX_FILE_SIZE_MB = 10;
 
 function ParticulierDashboard() {
   const router = useRouter();
@@ -921,24 +1017,39 @@ function ParticulierDashboard() {
   const [isCreating, setIsCreating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState(initialParticulierForm);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const loadProjects = async () => {
+  const addFiles = (files: FileList | File[]) => {
+    const arr = Array.isArray(files) ? files : Array.from(files);
+    const valid = arr.filter((f) => f.size <= MAX_FILE_SIZE_MB * 1024 * 1024);
+    setSelectedFiles((prev) => [...prev, ...valid]);
+  };
+
+  const loadProjects = async (silent = false) => {
     if (!user?.id) return;
-    setLoading(true);
-    setError(null);
+    if (!silent) setLoading(true);
+    if (!silent) setError(null);
     try {
       const data = await fetchProjectsForUser(user.id);
       setProjects(data);
     } catch (err: any) {
-      setError(err?.message ?? "Impossible de charger les projets.");
+      if (!silent) setError(err?.message ?? "Impossible de charger les projets.");
       setProjects([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     void loadProjects();
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const interval = setInterval(() => void loadProjects(true), 20000);
+    return () => clearInterval(interval);
   }, [user?.id]);
 
   const projectsEnCours = projects.filter(
@@ -957,9 +1068,19 @@ function ParticulierDashboard() {
     try {
       const budget = formData.budgetStr ? Number(formData.budgetStr.replace(/\s/g, "")) : undefined;
       const surfaceSqm = formData.surfaceSqmStr ? Number(formData.surfaceSqmStr.replace(/\s/g, "").replace(",", ".")) : undefined;
-      await createProjectAsParticulier(user.id, {
+      const questionnaireData: QuestionnaireData = {};
+      for (const [k, v] of Object.entries(formData.questionnaire)) {
+        if (v !== "" && v !== null && v !== undefined) {
+          questionnaireData[k] = typeof v === "number" ? v : String(v).trim();
+        }
+      }
+      const description =
+        formData.projectType === "autre" && questionnaireData.descriptionDetaillee
+          ? String(questionnaireData.descriptionDetaillee)
+          : formData.description || undefined;
+      const projectId = await createProjectAsParticulier(user.id, {
         name: formData.name,
-        description: formData.description || undefined,
+        description: description,
         projectType: formData.projectType || undefined,
         address: formData.address || undefined,
         city: formData.city || undefined,
@@ -967,8 +1088,26 @@ function ParticulierDashboard() {
         budget: Number.isFinite(budget) ? budget : undefined,
         desiredStartDate: formData.desiredStartDate || undefined,
         surfaceSqm: Number.isFinite(surfaceSqm) ? surfaceSqm : undefined,
+        questionnaireData: Object.keys(questionnaireData).length ? questionnaireData : undefined,
       });
+      if (selectedFiles.length > 0 && projectId) {
+        const uploadErrors: string[] = [];
+        for (const file of selectedFiles) {
+          try {
+            await uploadDocument(file, {
+              projectId,
+              fileType: inferTypeFromFile(file),
+            });
+          } catch (uploadErr: any) {
+            uploadErrors.push(`${file.name}: ${uploadErr?.message ?? "Erreur"}`);
+          }
+        }
+        if (uploadErrors.length > 0) {
+          setError(`Projet créé. Erreurs lors de l'upload : ${uploadErrors.join(" ; ")}`);
+        }
+      }
       setFormData(initialParticulierForm);
+      setSelectedFiles([]);
       setIsCreating(false);
       await loadProjects();
     } catch (err: any) {
@@ -977,6 +1116,17 @@ function ParticulierDashboard() {
       setIsSubmitting(false);
     }
   };
+
+  const handleProjectTypeChange = (value: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      projectType: value,
+      questionnaire: {},
+    }));
+  };
+
+  const questionnaireFields = getQuestionnaireFields(formData.projectType);
+  const needsSurface = ["renovation", "construction", "extension", "peinture", "carrelage", "toiture"].includes(formData.projectType);
 
   const handleOpenProject = (projectId: string) => {
     const roleParam = user?.role === "professionnel" ? "professionnel" : "particulier";
@@ -1091,10 +1241,10 @@ function ParticulierDashboard() {
 
       {isCreating && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4 overflow-y-auto py-8">
-          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-2xl w-full p-6 my-auto">
+          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-2xl w-full p-6 my-8 max-h-[85vh] overflow-y-auto">
             <h3 className="text-lg font-semibold text-neutral-900 mb-1">Nouvelle demande de projet</h3>
             <p className="text-sm text-neutral-500 mb-4">
-              Remplissez ce formulaire. Les informations seront envoyées de manière identique aux artisans compatibles.
+              Remplissez ce formulaire. Les informations seront envoyées aux artisans compatibles pour une meilleure estimation.
             </p>
             <form className="space-y-4" onSubmit={handleCreateProject}>
               <div>
@@ -1103,7 +1253,7 @@ function ParticulierDashboard() {
                   id="particulier-project-type"
                   aria-label="Type de travaux"
                   value={formData.projectType}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, projectType: e.target.value }))}
+                  onChange={(e) => handleProjectTypeChange(e.target.value)}
                   className="w-full px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   required
                 >
@@ -1122,62 +1272,156 @@ function ParticulierDashboard() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="sm:col-span-2">
                   <Input
-                    label="Adresse du chantier"
+                    label="Adresse du chantier *"
                     value={formData.address}
                     onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
                     placeholder="Numéro et rue"
+                    required
                   />
                 </div>
                 <div>
                   <Input
-                    label="Code postal"
+                    label="Code postal *"
                     value={formData.postalCode}
                     onChange={(e) => setFormData((prev) => ({ ...prev, postalCode: e.target.value }))}
                     placeholder="75001"
+                    required
                   />
                 </div>
               </div>
               <Input
-                label="Ville"
+                label="Ville *"
                 value={formData.city}
                 onChange={(e) => setFormData((prev) => ({ ...prev, city: e.target.value }))}
                 placeholder="Paris"
+                required
               />
-              <div>
-                <label className="block text-sm font-medium text-neutral-800 mb-1">Description détaillée *</label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-                  className="w-full min-h-[120px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  placeholder="Décrivez votre projet : dimensions, pièces concernées, contraintes, délais souhaités..."
+              {formData.projectType !== "autre" && (
+                <div>
+                  <label className="block text-sm font-medium text-neutral-800 mb-1">Description détaillée *</label>
+                  <textarea
+                    value={formData.description}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+                    className="w-full min-h-[100px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    placeholder="Décrivez votre projet : dimensions, contraintes, délais souhaités..."
+                    required
+                  />
+                </div>
+              )}
+              {questionnaireFields.map((field) => (
+                <QuestionnaireFieldInput
+                  key={field.key}
+                  field={field}
+                  value={formData.questionnaire[field.key] ?? ""}
+                  onChange={(value) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      questionnaire: { ...prev.questionnaire, [field.key]: value },
+                    }))
+                  }
+                />
+              ))}
+              {needsSurface && (
+                <Input
+                  label="Surface à traiter (m²) *"
+                  type="number"
+                  min={1}
+                  step={0.01}
+                  value={formData.surfaceSqmStr}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, surfaceSqmStr: e.target.value }))}
+                  placeholder="Ex. 25"
                   required
                 />
-              </div>
+              )}
               <Input
-                label="Surface à rénover / refaire (m²)"
-                type="number"
-                min={0}
-                step={0.01}
-                value={formData.surfaceSqmStr}
-                onChange={(e) => setFormData((prev) => ({ ...prev, surfaceSqmStr: e.target.value }))}
-                placeholder="Ex. 25"
-              />
-              <Input
-                label="Budget (€)"
+                label="Budget (€) *"
                 type="number"
                 min={0}
                 value={formData.budgetStr}
                 onChange={(e) => setFormData((prev) => ({ ...prev, budgetStr: e.target.value }))}
                 placeholder="Ex. 10000"
+                required
               />
               <Input
-                label="Date de début souhaitée"
+                label="Date de début souhaitée *"
                 type="date"
                 value={formData.desiredStartDate}
                 onChange={(e) => setFormData((prev) => ({ ...prev, desiredStartDate: e.target.value }))}
+                required
               />
+              <div className="space-y-2 pt-2 border-t border-neutral-200">
+                <label className="block text-sm font-medium text-neutral-800 mb-1">
+                  Documents ou photos (optionnel)
+                </label>
+                <p className="text-xs text-neutral-500 mb-3">
+                  Ajoutez des plans, photos ou documents pour compléter votre demande. Max {MAX_FILE_SIZE_MB} Mo par fichier.
+                </p>
+                <input
+                  ref={fileInputRef}
+                  id="particulier-project-files"
+                  type="file"
+                  accept={ACCEPTED_FILE_TYPES}
+                  multiple
+                  className="hidden"
+                  aria-label="Ajouter des documents ou photos"
+                  onChange={(e) => {
+                    if (e.target.files) addFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <label
+                  htmlFor="particulier-project-files"
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragOver(true);
+                  }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOver(false);
+                    if (e.dataTransfer.files) addFiles(e.dataTransfer.files);
+                  }}
+                  className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed min-h-[140px] px-6 py-8 cursor-pointer transition-all block bg-blue-50 border-blue-400 shadow-sm hover:bg-blue-100 hover:border-blue-500 ${
+                    dragOver ? "!border-blue-600 !bg-blue-100 ring-2 ring-blue-300" : ""
+                  }`}
+                >
+                  <ImagePlus className="w-12 h-12 text-blue-600" />
+                  <span className="text-sm font-semibold text-gray-800">Déposer des documents ou photos</span>
+                  <span className="text-xs text-gray-600">Cliquez ou glissez vos fichiers ici (images, PDF, Word, Excel)</span>
+                </label>
+                {selectedFiles.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {selectedFiles.map((file, i) => (
+                      <li
+                        key={`${file.name}-${i}`}
+                        className="flex items-center justify-between text-sm bg-neutral-50 rounded px-3 py-2"
+                      >
+                        <span className="truncate flex-1">{file.name}</span>
+                        <span className="text-xs text-neutral-500 ml-2">
+                          {(file.size / 1024).toFixed(1)} Ko
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedFiles((prev) => prev.filter((_, j) => j !== i))}
+                          className="ml-2 p-1 text-red-600 hover:bg-red-50 rounded"
+                          aria-label="Supprimer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
               <div className="flex items-center justify-end gap-3 pt-2 border-t border-neutral-200">
-                <Button type="button" variant="ghost" onClick={() => setIsCreating(false)}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setIsCreating(false);
+                    setSelectedFiles([]);
+                  }}
+                >
                   Annuler
                 </Button>
                 <Button type="submit" disabled={isSubmitting}>

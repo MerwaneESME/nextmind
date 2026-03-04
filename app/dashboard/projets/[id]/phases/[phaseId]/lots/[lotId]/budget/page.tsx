@@ -22,6 +22,7 @@ import {
 } from "@/lib/db/quotesDb";
 import { createInvoice, getInvoices, markInvoicePaid, type Invoice } from "@/lib/db/invoicesDb";
 import { supabase } from "@/lib/supabaseClient";
+import { DocumentPreviewTrigger } from "@/components/documents/DocumentPreviewModal";
 
 type ProjectLite = { id: string; name: string | null };
 
@@ -400,9 +401,14 @@ export default function LotBudgetPage() {
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         {q.file_url && (
-                          <a className="text-sm underline text-primary-700" href={q.file_url} target="_blank" rel="noreferrer">
-                            Ouvrir PDF
-                          </a>
+                          <DocumentPreviewTrigger
+                            url={q.file_url}
+                            name={q.title || "Devis"}
+                            fileType="devis"
+                            className="text-sm underline text-primary-700 cursor-pointer hover:no-underline"
+                          >
+                            Aperçu
+                          </DocumentPreviewTrigger>
                         )}
                         {canEditThisLot && q.status === "en_attente" && (
                           <>
@@ -546,9 +552,14 @@ export default function LotBudgetPage() {
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         {i.file_url && (
-                          <a className="text-sm underline text-primary-700" href={i.file_url} target="_blank" rel="noreferrer">
-                            Ouvrir PDF
-                          </a>
+                          <DocumentPreviewTrigger
+                            url={i.file_url}
+                            name={i.title || "Facture"}
+                            fileType="facture"
+                            className="text-sm underline text-primary-700 cursor-pointer hover:no-underline"
+                          >
+                            Aperçu
+                          </DocumentPreviewTrigger>
                         )}
                         {canEditThisLot && i.status !== "payee" && (
                           <Button

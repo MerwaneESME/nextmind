@@ -2,6 +2,12 @@ import { supabase } from "@/lib/supabaseClient";
 
 export type DocumentType = "devis" | "facture" | "plan" | "photo" | "autre";
 
+export function inferTypeFromFile(file: File): DocumentType {
+  const mime = String(file.type || "").toLowerCase();
+  if (mime.startsWith("image/")) return "photo";
+  return "autre";
+}
+
 const DOCUMENTS_STORAGE_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCUMENTS_BUCKET ?? "documents";
 
 export interface DocumentRow {

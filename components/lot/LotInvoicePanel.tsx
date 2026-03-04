@@ -9,6 +9,7 @@ import { formatCurrency, formatDate, isValidDateRange, normalizeDateValue } from
 import { createInvoice, getInvoices, markInvoicePaid, type Invoice } from "@/lib/db/invoicesDb";
 import { updateLot } from "@/lib/lotsDb";
 import { supabase } from "@/lib/supabaseClient";
+import { DocumentPreviewTrigger } from "@/components/documents/DocumentPreviewModal";
 
 const DOCUMENTS_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_DOCUMENTS_BUCKET ?? "documents";
 
@@ -323,14 +324,14 @@ export default function LotInvoicePanel({
                           <div className="text-xs text-gray-500 capitalize">{String(i.status).replace("_", " ")}</div>
                         </div>
                         {i.file_url && (
-                          <a
-                            href={i.file_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-sm underline text-primary-700"
+                          <DocumentPreviewTrigger
+                            url={i.file_url}
+                            name={i.title || "Facture"}
+                            fileType="facture"
+                            className="text-sm underline text-primary-700 cursor-pointer hover:no-underline"
                           >
-                            Télécharger
-                          </a>
+                            Aperçu
+                          </DocumentPreviewTrigger>
                         )}
                         {canEdit && i.status !== "payee" && (
                           <Button size="sm" variant="outline" onClick={() => handleMarkPaid(i)}>
