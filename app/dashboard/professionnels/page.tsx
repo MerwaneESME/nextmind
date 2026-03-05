@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { useAuth } from "@/hooks/useAuth";
+import { geocodeAddress, buildAddressQuery } from "@/lib/geocode";
 
 type ProProfile = {
   pro_id: string;
@@ -137,20 +139,62 @@ const formatDistance = (km: number) => {
   return `${Math.round(km)} km`;
 };
 
+const parseFloatSafe = (v: string | null): number | null => {
+  if (v == null || v === "") return null;
+  const n = typeof v === "string" ? parseFloat(v) : v;
+  return Number.isFinite(n) ? n : null;
+};
+
+const buildSearchUrlParams = (state: {
+  search: string;
+  filters: Filters;
+  sortBy: string;
+  distanceKm: number;
+  selectedTags: string[];
+  selectedProId: string | null;
+  mapCenter: [number, number] | null;
+  mapZoom: number | null;
+}) => {
+  const p = new URLSearchParams();
+  if (state.search.trim()) p.set("q", state.search.trim());
+  if (state.filters.city.trim()) p.set("city", state.filters.city.trim());
+  if (state.filters.postalCode.trim()) p.set("postal", state.filters.postalCode.trim());
+  if (state.filters.specialty.trim()) p.set("specialty", state.filters.specialty.trim());
+  if (state.sortBy && state.sortBy !== "score") p.set("sort", state.sortBy);
+  if (state.distanceKm !== 50) p.set("distance", String(state.distanceKm));
+  if (state.selectedTags.length) p.set("tags", state.selectedTags.join(","));
+  if (state.selectedProId) p.set("pro", state.selectedProId);
+  if (state.mapCenter?.length === 2 && Number.isFinite(state.mapCenter[0]) && Number.isFinite(state.mapCenter[1])) {
+    p.set("lng", String(state.mapCenter[0]));
+    p.set("lat", String(state.mapCenter[1]));
+  }
+  if (typeof state.mapZoom === "number" && Number.isFinite(state.mapZoom)) {
+    p.set("zoom", String(state.mapZoom.toFixed(1)));
+  }
+  return p;
+};
+
 export default function ProfessionnelsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { profile } = useAuth();
   const roleParam = searchParams.get("role");
   const role = roleParam === "professionnel" ? "professionnel" : "particulier";
+
+  const profileLocationUsedRef = useRef(false);
 
   const [profiles, setProfiles] = useState<ProProfile[]>([]);
   const [specialties, setSpecialties] = useState<Record<string, string[]>>({});
   const [specialtyOptions, setSpecialtyOptions] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters] = useState<Filters>({ city: "", postalCode: "", specialty: "" });
+  const [filters, setFilters] = useState<Filters>(() => ({
+    city: searchParams.get("city") ?? "",
+    postalCode: searchParams.get("postal") ?? "",
+    specialty: searchParams.get("specialty") ?? "",
+  }));
   const [agentMode, setAgentMode] = useState(false);
   const [agentQuery, setAgentQuery] = useState("");
   const [agentLoading, setAgentLoading] = useState(false);
@@ -162,10 +206,29 @@ export default function ProfessionnelsPage() {
   } | null>(null);
   const agentPulseClass = agentLoading ? "ring-2 ring-primary-200 animate-pulse" : "";
 
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [distanceKm, setDistanceKm] = useState(50);
-  const [sortBy, setSortBy] = useState<"distance" | "note" | "popularite" | "score">("score");
-  const [selectedProId, setSelectedProId] = useState<string | null>(null);
+  const [selectedTags, setSelectedTags] = useState<string[]>(() => {
+    const t = searchParams.get("tags");
+    return t ? t.split(",").filter(Boolean) : [];
+  });
+  const [distanceKm, setDistanceKm] = useState(() => {
+    const d = parseFloatSafe(searchParams.get("distance"));
+    return d != null && d >= 5 && d <= 150 ? d : 50;
+  });
+  const [sortBy, setSortBy] = useState<"distance" | "note" | "popularite" | "score">(() => {
+    const s = searchParams.get("sort");
+    return s === "distance" || s === "note" || s === "popularite" ? s : "score";
+  });
+  const [selectedProId, setSelectedProId] = useState<string | null>(() => searchParams.get("pro") ?? null);
+  const [mapCenter, setMapCenter] = useState<[number, number] | null>(() => {
+    const lng = parseFloatSafe(searchParams.get("lng"));
+    const lat = parseFloatSafe(searchParams.get("lat"));
+    if (lng != null && lat != null) return [lng, lat];
+    return null;
+  });
+  const [mapZoom, setMapZoom] = useState<number | null>(() => {
+    const z = parseFloatSafe(searchParams.get("zoom"));
+    return z != null && z >= 2 && z <= 18 ? z : null;
+  });
   const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
   const [geocodedCoords, setGeocodedCoords] = useState<Record<string, UserLocation>>({});
   const [mobileListOpen, setMobileListOpen] = useState(false);
@@ -317,11 +380,56 @@ export default function ProfessionnelsPage() {
     void loadSpecialtyOptions();
   }, []);
 
+  // Persister l'état dans l'URL pour restaurer au retour (profil, messages, etc.)
+  useEffect(() => {
+    const params = buildSearchUrlParams({
+      search,
+      filters,
+      sortBy,
+      distanceKm,
+      selectedTags,
+      selectedProId,
+      mapCenter,
+      mapZoom,
+    });
+    params.set("role", role);
+    const qs = params.toString();
+    const target = `/dashboard/professionnels${qs ? `?${qs}` : ""}`;
+    if (typeof window !== "undefined" && window.location.pathname + window.location.search !== target) {
+      router.replace(target, { scroll: false });
+    }
+  }, [search, filters, sortBy, distanceKm, selectedTags, selectedProId, mapCenter, mapZoom, role, router]);
+
   useEffect(() => {
     if (!agentMode) {
       void loadProfiles();
     }
   }, [agentMode, search, filters.city, filters.postalCode, filters.specialty]);
+
+  // Géocoder l'adresse du profil utilisateur pour le tri par distance
+  useEffect(() => {
+    if (!profile) return;
+    const query = buildAddressQuery(profile);
+    if (!query.trim()) return;
+
+    const controller = new AbortController();
+    let cancelled = false;
+
+    geocodeAddress(query, controller.signal)
+      .then((loc) => {
+        if (cancelled || !loc) return;
+        profileLocationUsedRef.current = true;
+        setUserLocation(loc);
+      })
+      .catch(() => {
+        // Ignorer les erreurs (adresse invalide, réseau, etc.)
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [profile]);
 
   useEffect(() => {
     if (!selectedProId) return;
@@ -331,15 +439,39 @@ export default function ProfessionnelsPage() {
   }, [selectedProId]);
 
   const handleOpenProfile = (pro: ProProfile) => {
-    const params = new URLSearchParams({ role });
-    router.push(`/dashboard/professionnels/${pro.pro_id}?${params.toString()}`);
+    const returnParams = buildSearchUrlParams({
+      search,
+      filters,
+      sortBy,
+      distanceKm,
+      selectedTags,
+      selectedProId: pro.pro_id,
+      mapCenter,
+      mapZoom,
+    });
+    returnParams.set("role", role);
+    const returnUrl = `/dashboard/professionnels?${returnParams.toString()}`;
+    router.push(`/dashboard/professionnels/${pro.pro_id}?role=${role}&return=${encodeURIComponent(returnUrl)}`);
   };
 
   const handleContact = (pro: ProProfile) => {
+    const returnParams = buildSearchUrlParams({
+      search,
+      filters,
+      sortBy,
+      distanceKm,
+      selectedTags,
+      selectedProId: pro.pro_id,
+      mapCenter,
+      mapZoom,
+    });
+    returnParams.set("role", role);
+    const returnUrl = `/dashboard/professionnels?${returnParams.toString()}`;
     const params = new URLSearchParams({
       role,
       proId: pro.pro_id,
       proName: pro.company_name || pro.display_name || "Professionnel",
+      return: returnUrl,
     });
     router.push(`/dashboard/messages?${params.toString()}`);
   };
@@ -428,10 +560,14 @@ export default function ProfessionnelsPage() {
         return p.distance <= distanceKm;
       });
 
-    const withTieBreaker = (a: any, b: any) => a.title.localeCompare(b.title, "fr");
+    const withTieBreaker = (a: { title: string }, b: { title: string }) =>
+      a.title.localeCompare(b.title, "fr");
+
+    // Copie pour trier sans muter l'original (garantit un nouveau tableau pour React)
+    const sorted = [...rows];
 
     if (sortBy === "distance") {
-      rows.sort((a, b) => {
+      sorted.sort((a, b) => {
         if (a.distance === null && b.distance === null) return withTieBreaker(a, b);
         if (a.distance === null) return 1;
         if (b.distance === null) return -1;
@@ -439,7 +575,7 @@ export default function ProfessionnelsPage() {
         return withTieBreaker(a, b);
       });
     } else if (sortBy === "note") {
-      rows.sort((a, b) => {
+      sorted.sort((a, b) => {
         const ar = a.rating.avg ?? -1;
         const br = b.rating.avg ?? -1;
         if (ar !== br) return br - ar;
@@ -448,16 +584,28 @@ export default function ProfessionnelsPage() {
         if (ac !== bc) return bc - ac;
         return withTieBreaker(a, b);
       });
+    } else if (sortBy === "score") {
+      // Score = (note × 20) + (nombre d'avis × 0.1)
+      sorted.sort((a, b) => {
+        const scoreA = (a.rating.avg ?? 0) * 20 + (a.rating.count ?? 0) * 0.1;
+        const scoreB = (b.rating.avg ?? 0) * 20 + (b.rating.count ?? 0) * 0.1;
+        if (scoreA !== scoreB) return scoreB - scoreA;
+        return withTieBreaker(a, b);
+      });
     } else {
-      rows.sort((a, b) => {
+      // popularite : tri par nombre d'avis
+      sorted.sort((a, b) => {
         const ap = a.rating.count ?? 0;
         const bp = b.rating.count ?? 0;
         if (ap !== bp) return bp - ap;
+        const ar = a.rating.avg ?? -1;
+        const br = b.rating.avg ?? -1;
+        if (ar !== br) return br - ar;
         return withTieBreaker(a, b);
       });
     }
 
-    return rows;
+    return sorted;
   }, [distanceKm, isAreaSearchActive, normalizedProfiles, selectedTags, sortBy, userLocation]);
 
   const [visibleCount, setVisibleCount] = useState(18);
@@ -509,7 +657,7 @@ export default function ProfessionnelsPage() {
   return (
     <div className="space-y-6">
       <header className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
-        <div className="absolute inset-0 bg-white" />
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
         <div className="relative flex items-start justify-between gap-6 p-6 sm:p-8">
           <div className="flex items-start gap-4">
             <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white flex items-center justify-center shadow-sm">
@@ -549,7 +697,7 @@ export default function ProfessionnelsPage() {
       )}
 
       <section className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
-        <div className="absolute inset-0 bg-white" />
+        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
         <div className="relative z-10 p-4 sm:p-6 space-y-4">
         <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-start">
           <div className="space-y-3">
@@ -677,6 +825,8 @@ export default function ProfessionnelsPage() {
                 setAgentInfo(null);
                 setAgentError(null);
                 setAgentQuery("");
+                setMapCenter(null);
+                setMapZoom(null);
               }}
             >
               Réinitialiser
@@ -798,7 +948,9 @@ export default function ProfessionnelsPage() {
 
                 <div className="mt-2 text-xs text-neutral-600">
                   {!userLocation
-                    ? "Activez la localisation dans votre navigateur pour trier/filtrer par distance."
+                    ? profile
+                      ? "Renseignez adresse, ville et code postal dans votre profil, ou activez la localisation du navigateur."
+                      : "Activez la localisation du navigateur ou connectez-vous avec une adresse pour trier par distance."
                     : isAreaSearchActive
                       ? "Distance désactivée car une ville ou un code postal est renseigné."
                       : "Filtre les pros autour de votre position."}
@@ -846,11 +998,20 @@ export default function ProfessionnelsPage() {
             <ProfessionnelsMap
               items={mapItems}
               selectedProId={selectedProId}
+              initialCenter={mapCenter}
+              initialZoom={mapZoom}
+              onMapStateChange={(center, zoom) => {
+                setMapCenter(center);
+                setMapZoom(zoom);
+              }}
               onSelectProId={(proId) => {
                 setSelectedProId(proId);
                 if (typeof window !== "undefined" && window.innerWidth < 1024) setMobileListOpen(true);
               }}
-              onUserLocation={(loc) => setUserLocation(loc)}
+              onUserLocation={(loc) => {
+                // Utiliser la géoloc navigateur uniquement si pas d'adresse profil géocodée
+                if (!profileLocationUsedRef.current) setUserLocation(loc);
+              }}
               onGeocoded={(proId, loc) =>
                 setGeocodedCoords((prev) => (prev[proId] ? prev : { ...prev, [proId]: loc }))
               }
@@ -880,16 +1041,22 @@ export default function ProfessionnelsPage() {
                 <div className="text-xs text-neutral-600">{filteredAndSorted.length} résultat(s)</div>
               </div>
               {userLocation ? (
-                <div className="text-xs text-neutral-600">Tri distance actif</div>
+                <div className="text-xs text-neutral-600">
+                  Tri distance actif{profileLocationUsedRef.current ? " (depuis votre adresse)" : ""}
+                </div>
               ) : (
-                <div className="text-xs text-neutral-500">Localisation non disponible</div>
+                <div className="text-xs text-neutral-500">
+                  {profile
+                    ? "Renseignez adresse, ville et code postal dans votre profil pour le tri par distance"
+                    : "Activez la localisation du navigateur ou connectez-vous avec une adresse"}
+                </div>
               )}
             </div>
 
-            <div className="max-h-[72vh] overflow-auto p-4 space-y-3">
+            <div key={sortBy} className="max-h-[72vh] overflow-auto p-4 space-y-3">
               {loading ? (
                 <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-                  <div className="absolute inset-0 bg-white" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
                   <div className="relative p-6 text-center text-sm text-neutral-600">
                     Chargement des professionnels...
                   </div>
@@ -915,7 +1082,7 @@ export default function ProfessionnelsPage() {
                           ].join(" ")}
                           onClick={() => setSelectedProId(p.pro_id)}
                         >
-                          <div className="absolute inset-0 bg-white" />
+                          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
                           <CardContent className="relative z-10 p-5">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
@@ -995,7 +1162,7 @@ export default function ProfessionnelsPage() {
 
                   {!loading && filteredAndSorted.length === 0 && (
                     <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-                      <div className="absolute inset-0 bg-white" />
+                      <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
                       <div className="relative p-6 text-center text-sm text-neutral-600">
                         Aucun professionnel ne correspond à votre recherche.
                       </div>
@@ -1048,10 +1215,10 @@ export default function ProfessionnelsPage() {
               Fermer
             </Button>
           </div>
-          <div className="p-4 overflow-auto max-h-[72vh] space-y-3">
+          <div key={sortBy} className="p-4 overflow-auto max-h-[72vh] space-y-3">
             {loading ? (
               <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-                <div className="absolute inset-0 bg-white" />
+                <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
                 <div className="relative p-6 text-center text-sm text-neutral-600">
                   Chargement des professionnels...
                 </div>
@@ -1075,7 +1242,7 @@ export default function ProfessionnelsPage() {
                         ].join(" ")}
                         onClick={() => setSelectedProId(p.pro_id)}
                       >
-                        <div className="absolute inset-0 bg-white" />
+                        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
                         <CardContent className="relative z-10 p-5">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
@@ -1152,7 +1319,7 @@ export default function ProfessionnelsPage() {
 
                 {!loading && filteredAndSorted.length === 0 && (
                   <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-                    <div className="absolute inset-0 bg-white" />
+                    <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
                     <div className="relative p-6 text-center text-sm text-neutral-600">
                       Aucun professionnel ne correspond à votre recherche.
                     </div>

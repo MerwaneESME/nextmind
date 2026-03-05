@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -25,6 +25,12 @@ type Props = {
   onGeocoded?: (proId: string, loc: UserLocation) => void;
   onOpenProfile?: (proId: string) => void;
   onContact?: (proId: string) => void;
+  /** Centre initial (lng, lat) si restauré depuis URL */
+  initialCenter?: [number, number] | null;
+  /** Zoom initial si restauré depuis URL */
+  initialZoom?: number | null;
+  /** Appelé quand la carte bouge/zoome (pour persister dans l'URL) */
+  onMapStateChange?: (center: [number, number], zoom: number) => void;
   className?: string;
 };
 
@@ -163,10 +169,81 @@ const getAreaQuery = (item: ProMapItem) => {
   return q.trim() || getGeocodeQuery(item);
 };
 
-const geocodeCacheKey = (q: string) => `nm:pro-geocode:${q.toLowerCase()}`;
+/** Requête optimale : adresse complète si disponible (position précise), sinon ville + code postal */
+const getBestGeocodeQuery = (item: ProMapItem) => {
+  if (item.addressLabel?.trim()) return getGeocodeQuery(item);
+  return getAreaQuery(item);
+};
 
-async function geocodeFrance(query: string, signal: AbortSignal): Promise<UserLocation | null> {
-  const cached = typeof window !== "undefined" ? window.localStorage.getItem(geocodeCacheKey(query)) : null;
+const geocodeCacheKey = (q: string) => `nm:pro-geocode-v3:${q.toLowerCase().trim()}`;
+
+function extractPostcode(query: string): string | null {
+  const m = query.match(/\b(\d{5})\b/);
+  return m ? m[1] : null;
+}
+
+/** Préfère housenumber > locality > street pour une précision maximale */
+function pickBestFeature(features: any[]): any {
+  if (!features?.length) return null;
+  const housenumber = features.find((f) => f?.properties?.type === "housenumber");
+  if (housenumber) return housenumber;
+  const locality = features.find((f) => f?.properties?.type === "locality");
+  if (locality) return locality;
+  return features[0];
+}
+
+let lastNominatimCall = 0;
+const NOMINATIM_MIN_INTERVAL_MS = 1100;
+
+/** Nominatim (OSM) - meilleure précision pour adresses complètes. Respecte 1 req/s. */
+async function geocodeNominatim(query: string, signal: AbortSignal): Promise<UserLocation | null> {
+  const cacheKey = geocodeCacheKey(`nominatim:${query}`);
+  const cached = typeof window !== "undefined" ? window.localStorage.getItem(cacheKey) : null;
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached) as UserLocation;
+      if (typeof parsed?.lat === "number" && typeof parsed?.lng === "number") return parsed;
+    } catch {
+      // ignore
+    }
+  }
+
+  const now = Date.now();
+  const wait = Math.max(0, NOMINATIM_MIN_INTERVAL_MS - (now - lastNominatimCall));
+  if (wait > 0) {
+    await new Promise((r) => setTimeout(r, wait));
+  }
+  lastNominatimCall = Date.now();
+
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("q", `${query}, France`);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("limit", "1");
+
+  const response = await fetch(url.toString(), {
+    signal,
+    headers: { "User-Agent": "NextMind/1.0 (https://nextmind.fr)" },
+  });
+  if (!response.ok) return null;
+  const results = await response.json();
+  const first = Array.isArray(results) ? results[0] : null;
+  if (!first?.lat || !first?.lon) return null;
+
+  const loc = { lat: Number(first.lat), lng: Number(first.lon) };
+  if (!Number.isFinite(loc.lat) || !Number.isFinite(loc.lng)) return null;
+
+  try {
+    window.localStorage.setItem(cacheKey, JSON.stringify(loc));
+  } catch {
+    // ignore
+  }
+  return loc;
+}
+
+/** BAN (data.gouv.fr) - fallback */
+async function geocodeBAN(query: string, signal: AbortSignal): Promise<UserLocation | null> {
+  const cacheKey = geocodeCacheKey(`ban:${query}`);
+  const cached = typeof window !== "undefined" ? window.localStorage.getItem(cacheKey) : null;
   if (cached) {
     try {
       const parsed = JSON.parse(cached) as UserLocation;
@@ -178,12 +255,15 @@ async function geocodeFrance(query: string, signal: AbortSignal): Promise<UserLo
 
   const url = new URL("https://api-adresse.data.gouv.fr/search/");
   url.searchParams.set("q", query);
-  url.searchParams.set("limit", "1");
+  url.searchParams.set("limit", "5");
+  const postcode = extractPostcode(query);
+  if (postcode) url.searchParams.set("postcode", postcode);
 
   const response = await fetch(url.toString(), { signal });
   if (!response.ok) return null;
   const payload = await response.json();
-  const feature = payload?.features?.[0];
+  const features = payload?.features;
+  const feature = Array.isArray(features) ? pickBestFeature(features) : features?.[0];
   const coords = feature?.geometry?.coordinates;
   if (!Array.isArray(coords) || coords.length < 2) return null;
 
@@ -191,7 +271,40 @@ async function geocodeFrance(query: string, signal: AbortSignal): Promise<UserLo
   if (!Number.isFinite(loc.lat) || !Number.isFinite(loc.lng)) return null;
 
   try {
-    window.localStorage.setItem(geocodeCacheKey(query), JSON.stringify(loc));
+    window.localStorage.setItem(cacheKey, JSON.stringify(loc));
+  } catch {
+    // ignore
+  }
+  return loc;
+}
+
+/** Géocodage : Nominatim en priorité pour adresses complètes (plus précis), BAN en fallback */
+async function geocodeFrance(query: string, hasFullAddress: boolean, signal: AbortSignal): Promise<UserLocation | null> {
+  const cacheKey = geocodeCacheKey(query);
+  const cached = typeof window !== "undefined" ? window.localStorage.getItem(cacheKey) : null;
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached) as UserLocation;
+      if (typeof parsed?.lat === "number" && typeof parsed?.lng === "number") return parsed;
+    } catch {
+      // ignore
+    }
+  }
+
+  let loc: UserLocation | null = null;
+
+  if (hasFullAddress && query.trim().length > 10) {
+    loc = await geocodeNominatim(query, signal);
+  }
+
+  if (!loc) {
+    loc = await geocodeBAN(query, signal);
+  }
+
+  if (!loc) return null;
+
+  try {
+    window.localStorage.setItem(cacheKey, JSON.stringify(loc));
   } catch {
     // ignore
   }
@@ -206,16 +319,19 @@ export function ProfessionnelsMap({
   onGeocoded,
   onOpenProfile,
   onContact,
+  initialCenter,
+  initialZoom,
+  onMapStateChange,
   className,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const hoverPopupRef = useRef<any>(null);
   const clickPopupRef = useRef<any>(null);
-  const clusterMarkersRef = useRef<Map<string, any>>(new Map());
   const onSelectProIdRef = useRef<Props["onSelectProId"]>(onSelectProId);
   const onOpenProfileRef = useRef<Props["onOpenProfile"]>(onOpenProfile);
   const onContactRef = useRef<Props["onContact"]>(onContact);
+  const onMapStateChangeRef = useRef<Props["onMapStateChange"]>(onMapStateChange);
   const didAutoFitRef = useRef(false);
   const didUserInteractRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
@@ -230,6 +346,9 @@ export function ProfessionnelsMap({
   useEffect(() => {
     onContactRef.current = onContact;
   }, [onContact]);
+  useEffect(() => {
+    onMapStateChangeRef.current = onMapStateChange;
+  }, [onMapStateChange]);
 
   const features = useMemo(() => {
     const baseRows = items
@@ -275,7 +394,6 @@ export function ProfessionnelsMap({
 
   useEffect(() => {
     let cancelled = false;
-    const markers = clusterMarkersRef.current;
     const run = async () => {
       try {
         const maplibregl = await ensureMapLibreLoaded();
@@ -303,8 +421,17 @@ export function ProfessionnelsMap({
             layers: [{ id: "osm", type: "raster", source: "osm" }],
             glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
           },
-          center: PARIS_DEFAULT.center,
-          zoom: PARIS_DEFAULT.zoom,
+          center:
+            Array.isArray(initialCenter) &&
+            initialCenter.length >= 2 &&
+            Number.isFinite(initialCenter[0]) &&
+            Number.isFinite(initialCenter[1])
+              ? [Number(initialCenter[0]), Number(initialCenter[1])]
+              : PARIS_DEFAULT.center,
+          zoom:
+            typeof initialZoom === "number" && Number.isFinite(initialZoom)
+              ? Math.min(18, Math.max(2, initialZoom))
+              : PARIS_DEFAULT.zoom,
         });
 
         hoverPopupRef.current = new maplibregl.Popup({
@@ -333,6 +460,17 @@ export function ProfessionnelsMap({
         mapRef.current.on("zoomstart", () => {
           didUserInteractRef.current = true;
         });
+        mapRef.current.on("moveend", () => {
+          const m = mapRef.current;
+          if (!m?.getCenter || !m?.getZoom) return;
+          const c = m.getCenter();
+          const z = m.getZoom();
+          const lng = c?.lng ?? c?.[0];
+          const lat = c?.lat ?? c?.[1];
+          if (Number.isFinite(lng) && Number.isFinite(lat) && typeof z === "number") {
+            onMapStateChangeRef.current?.([lng, lat], z);
+          }
+        });
 
         mapRef.current.on("load", () => {
           if (cancelled) return;
@@ -347,8 +485,6 @@ export function ProfessionnelsMap({
     return () => {
       cancelled = true;
       try {
-        markers.forEach((marker) => marker?.remove?.());
-        markers.clear();
         hoverPopupRef.current?.remove?.();
         clickPopupRef.current?.remove?.();
         mapRef.current?.remove?.();
@@ -391,94 +527,21 @@ export function ProfessionnelsMap({
         },
       });
 
-      const renderClusterMarkers = () => {
-        if (!map.getSource?.(srcId)) return;
-        const visible = map.queryRenderedFeatures({ layers: ["clusters"] }) ?? [];
-        const nextIds = new Set<string>();
-
-        for (const f of visible) {
-          const props: any = f?.properties ?? {};
-          const id = String(props.cluster_id ?? "");
-          const count = Number(props.point_count ?? 0);
-          const coords = f?.geometry?.coordinates;
-          if (!id || !Array.isArray(coords)) continue;
-          nextIds.add(id);
-
-          if (!clusterMarkersRef.current.has(id)) {
-            const el = document.createElement("button");
-            el.type = "button";
-            const safeCount = Number.isFinite(count) ? Math.max(1, Math.round(count)) : 1;
-            const size = Math.min(56, 34 + Math.floor(Math.log10(safeCount + 1) * 10));
-            el.style.width = `${size}px`;
-            el.style.height = `${size}px`;
-            el.style.borderRadius = "9999px";
-            el.style.border = "2px solid #ffffff";
-            el.style.background = "rgba(40,91,214,0.95)";
-            el.style.color = "#ffffff";
-            el.style.fontWeight = "700";
-            el.style.fontSize = "12px";
-            el.style.boxShadow = "0 10px 22px rgba(0,0,0,0.18)";
-            el.style.display = "grid";
-            el.style.placeItems = "center";
-            el.style.cursor = "pointer";
-            el.dataset.clusterId = id;
-            el.dataset.pointCount = String(safeCount);
-            el.dataset.lng = String(coords[0]);
-            el.dataset.lat = String(coords[1]);
-            el.setAttribute("aria-label", `Cluster ${safeCount} professionnels`);
-
-            el.onclick = () => {
-              const source: any = map.getSource?.(srcId);
-              const clusterId = Number(el.dataset.clusterId);
-              const lng = Number(el.dataset.lng);
-              const lat = Number(el.dataset.lat);
-              const center = Number.isFinite(lng) && Number.isFinite(lat) ? [lng, lat] : coords;
-
-              if (!Number.isFinite(clusterId) || !source?.getClusterExpansionZoom) {
-                map.easeTo({ center, zoom: Math.min((map.getZoom?.() ?? 12) + 2, 18), duration: 260 });
-                return;
-              }
-              source.getClusterExpansionZoom(clusterId, (err: any, zoom: number) => {
-                if (err) {
-                  map.easeTo({ center, zoom: Math.min((map.getZoom?.() ?? 12) + 2, 18), duration: 260 });
-                  return;
-                }
-                map.easeTo({ center, zoom, duration: 260 });
-              });
-            };
-
-            const marker = new (window as any).maplibregl.Marker({ element: el, anchor: "center" })
-              .setLngLat(coords)
-              .addTo(map);
-            clusterMarkersRef.current.set(id, marker);
-          }
-
-          const marker = clusterMarkersRef.current.get(id);
-          const element = marker?.getElement?.() as HTMLButtonElement | undefined;
-          if (element) {
-            const safeCount = Number.isFinite(count) ? Math.max(1, Math.round(count)) : 1;
-            const size = Math.min(56, 34 + Math.floor(Math.log10(safeCount + 1) * 10));
-            element.style.width = `${size}px`;
-            element.style.height = `${size}px`;
-            element.textContent = String(safeCount);
-            element.dataset.pointCount = String(safeCount);
-            element.dataset.lng = String(coords[0]);
-            element.dataset.lat = String(coords[1]);
-            element.setAttribute("aria-label", `Cluster ${safeCount} professionnels`);
-          }
-          marker?.setLngLat?.(coords);
-        }
-
-        for (const [id, marker] of clusterMarkersRef.current.entries()) {
-          if (nextIds.has(id)) continue;
-          marker?.remove?.();
-          clusterMarkersRef.current.delete(id);
-        }
-      };
-
-      map.on("render", renderClusterMarkers);
-      map.on("moveend", renderClusterMarkers);
-      map.on("zoomend", renderClusterMarkers);
+      // Couche symbol pour afficher le nombre (sur le canvas, pas d'overlay DOM qui bloque les clics)
+      map.addLayer({
+        id: "cluster-count",
+        type: "symbol",
+        source: srcId,
+        filter: ["has", "point_count"],
+        layout: {
+          "text-field": ["get", "point_count"],
+          "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
+          "text-size": 13,
+        },
+        paint: {
+          "text-color": "#ffffff",
+        },
+      });
 
       map.addLayer({
         id: "unclustered-point",
@@ -506,8 +569,9 @@ export function ProfessionnelsMap({
         },
       });
 
-      map.on("click", "clusters", async (e: any) => {
-        const hit = map.queryRenderedFeatures(e.point, { layers: ["clusters"] });
+      const handleClusterClick = (e: any) => {
+        e.preventDefault?.(); // empêche le pan/drag pour que le zoom se fasse au 1er clic
+        const hit = map.queryRenderedFeatures(e.point, { layers: ["clusters", "cluster-count"] });
         const first = hit?.[0];
         const clusterId = Number(first?.properties?.cluster_id);
         const pointCount = Number(first?.properties?.point_count);
@@ -537,14 +601,24 @@ export function ProfessionnelsMap({
             map.easeTo({ center: coords, zoom: Math.min((map.getZoom?.() ?? 12) + 2, 18), duration: 260 });
             return;
           }
-          map.easeTo({ center: coords, zoom, duration: 260 });
+          map.easeTo({ center: coords, zoom, duration: 300 });
         });
-      });
+      };
+
+      // mousedown au lieu de click pour réagir au 1er clic (click attend un potentiel double-clic)
+      map.on("mousedown", "clusters", handleClusterClick);
+      map.on("mousedown", "cluster-count", handleClusterClick);
 
       map.on("mouseenter", "clusters", () => {
         map.getCanvas().style.cursor = "pointer";
       });
       map.on("mouseleave", "clusters", () => {
+        map.getCanvas().style.cursor = "";
+      });
+      map.on("mouseenter", "cluster-count", () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", "cluster-count", () => {
         map.getCanvas().style.cursor = "";
       });
 
@@ -673,6 +747,9 @@ export function ProfessionnelsMap({
     const map = mapRef.current;
     if (didAutoFitRef.current) return;
     if (didUserInteractRef.current) return;
+    // Ne pas auto-fit si on a restauré une position depuis l'URL
+    const hasInitial = Array.isArray(initialCenter) && initialCenter.length >= 2 && typeof initialZoom === "number";
+    if (hasInitial) return;
     const fs = (features as any)?.features ?? [];
     if (!Array.isArray(fs) || fs.length === 0) return;
 
@@ -721,7 +798,7 @@ export function ProfessionnelsMap({
     } catch {
       // ignore
     }
-  }, [features, mapReady]);
+  }, [features, initialCenter, initialZoom, mapReady]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !selectedProId) return;
@@ -766,13 +843,16 @@ export function ProfessionnelsMap({
     let alive = true;
 
     const run = async () => {
-      const groups = new Map<string, string[]>();
+      const groups = new Map<string, { ids: string[]; hasFullAddress: boolean }>();
       for (const item of missing) {
-        const q = getAreaQuery(item);
+        const q = getBestGeocodeQuery(item);
         if (!q) continue;
-        const list = groups.get(q) ?? [];
-        list.push(item.pro_id);
-        groups.set(q, list);
+        const existing = groups.get(q);
+        if (existing) {
+          existing.ids.push(item.pro_id);
+        } else {
+          groups.set(q, { ids: [item.pro_id], hasFullAddress: Boolean(item.addressLabel?.trim()) });
+        }
       }
 
       const entries = Array.from(groups.entries()).slice(0, 30);
@@ -784,11 +864,11 @@ export function ProfessionnelsMap({
       const worker = async () => {
         while (alive && cursor < entries.length) {
           const idx = cursor++;
-          const [q, ids] = entries[idx];
+          const [q, { ids, hasFullAddress }] = entries[idx];
           if (!q) continue;
           let loc: UserLocation | null;
           try {
-            loc = await geocodeFrance(q, controller.signal);
+            loc = await geocodeFrance(q, hasFullAddress, controller.signal);
           } catch (err: any) {
             if (err?.name === "AbortError" || controller.signal.aborted) return;
             throw err;

@@ -74,6 +74,28 @@ export default function LoginPage() {
     setIsLoading(false);
   };
 
+  const handleConfirmEmail = async () => {
+    if (!formData.email.trim()) return;
+    setIsConfirming(true);
+    setError("");
+    try {
+      const res = await fetch("/api/auth/confirm-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: formData.email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Erreur lors de la confirmation.");
+        return;
+      }
+      setError("");
+      setNotice("Email confirmé. Cliquez sur « Se connecter » pour continuer.");
+    } finally {
+      setIsConfirming(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#f3f6ff] via-white to-[#e9f6ff] flex items-center justify-center px-4 py-12">
       <div className="max-w-md w-full">

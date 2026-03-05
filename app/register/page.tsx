@@ -29,7 +29,6 @@ export default function RegisterPage() {
     setFormError("");
     setNotice("");
 
-    // Validation
     const newErrors: Record<string, string> = {};
     if (!formData.name.trim()) newErrors.name = "Le nom est requis";
     if (!formData.email.trim()) newErrors.email = "L'email est requis";
@@ -102,7 +101,7 @@ export default function RegisterPage() {
             Créer un compte
           </h1>
           <p className="text-gray-600">
-            Rejoignez Nextmind et commencez dès aujourd'hui
+            Rejoignez Nextmind et commencez dès aujourd&apos;hui
           </p>
           <img
             src="/images/subscribe.png"
@@ -112,7 +111,6 @@ export default function RegisterPage() {
         </div>
 
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          {/* Sélection du type de compte */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-3">
               Je suis un :

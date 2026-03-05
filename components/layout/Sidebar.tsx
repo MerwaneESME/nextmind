@@ -43,10 +43,6 @@ export function Sidebar({ userRole, collapsed = false, onToggleCollapse, user }:
     router.push("/");
   };
 
-  const initials = user?.name
-    ? user.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
-    : "U";
-
   return (
     <aside
       className={cn(
@@ -98,7 +94,7 @@ export function Sidebar({ userRole, collapsed = false, onToggleCollapse, user }:
         })}
       </nav>
 
-      {/* Bottom — Assistant IA + User profile */}
+      {/* Bottom — Assistant IA + Se déconnecter */}
       <div className={cn("pb-3 space-y-1 border-t border-white/10 pt-3", collapsed ? "px-2" : "px-3")}>
         <Link
           href={currentRole ? `/dashboard/assistant?role=${currentRole}` : "/dashboard/assistant"}
@@ -119,34 +115,19 @@ export function Sidebar({ userRole, collapsed = false, onToggleCollapse, user }:
           {!collapsed && <span className="text-current">Assistant IA</span>}
         </Link>
 
-        {/* User profile */}
-        {user && (
-          <div
-            className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-lg",
-              collapsed && "justify-center px-0"
-            )}
-          >
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center flex-shrink-0">
-              <span className="text-xs font-bold text-white">{initials}</span>
-            </div>
-            {!collapsed && (
-              <>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-white truncate">{user.name}</p>
-                  <p className="text-xs text-slate-400 truncate capitalize">{user.role}</p>
-                </div>
-                <button
-                  onClick={handleLogout}
-                  title="Déconnexion"
-                  className="text-slate-400 hover:text-red-400 transition-colors flex-shrink-0"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </>
-            )}
-          </div>
-        )}
+        <button
+          type="button"
+          onClick={handleLogout}
+          title="Se déconnecter"
+          className={cn(
+            "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-300",
+            "hover:bg-white/10 hover:text-white transition-all duration-200",
+            collapsed && "justify-center px-0"
+          )}
+        >
+          <LogOut className="w-5 h-5 flex-shrink-0" />
+          {!collapsed && <span className="text-current">Se déconnecter</span>}
+        </button>
       </div>
     </aside>
   );
