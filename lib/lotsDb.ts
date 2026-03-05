@@ -41,6 +41,8 @@ export type LotSummary = {
   companyName: string | null;
   startDate: string | null;
   endDate: string | null;
+  tasksStartDate: string | null;
+  tasksEndDate: string | null;
   budgetEstimated: number;
   budgetActual: number;
   status: LotStatus;
@@ -77,18 +79,45 @@ export async function fetchLotsForPhase(phaseId: string): Promise<LotSummary[]> 
   const { data, error } = await supabase
     .from("lots")
     .select(
-      "id,phase_id,name,description,lot_type,company_name,start_date,end_date,budget_estimated,budget_actual,status,progress_percentage,tasks:lot_tasks(status)"
+      "id,phase_id,name,description,lot_type,company_name,start_date,end_date,budget_estimated,budget_actual,status,progress_percentage,tasks:lot_tasks(status,due_date)"
     )
     .eq("phase_id", phaseId)
     .order("created_at", { ascending: true });
 
   if (error) throw error;
 
+  const todayKey = new Date().toISOString().slice(0, 10);
+
   return (
     data?.map((row: any) => {
       const tasks = Array.isArray(row.tasks) ? row.tasks : [];
       const tasksTotal = tasks.length;
       const tasksDone = tasks.filter((t: any) => String(t?.status || "").toLowerCase() === "done").length;
+
+      const taskDatesAll = tasks
+        .map((t: any) => (typeof t?.due_date === "string" ? t.due_date : null))
+        .filter(Boolean) as string[];
+      const taskDatesOpen = tasks
+        .filter((t: any) => String(t?.status || "").toLowerCase() !== "done")
+        .map((t: any) => (typeof t?.due_date === "string" ? t.due_date : null))
+        .filter(Boolean) as string[];
+      const upcomingOpen = taskDatesOpen.filter((d) => d >= todayKey);
+
+      const tasksStartDate =
+        upcomingOpen.length > 0
+          ? [...upcomingOpen].sort()[0]
+          : taskDatesOpen.length > 0
+            ? [...taskDatesOpen].sort()[0]
+            : taskDatesAll.length > 0
+              ? [...taskDatesAll].sort()[0]
+              : null;
+
+      const tasksEndDate =
+        taskDatesOpen.length > 0
+          ? [...taskDatesOpen].sort().slice(-1)[0]
+          : taskDatesAll.length > 0
+            ? [...taskDatesAll].sort().slice(-1)[0]
+            : null;
       // Toujours dériver la progression des tâches quand on a des tâches, pour rester cohérent avec la page intervention
       const progress =
         tasksTotal > 0
@@ -105,6 +134,8 @@ export async function fetchLotsForPhase(phaseId: string): Promise<LotSummary[]> 
         companyName: row.company_name ?? null,
         startDate: row.start_date ?? null,
         endDate: row.end_date ?? null,
+        tasksStartDate,
+        tasksEndDate,
         budgetEstimated: toNumber(row.budget_estimated),
         budgetActual: toNumber(row.budget_actual),
         status: (row.status ?? "planifie") as LotStatus,
@@ -192,18 +223,45 @@ export async function fetchLotsForProject(projectId: string): Promise<LotSummary
   const { data, error } = await supabase
     .from("lots")
     .select(
-      "id,phase_id,name,description,lot_type,company_name,start_date,end_date,budget_estimated,budget_actual,status,progress_percentage,tasks:lot_tasks(status)"
+      "id,phase_id,name,description,lot_type,company_name,start_date,end_date,budget_estimated,budget_actual,status,progress_percentage,tasks:lot_tasks(status,due_date)"
     )
     .in("phase_id", phaseIds)
     .order("created_at", { ascending: true });
 
   if (error) throw error;
 
+  const todayKey = new Date().toISOString().slice(0, 10);
+
   return (
     data?.map((row: any) => {
       const tasks = Array.isArray(row.tasks) ? row.tasks : [];
       const tasksTotal = tasks.length;
       const tasksDone = tasks.filter((t: any) => String(t?.status || "").toLowerCase() === "done").length;
+
+      const taskDatesAll = tasks
+        .map((t: any) => (typeof t?.due_date === "string" ? t.due_date : null))
+        .filter(Boolean) as string[];
+      const taskDatesOpen = tasks
+        .filter((t: any) => String(t?.status || "").toLowerCase() !== "done")
+        .map((t: any) => (typeof t?.due_date === "string" ? t.due_date : null))
+        .filter(Boolean) as string[];
+      const upcomingOpen = taskDatesOpen.filter((d) => d >= todayKey);
+
+      const tasksStartDate =
+        upcomingOpen.length > 0
+          ? [...upcomingOpen].sort()[0]
+          : taskDatesOpen.length > 0
+            ? [...taskDatesOpen].sort()[0]
+            : taskDatesAll.length > 0
+              ? [...taskDatesAll].sort()[0]
+              : null;
+
+      const tasksEndDate =
+        taskDatesOpen.length > 0
+          ? [...taskDatesOpen].sort().slice(-1)[0]
+          : taskDatesAll.length > 0
+            ? [...taskDatesAll].sort().slice(-1)[0]
+            : null;
       // Toujours dériver la progression des tâches quand on a des tâches (cohérent avec la page intervention et l'aperçu)
       const progress =
         tasksTotal > 0
@@ -220,6 +278,8 @@ export async function fetchLotsForProject(projectId: string): Promise<LotSummary
         companyName: row.company_name ?? null,
         startDate: row.start_date ?? null,
         endDate: row.end_date ?? null,
+        tasksStartDate,
+        tasksEndDate,
         budgetEstimated: toNumber(row.budget_estimated),
         budgetActual: toNumber(row.budget_actual),
         status: (row.status ?? "planifie") as LotStatus,

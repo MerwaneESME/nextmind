@@ -509,7 +509,7 @@ export default function ProfessionnelsPage() {
   return (
     <div className="space-y-6">
       <header className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <div className="absolute inset-0 bg-white" />
         <div className="relative flex items-start justify-between gap-6 p-6 sm:p-8">
           <div className="flex items-start gap-4">
             <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white flex items-center justify-center shadow-sm">
@@ -549,7 +549,7 @@ export default function ProfessionnelsPage() {
       )}
 
       <section className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <div className="absolute inset-0 bg-white" />
         <div className="relative z-10 p-4 sm:p-6 space-y-4">
         <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-start">
           <div className="space-y-3">
@@ -889,7 +889,7 @@ export default function ProfessionnelsPage() {
             <div className="max-h-[72vh] overflow-auto p-4 space-y-3">
               {loading ? (
                 <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-                  <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+                  <div className="absolute inset-0 bg-white" />
                   <div className="relative p-6 text-center text-sm text-neutral-600">
                     Chargement des professionnels...
                   </div>
@@ -915,7 +915,7 @@ export default function ProfessionnelsPage() {
                           ].join(" ")}
                           onClick={() => setSelectedProId(p.pro_id)}
                         >
-                          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+                          <div className="absolute inset-0 bg-white" />
                           <CardContent className="relative z-10 p-5">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
@@ -995,7 +995,7 @@ export default function ProfessionnelsPage() {
 
                   {!loading && filteredAndSorted.length === 0 && (
                     <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-                      <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+                      <div className="absolute inset-0 bg-white" />
                       <div className="relative p-6 text-center text-sm text-neutral-600">
                         Aucun professionnel ne correspond à votre recherche.
                       </div>
@@ -1051,7 +1051,7 @@ export default function ProfessionnelsPage() {
           <div className="p-4 overflow-auto max-h-[72vh] space-y-3">
             {loading ? (
               <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-                <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+                <div className="absolute inset-0 bg-white" />
                 <div className="relative p-6 text-center text-sm text-neutral-600">
                   Chargement des professionnels...
                 </div>
@@ -1075,7 +1075,7 @@ export default function ProfessionnelsPage() {
                         ].join(" ")}
                         onClick={() => setSelectedProId(p.pro_id)}
                       >
-                        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+                        <div className="absolute inset-0 bg-white" />
                         <CardContent className="relative z-10 p-5">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
@@ -1152,7 +1152,7 @@ export default function ProfessionnelsPage() {
 
                 {!loading && filteredAndSorted.length === 0 && (
                   <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
-                    <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+                    <div className="absolute inset-0 bg-white" />
                     <div className="relative p-6 text-center text-sm text-neutral-600">
                       Aucun professionnel ne correspond à votre recherche.
                     </div>

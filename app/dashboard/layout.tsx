@@ -67,7 +67,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <BreadcrumbProvider>
-      <div className="min-h-screen bg-neutral-50">
+      <div className="relative min-h-screen overflow-x-hidden bg-neutral-50">
         <Sidebar
           userRole={activeUser.role}
           collapsed={sidebarCollapsed}
@@ -76,7 +76,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         />
         <div
           className={cn(
-            "transition-[margin] duration-200 ease-in-out",
+            "relative transition-[margin] duration-200 ease-in-out",
             sidebarCollapsed ? "ml-16" : "ml-64"
           )}
         >

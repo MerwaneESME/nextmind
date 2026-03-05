@@ -115,8 +115,8 @@ export default function LotBudgetPanel({
               </CardHeader>
               <CardContent className="text-xl font-semibold text-gray-900">{formatCurrency(totals.budgetEstimated)}</CardContent>
             </Card>
-            <Card className="border-l-4 border-l-blue-200 bg-blue-50/20">
-              <CardHeader className="border-b border-blue-100 bg-blue-50/60">
+            <Card className="border-l-4 border-l-blue-200 bg-white">
+              <CardHeader className="border-b border-blue-100 bg-white">
                 <div className="text-sm text-gray-600">Devis validés</div>
               </CardHeader>
               <CardContent className="text-xl font-semibold text-gray-900">{formatCurrency(totals.quotesValid)}</CardContent>

@@ -7,14 +7,15 @@ import { Card, CardHeader, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import StatCard from "@/components/ui/StatCard";
-import { ArrowLeft, Bot, Calendar, CheckCircle2, Clock, Euro, FileText, MapPin, Paperclip, Pencil, Plus, Send, TrendingUp, Users, Wrench, X } from "lucide-react";
+import { ArrowLeft, Bot, Calendar, CheckCircle2, Clock, Euro, FileText, MapPin, Paperclip, Pencil, Plus, Send, Trash2, TrendingUp, Users, Wrench, X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { mapUserTypeToRole, useAuth } from "@/hooks/useAuth";
 import { cn, formatCurrency, formatDate, isValidDateRange, normalizeDateValue } from "@/lib/utils";
 import { deleteDevisWithItems, mapDevisRowToSummary } from "@/lib/devisDb";
 import { downloadQuotePdf } from "@/lib/quotePdf";
 import { deleteProjectCascade, inviteProjectMemberByEmail } from "@/lib/projectsDb";
-import { fetchLotsForProject, createLotForProject, createLot, getOrCreateDefaultPhase, type LotSummary } from "@/lib/lotsDb";
+import { fetchLotsForProject, createLotForProject, createLot, deleteLot, getOrCreateDefaultPhase, updateLot, type LotSummary } from "@/lib/lotsDb";
+import { getLotLabelColorMap, LOT_LABEL_COLORS, lotLabelColorByKey, removeLotLabelColor, setLotLabelColor, type LotLabelColorKey } from "@/lib/lotLabelColors";
 import type { QuoteSummary } from "@/lib/quotesStore";
 import { ChatMessageMarkdown } from "@/components/chat/ChatMessageMarkdown";
 import ChatBox from "@/components/chat/ChatBox";
@@ -23,11 +24,15 @@ import type { AssistantActionButton } from "@/components/assistant/ActionButton"
 import { ActionMenu } from "@/components/assistant/ActionMenu";
 import { formatAssistantReply, type AssistantUiMode } from "@/lib/assistantResponses";
 import { ProjectGuidePanel } from "@/components/guide/ProjectGuidePanel";
+import { PlanningProposalWindow } from "@/components/assistant/PlanningProposalWindow";
 import {
   sendPlanningMessageToAI,
   type PlanningProposal,
+  type PlanningSuggestedTask,
 } from "@/lib/ai-service";
-import { createLotTask } from "@/lib/lotTasksDb";
+import { detectPlanningIntent } from "@/lib/planning-prompt";
+import { buildSmartPlanningFallback } from "@/lib/planning-fallback";
+import { createLotTask, deleteAllLotTasks } from "@/lib/lotTasksDb";
 import { Badge } from "@/components/ui/Badge";
 import ProjectBudgetPanel from "@/components/project/ProjectBudgetPanel";
 
@@ -425,8 +430,10 @@ export default function ProjectDetailPage() {
   const [availableQuotes, setAvailableQuotes] = useState<QuoteSummary[]>([]);
   const [interventions, setInterventions] = useState<LotSummary[]>([]);
   const [interventionsLoading, setInterventionsLoading] = useState(false);
+  const [lotLabelColors, setLotLabelColors] = useState<Record<string, LotLabelColorKey>>({});
   const [interventionModalOpen, setInterventionModalOpen] = useState(false);
   const [interventionSubmitting, setInterventionSubmitting] = useState(false);
+  const [editingInterventionId, setEditingInterventionId] = useState<string | null>(null);
   const [interventionForm, setInterventionForm] = useState({
     name: "",
     description: "",
@@ -434,6 +441,7 @@ export default function ProjectDetailPage() {
     startDate: "",
     endDate: "",
     budgetEstimated: "",
+    labelColor: "slate" as LotLabelColorKey,
   });
   const isTabKey = (value: string | null): value is TabKey =>
     !!value && tabItems.some((tab) => tab.key === value);
@@ -566,6 +574,10 @@ export default function ProjectDetailPage() {
   }, [tabParam, activeTab]);
 
   useEffect(() => {
+    setLotLabelColors(getLotLabelColorMap(user?.id));
+  }, [user?.id]);
+
+  useEffect(() => {
     if (activeTab !== "assistant") return;
     const id = window.setTimeout(() => {
       const target = assistantSectionRef.current;
@@ -614,6 +626,64 @@ export default function ProjectDetailPage() {
   const canEditPlanning = canManageProject;
   const canEditQuotes = canManageProject;
   const canUseAssistantPlanning = canManageProject;
+
+  const openCreateInterventionModal = () => {
+    if (!canManageProject) return;
+    setEditingInterventionId(null);
+    setInterventionForm({
+      name: "",
+      description: "",
+      companyName: "",
+      startDate: "",
+      endDate: "",
+      budgetEstimated: "",
+      labelColor: "slate",
+    });
+    setFormError(null);
+    setInterventionModalOpen(true);
+  };
+
+  const openEditInterventionModal = (intervention: LotSummary) => {
+    if (!canManageProject) return;
+    setEditingInterventionId(intervention.id);
+    const storedColor = lotLabelColors[intervention.id] ?? null;
+    setInterventionForm({
+      name: intervention.name ?? "",
+      description: intervention.description ?? "",
+      companyName: intervention.companyName ?? "",
+      startDate: intervention.startDate ?? "",
+      endDate: intervention.endDate ?? "",
+      budgetEstimated:
+        typeof intervention.budgetEstimated === "number" ? String(intervention.budgetEstimated) : "",
+      labelColor: storedColor ?? "slate",
+    });
+    setFormError(null);
+    setInterventionModalOpen(true);
+  };
+
+  const handleDeleteIntervention = async (intervention: LotSummary) => {
+    if (!canManageProject) return;
+    const confirmed =
+      typeof window !== "undefined" &&
+      window.confirm(
+        `Supprimer l'intervention “${intervention.name}” ? Cette action supprimera aussi ses tâches et documents associés.`
+      );
+    if (!confirmed) return;
+
+    setError(null);
+    try {
+      await deleteLot(intervention.id);
+      removeLotLabelColor(user?.id, intervention.id);
+      setLotLabelColors((prev) => {
+        const next = { ...prev };
+        delete next[intervention.id];
+        return next;
+      });
+      await loadInterventions();
+    } catch (err: any) {
+      setError(err?.message ?? "Impossible de supprimer l'intervention.");
+    }
+  };
 
   const loadProject = async () => {
     if (!projectId || !user?.id) return;
@@ -792,15 +862,25 @@ export default function ProjectDetailPage() {
     setFormError(null);
     setError(null);
     try {
-      await createLotForProject(projectId, {
+      const patch = {
         name: interventionForm.name,
         description: interventionForm.description || null,
         companyName: interventionForm.companyName || null,
         startDate: interventionForm.startDate || null,
         endDate: interventionForm.endDate || null,
         budgetEstimated: interventionForm.budgetEstimated ? Number(interventionForm.budgetEstimated) : 0,
-        status: "planifie",
-      });
+        status: "planifie" as const,
+      };
+
+      if (editingInterventionId) {
+        await updateLot(editingInterventionId, patch);
+        setLotLabelColor(user?.id, editingInterventionId, interventionForm.labelColor);
+        setLotLabelColors((prev) => ({ ...prev, [editingInterventionId]: interventionForm.labelColor }));
+      } else {
+        const createdId = await createLotForProject(projectId, patch);
+        setLotLabelColor(user?.id, createdId, interventionForm.labelColor);
+        setLotLabelColors((prev) => ({ ...prev, [createdId]: interventionForm.labelColor }));
+      }
       setInterventionForm({
         name: "",
         description: "",
@@ -808,7 +888,9 @@ export default function ProjectDetailPage() {
         startDate: "",
         endDate: "",
         budgetEstimated: "",
+        labelColor: "slate",
       });
+      setEditingInterventionId(null);
       setInterventionModalOpen(false);
       await loadInterventions();
     } catch (err: any) {
@@ -1097,6 +1179,41 @@ export default function ProjectDetailPage() {
     return base || null;
   };
 
+  const DEFAULT_TIME_SLOTS = ["09:00-11:00", "11:00-13:00", "14:00-16:00", "16:00-18:00"] as const;
+
+  const ensureTimePrefix = (description: string, timeRange: string) => {
+    const base = (description ?? "").trim();
+    if (!base) return `[[time:${timeRange}]]`;
+    if (base.startsWith("[[time:")) return base;
+    const prefix = `[[time:${timeRange}]]`;
+    return `${prefix} ${base}`;
+  };
+
+  const addDefaultTimesToPlanningTasks = (tasks: PlanningSuggestedTask[]) => {
+    const byDay = new Map<string, PlanningSuggestedTask[]>();
+    for (const t of tasks) {
+      const day = String(t.end_date ?? t.start_date ?? "").trim();
+      if (!day) continue;
+      const list = byDay.get(day) ?? [];
+      list.push(t);
+      byDay.set(day, list);
+    }
+
+    const slotByTask = new Map<PlanningSuggestedTask, string>();
+    for (const list of byDay.values()) {
+      const sorted = [...list].sort((a, b) => String(a.title ?? "").localeCompare(String(b.title ?? "")));
+      for (let i = 0; i < sorted.length; i++) {
+        slotByTask.set(sorted[i], DEFAULT_TIME_SLOTS[i % DEFAULT_TIME_SLOTS.length]);
+      }
+    }
+
+    return tasks.map((t) => {
+      const slot = slotByTask.get(t);
+      if (!slot) return t;
+      return { ...t, description: ensureTimePrefix(t.description, slot) };
+    });
+  };
+
   const insertTaskWithFallbackStatus = async (payloadBase: Record<string, unknown>) => {
     const candidates = TASK_STATUS_DB_MAP.not_started;
     let lastError: { message?: string } | null = null;
@@ -1209,8 +1326,8 @@ export default function ProjectDetailPage() {
     }
 
     const confirmMsg = hasNewInterventions
-      ? `Ce planning va créer ${proposal.suggested_interventions.length} nouvelle(s) intervention(s) et ajouter des tâches. Continuer ?`
-      : "Ce planning va ajouter des tâches aux interventions existantes. Continuer ?";
+      ? `Ce planning va créer ${proposal.suggested_interventions.length} nouvelle(s) intervention(s) et remplacer les tâches des interventions concernées. Continuer ?`
+      : "Ce planning va remplacer les tâches des interventions concernées. Continuer ?";
 
     if (!window.confirm(confirmMsg)) return;
 
@@ -1224,12 +1341,19 @@ export default function ProjectDetailPage() {
       // 1. Add suggested tasks to existing interventions
       for (const intervention of proposal.existing_interventions) {
         if (!intervention.intervention_id || intervention.intervention_id === "__project_tasks__") continue;
-        for (const task of intervention.suggested_tasks) {
+        if (intervention.suggested_tasks.length === 0) continue;
+
+        await deleteAllLotTasks(intervention.intervention_id);
+        const tasksWithTimes = addDefaultTimesToPlanningTasks(intervention.suggested_tasks);
+
+        for (let idx = 0; idx < tasksWithTimes.length; idx++) {
+          const task = tasksWithTimes[idx];
           if (!task.title?.trim()) continue;
           await createLotTask(intervention.intervention_id, {
             title: task.title.trim(),
             description: task.description?.trim() || null,
             dueDate: task.end_date ?? task.start_date ?? null,
+            orderIndex: idx,
             status: "todo",
           });
         }
@@ -1247,8 +1371,9 @@ export default function ProjectDetailPage() {
         });
 
         // Add tasks to the new lot
-        for (let idx = 0; idx < newIntervention.suggested_tasks.length; idx++) {
-          const task = newIntervention.suggested_tasks[idx];
+        const tasksWithTimes = addDefaultTimesToPlanningTasks(newIntervention.suggested_tasks);
+        for (let idx = 0; idx < tasksWithTimes.length; idx++) {
+          const task = tasksWithTimes[idx];
           if (!task.title?.trim()) continue;
           await createLotTask(lotId, {
             title: task.title.trim(),
@@ -1262,13 +1387,71 @@ export default function ProjectDetailPage() {
 
       setPendingPlanningProposal(null);
       setPendingProposal(null);
-      setAssistantNotice("Planning appliqué avec succès. Les interventions et tâches ont été créées.");
+      setAssistantNotice("Planning appliqué avec succès. Les tâches des interventions concernées ont été remplacées.");
       await loadProject();
     } catch (err: any) {
       setAssistantError(err?.message ?? "Impossible d'appliquer le planning.");
     } finally {
       setApplyLoading(false);
     }
+  };
+
+  const handleValidatePlanning = async (proposal: PlanningProposal) => {
+    if (!canUseAssistantPlanning) {
+      throw new Error("Seuls les professionnels peuvent valider un planning.");
+    }
+    if (!projectId || !user?.id) return;
+
+    const defaultPhaseId = await getOrCreateDefaultPhase(projectId);
+
+    // Add suggested tasks to existing interventions
+    for (const intervention of proposal.existing_interventions) {
+      if (!intervention.intervention_id || intervention.intervention_id === "__project_tasks__") continue;
+      if (intervention.suggested_tasks.length === 0) continue;
+
+      await deleteAllLotTasks(intervention.intervention_id);
+      const tasksWithTimes = addDefaultTimesToPlanningTasks(intervention.suggested_tasks);
+
+      for (let idx = 0; idx < tasksWithTimes.length; idx++) {
+        const task = tasksWithTimes[idx];
+        if (!task.title?.trim()) continue;
+        await createLotTask(intervention.intervention_id, {
+          title: task.title.trim(),
+          description: task.description?.trim() || null,
+          dueDate: task.end_date ?? task.start_date ?? null,
+          orderIndex: idx,
+          status: "todo",
+        });
+      }
+    }
+
+    // Create new interventions with their tasks
+    for (const newIntervention of proposal.suggested_interventions) {
+      if (!newIntervention.name?.trim()) continue;
+      const lotId = await createLot(defaultPhaseId, {
+        name: newIntervention.name.trim(),
+        lotType: newIntervention.lot_type?.trim() || null,
+        description: newIntervention.reason?.trim() || null,
+        status: "planifie",
+      });
+      const tasksWithTimes = addDefaultTimesToPlanningTasks(newIntervention.suggested_tasks);
+      for (let idx = 0; idx < tasksWithTimes.length; idx++) {
+        const task = tasksWithTimes[idx];
+        if (!task.title?.trim()) continue;
+        await createLotTask(lotId, {
+          title: task.title.trim(),
+          description: task.description?.trim() || null,
+          dueDate: task.end_date ?? task.start_date ?? null,
+          orderIndex: idx,
+          status: "todo",
+        });
+      }
+    }
+
+    setPendingPlanningProposal(null);
+    setPendingProposal(null);
+    setAssistantNotice("Planning appliqué avec succès. Les tâches des interventions concernées ont été remplacées.");
+    await loadProject();
   };
 
   const updateProposalSummary = (value: string) => {
@@ -1363,7 +1546,8 @@ export default function ProjectDetailPage() {
         { role: "user" as const, content: trimmed },
       ];
 
-      const isForcePlan = options?.forcePlan ?? false;
+      // Detect planning intent from explicit flag OR from message keywords
+      const isForcePlan = options?.forcePlan ?? detectPlanningIntent(trimmed);
 
       // ── Enriched planning path ──────────────────────────────────
       if (isForcePlan) {
@@ -1381,45 +1565,35 @@ export default function ProjectDetailPage() {
           history
         );
 
-        await streamText(planningResult.message);
+        // Build final proposal first so we can use its summary as the chat message
+        const finalProposal: PlanningProposal = planningResult.proposal ?? buildSmartPlanningFallback(
+          {
+            name: project?.name ?? "Projet",
+            description: project?.description,
+            project_type: project?.project_type,
+          },
+          interventions.map((iv) => ({ id: iv.id, name: iv.name }))
+        );
+
+        // Build the chat message from the proposal summary
+        const chatMessage = planningResult.proposal
+          ? planningResult.message
+          : `J'ai analysé votre projet **${project?.name ?? ""}** et préparé une proposition de planning.\n\n${finalProposal.summary}\n\n${finalProposal.warnings.length > 0 ? `⚠️ ${finalProposal.warnings[0]}\n\n` : ""}📋 La fenêtre de planning s'ouvre — vous pouvez modifier les tâches et interventions avant de valider.`;
+
+        await streamText(chatMessage);
 
         const assistantMessage: AssistantMessage = {
           role: "assistant",
-          content: planningResult.message,
+          content: chatMessage,
           timestamp: new Date().toISOString(),
           planningProposal: planningResult.proposal ?? null,
           suggestions: planningResult.suggestions ?? [],
         };
         setAssistantMessages((prev) => [...prev, assistantMessage]);
 
-        if (planningResult.proposal) {
-          setPendingPlanningProposal(planningResult.proposal);
-          // Also set legacy proposal for backwards compatibility
-          const legacyTasks: AssistantTask[] = [
-            ...planningResult.proposal.existing_interventions.flatMap((i) =>
-              i.suggested_tasks.map((t) => ({
-                name: `[${i.intervention_name}] ${t.title}`,
-                description: t.description,
-                start_date: t.start_date,
-                end_date: t.end_date,
-              }))
-            ),
-            ...planningResult.proposal.suggested_interventions.flatMap((i) =>
-              i.suggested_tasks.map((t) => ({
-                name: `[${i.name}] ${t.title}`,
-                description: t.description,
-                start_date: t.start_date,
-                end_date: t.end_date,
-              }))
-            ),
-          ];
-          if (legacyTasks.length > 0) {
-            setPendingProposal({
-              summary: planningResult.proposal.summary,
-              tasks: legacyTasks,
-            });
-          }
-        }
+        // Always open the planning modal
+        setPendingPlanningProposal(finalProposal);
+        setPendingProposal(null);
 
         return;
       }
@@ -2121,7 +2295,7 @@ export default function ProjectDetailPage() {
       case "termine":
         return {
           leftBorderColor: "#10b981",
-          bg: "bg-emerald-50/60",
+          bg: "bg-emerald-50",
           iconBg: "bg-gradient-to-br from-emerald-100 to-emerald-50",
           iconColor: "text-emerald-700",
           selectClass: "border-emerald-200 text-emerald-700 hover:border-emerald-300",
@@ -2129,7 +2303,7 @@ export default function ProjectDetailPage() {
       case "en_cours":
         return {
           leftBorderColor: "#38b6ff",
-          bg: "bg-sky-50/60",
+          bg: "bg-sky-50",
           iconBg: "bg-gradient-to-br from-sky-100 to-sky-50",
           iconColor: "text-sky-600",
           selectClass: "border-sky-200 text-sky-700 hover:border-sky-300",
@@ -2137,7 +2311,7 @@ export default function ProjectDetailPage() {
       case "en_attente":
         return {
           leftBorderColor: "#fbbf24",
-          bg: "bg-amber-50/60",
+          bg: "bg-amber-50",
           iconBg: "bg-gradient-to-br from-amber-100 to-amber-50",
           iconColor: "text-amber-700",
           selectClass: "border-amber-200 text-amber-700 hover:border-amber-300",
@@ -2145,7 +2319,7 @@ export default function ProjectDetailPage() {
       default: // draft / à faire
         return {
           leftBorderColor: "#94a3b8",
-          bg: "bg-slate-50/60",
+          bg: "bg-slate-50",
           iconBg: "bg-gradient-to-br from-slate-100 to-slate-50",
           iconColor: "text-slate-500",
           selectClass: "border-slate-200 text-slate-600 hover:border-slate-300",
@@ -2253,7 +2427,9 @@ export default function ProjectDetailPage() {
   }
 
   return (
+    <>
     <div className="space-y-6">
+      <div className="rounded-2xl bg-white/80 backdrop-blur-sm border border-neutral-100 shadow-sm px-6 py-5">
       <header className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-4">
@@ -2302,9 +2478,10 @@ export default function ProjectDetailPage() {
         )}
         {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
       </header>
+      </div>
 
       <nav className="sticky top-3 z-30" aria-label="Navigation du projet">
-        <div className="flex flex-wrap gap-1 rounded-2xl border border-neutral-100 bg-neutral-100/60 p-1 backdrop-blur">
+        <div className="flex flex-wrap gap-1 rounded-2xl border border-neutral-200 bg-white shadow-sm p-1">
           {tabItems.map((tab) => {
             const isActive = activeTab === tab.key;
             const isGuideOrAssistant = tab.key === "guide" || tab.key === "assistant";
@@ -2320,7 +2497,7 @@ export default function ProjectDetailPage() {
                   "transition duration-200 ease-out transform-gpu",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2",
                   isActive
-                    ? "bg-white text-primary-600 shadow-sm"
+                    ? "bg-white text-primary-600 shadow-sm ring-1 ring-primary-200/80"
                     : "text-neutral-600 hover:bg-white/80 hover:text-neutral-900",
                   !isActive ? "hover:-translate-y-[1px]" : "",
                 ].join(" ")}
@@ -2378,7 +2555,7 @@ export default function ProjectDetailPage() {
                 ),
                 colorClass: {
                   leftBorderColor: "#10b981",
-                  bg: "bg-emerald-50/60",
+                  bg: "bg-emerald-50",
                   iconBg: "bg-gradient-to-br from-emerald-100 to-emerald-50",
                   iconColor: "text-emerald-700",
                 },
@@ -2395,7 +2572,7 @@ export default function ProjectDetailPage() {
                 ),
                 colorClass: {
                   leftBorderColor: "#38b6ff",
-                  bg: "bg-sky-50/60",
+                  bg: "bg-sky-50",
                   iconBg: "bg-gradient-to-br from-primary-100 to-primary-50",
                   iconColor: "text-primary-600",
                 },
@@ -2433,7 +2610,7 @@ export default function ProjectDetailPage() {
                 extra: <p className="text-xs text-neutral-500 mt-1">{members.filter((m) => formatMemberStatus(m.status).label === "Actif").length} actifs</p>,
                 colorClass: {
                   leftBorderColor: "#1800ad",
-                  bg: "bg-violet-50/60",
+                  bg: "bg-violet-50",
                   iconBg: "bg-gradient-to-br from-violet-100 to-violet-50",
                   iconColor: "text-violet-700",
                 },
@@ -2551,13 +2728,13 @@ export default function ProjectDetailPage() {
                   ) : interventions.length === 0 ? (
                     <div className="px-4 py-8 text-sm text-neutral-500 text-center">
                       Aucune intervention pour le moment.
-                      {canManageProject && (
-                        <div className="mt-2">
-                          <Button size="sm" onClick={() => { setFormError(null); setInterventionModalOpen(true); }}>
-                            + Nouvelle intervention
-                          </Button>
-                        </div>
-                      )}
+                        {canManageProject && (
+                          <div className="mt-2">
+                            <Button size="sm" onClick={openCreateInterventionModal}>
+                              + Nouvelle intervention
+                            </Button>
+                          </div>
+                        )}
                     </div>
                   ) : (
                     interventions.map((intervention) => {
@@ -2706,13 +2883,13 @@ export default function ProjectDetailPage() {
 
       {!loading && activeTab === "interventions" && (
         <section className="space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="rounded-2xl bg-white border border-neutral-100 shadow-sm px-6 py-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Interventions ({interventions.length})</h2>
               <p className="text-sm text-gray-500">Sous-traitants ou équipe interne — chaque intervention génère des tâches sur le chantier.</p>
             </div>
             {canManageProject && (
-              <Button size="sm" onClick={() => { setFormError(null); setInterventionModalOpen(true); }}>
+              <Button size="sm" onClick={openCreateInterventionModal}>
                 + Nouvelle intervention
               </Button>
             )}
@@ -2727,7 +2904,7 @@ export default function ProjectDetailPage() {
                   Aucune intervention pour le moment.
                 </div>
                 {canManageProject && (
-                  <Button size="sm" onClick={() => { setFormError(null); setInterventionModalOpen(true); }}>
+                  <Button size="sm" onClick={openCreateInterventionModal}>
                     + Creer une intervention
                   </Button>
                 )}
@@ -2737,10 +2914,24 @@ export default function ProjectDetailPage() {
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
               {interventions.map((intervention) => {
                 const lotStatus = intervention.status === "en_cours" ? "en_cours" : intervention.status === "termine" || intervention.status === "valide" ? "termine" : intervention.status === "devis_en_cours" || intervention.status === "devis_valide" ? intervention.status : "planifie";
+                const labelColorKey = lotLabelColors[intervention.id] ?? null;
+                const labelColor = labelColorKey ? lotLabelColorByKey[labelColorKey] : null;
                 return (
                   <Card
                     key={intervention.id}
-                    className="cursor-pointer hover:shadow-lg hover:border-primary-200 transition-all duration-200"
+                    className={cn(
+                      "cursor-pointer transition-all duration-200",
+                      "border border-neutral-200",
+                      "hover:shadow-lg hover:-translate-y-[1px]",
+                      "border-l-4",
+                      "bg-white"
+                    )}
+                    style={{
+                      borderLeftColor: labelColor?.accentHex ?? "#cbd5e1",
+                      backgroundImage: labelColor?.accentHex
+                        ? `linear-gradient(135deg, ${labelColor.accentHex}1f 0%, rgba(255,255,255,1) 70%)`
+                        : undefined,
+                    }}
                     onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${intervention.id}?role=${role}`)}
                   >
                     <CardHeader className="pb-2">
@@ -2751,9 +2942,37 @@ export default function ProjectDetailPage() {
                             <div className="text-sm text-gray-500 mt-0.5 line-clamp-2">{intervention.description}</div>
                           )}
                         </div>
-                        <Badge type="lot" status={lotStatus} size="sm" className="shrink-0">
-                          {intervention.status === "en_cours" ? "En cours" : intervention.status === "termine" || intervention.status === "valide" ? "Terminé" : intervention.status?.replace(/_/g, " ") ?? "Planifié"}
-                        </Badge>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge type="lot" status={lotStatus} size="sm" className={cn("shrink-0", labelColor?.badgeClass ?? "")}>
+                            {intervention.status === "en_cours" ? "En cours" : intervention.status === "termine" || intervention.status === "valide" ? "Terminé" : intervention.status?.replace(/_/g, " ") ?? "Planifié"}
+                          </Badge>
+                          {canManageProject && (
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 hover:text-primary-700 transition-colors"
+                                title="Modifier l'intervention"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openEditInterventionModal(intervention);
+                                }}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-600 hover:bg-rose-50 hover:text-rose-700 transition-colors"
+                                title="Supprimer l'intervention"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleDeleteIntervention(intervention);
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent className="text-sm text-gray-700 pt-0">
@@ -2769,7 +2988,7 @@ export default function ProjectDetailPage() {
                         <div className="col-span-2">
                           <div className="text-xs uppercase tracking-wide text-gray-400">Période</div>
                           <div>
-                            {intervention.startDate ? formatDate(intervention.startDate) : "-"} → {intervention.endDate ? formatDate(intervention.endDate) : "-"}
+                            {(intervention.startDate ?? intervention.tasksStartDate) ? formatDate((intervention.startDate ?? intervention.tasksStartDate) as string) : "-"} → {(intervention.endDate ?? intervention.tasksEndDate) ? formatDate((intervention.endDate ?? intervention.tasksEndDate) as string) : "-"}
                           </div>
                         </div>
                         {intervention.companyName && (
@@ -3297,7 +3516,7 @@ export default function ProjectDetailPage() {
       {!loading && activeTab === "assistant" && (
         <section ref={assistantSectionRef} className="grid gap-6">
           <div className="space-y-6">
-            <Card className="min-h-[520px] h-[calc(100vh-280px)] flex flex-col">
+            <Card className="min-h-[600px] h-[calc(100vh-200px)] flex flex-col">
               <CardContent className="flex flex-col gap-4 flex-1 min-h-0">
                 <div className="space-y-3">
                   <div className="flex items-start justify-between gap-3">
@@ -3496,7 +3715,7 @@ export default function ProjectDetailPage() {
               </CardContent>
             </Card>
 
-            {userRole === "professionnel" && (
+            {userRole === "professionnel" && false && (
             <Card>
               <CardHeader>
                 <div className="font-semibold text-gray-900">Proposition de planning</div>
@@ -3512,24 +3731,24 @@ export default function ProjectDetailPage() {
                 {/* ── Enriched planning proposal (interventions + tasks) ── */}
                 {pendingPlanningProposal && (
                   <div className="space-y-4">
-                    {pendingPlanningProposal.summary && (
+                    {pendingPlanningProposal?.summary && (
                       <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
-                        {pendingPlanningProposal.summary}
+                        {pendingPlanningProposal?.summary}
                       </div>
                     )}
 
-                    {pendingPlanningProposal.warnings.length > 0 && (
+                    {(pendingPlanningProposal?.warnings?.length ?? 0) > 0 && (
                       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 space-y-1">
-                        {pendingPlanningProposal.warnings.map((w, i) => (
+                        {(pendingPlanningProposal?.warnings ?? []).map((w, i) => (
                           <div key={i}>{w}</div>
                         ))}
                       </div>
                     )}
 
-                    {pendingPlanningProposal.existing_interventions.length > 0 && (
+                    {(pendingPlanningProposal?.existing_interventions?.length ?? 0) > 0 && (
                       <div className="space-y-3">
                         <div className="text-sm font-semibold text-gray-800">Interventions existantes</div>
-                        {pendingPlanningProposal.existing_interventions.map((intervention) => (
+                        {(pendingPlanningProposal?.existing_interventions ?? []).map((intervention) => (
                           <div key={intervention.intervention_id} className="rounded-lg border border-gray-200 p-3 bg-white space-y-2">
                             <div className="font-medium text-gray-900">{intervention.intervention_name}</div>
                             {intervention.existing_tasks.length > 0 && (
@@ -3791,17 +4010,24 @@ export default function ProjectDetailPage() {
         </div>
       )}
       {interventionModalOpen && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-lg w-full p-6">
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-neutral-900">Nouvelle intervention</h3>
-                <p className="text-sm text-neutral-600">Ajoutez une intervention au projet.</p>
+        <div
+          className="fixed inset-0 bg-gradient-to-b from-black/15 via-black/35 to-black/35 backdrop-blur-md flex items-center justify-center z-[100] px-4"
+          onClick={(e) => { if (e.target === e.currentTarget) { setInterventionModalOpen(false); setFormError(null); } }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl border border-neutral-200 max-w-lg w-full p-6">
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-neutral-900">
+                    {editingInterventionId ? "Modifier l'intervention" : "Nouvelle intervention"}
+                  </h3>
+                  <p className="text-sm text-neutral-600">
+                    {editingInterventionId ? "Mettez à jour l'intervention du projet." : "Ajoutez une intervention au projet."}
+                  </p>
+                </div>
+                <Button variant="ghost" onClick={() => { setInterventionModalOpen(false); setFormError(null); }}>
+                  Fermer
+                </Button>
               </div>
-              <Button variant="ghost" onClick={() => { setInterventionModalOpen(false); setFormError(null); }}>
-                Fermer
-              </Button>
-            </div>
             {formError && (
               <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                 {formError}
@@ -3831,6 +4057,33 @@ export default function ProjectDetailPage() {
                   onChange={(event) => setInterventionForm({ ...interventionForm, companyName: event.target.value })}
                   placeholder="Nom de l'entreprise (optionnel)"
                 />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Couleur</label>
+                <div className="flex flex-wrap gap-2">
+                  {LOT_LABEL_COLORS.map((c) => {
+                    const selected = interventionForm.labelColor === c.key;
+                    return (
+                      <button
+                        key={c.key}
+                        type="button"
+                        onClick={() => setInterventionForm({ ...interventionForm, labelColor: c.key })}
+                        className={cn(
+                          "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-medium transition-all",
+                          "hover:-translate-y-[1px] hover:shadow-sm",
+                          selected ? "border-neutral-900 ring-2 ring-neutral-900/15 bg-neutral-50" : "border-neutral-200 bg-white hover:bg-neutral-50"
+                        )}
+                        aria-pressed={selected}
+                      >
+                        <span
+                          className="h-2.5 w-2.5 rounded-full ring-1 ring-black/10"
+                          style={{ backgroundColor: c.accentHex }}
+                        />
+                        <span className="text-neutral-800">{c.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-2">
@@ -3867,7 +4120,11 @@ export default function ProjectDetailPage() {
                   Annuler
                 </Button>
                 <Button type="submit" disabled={interventionSubmitting || !canManageProject}>
-                  {interventionSubmitting ? "Creation..." : "Creer l'intervention"}
+                  {interventionSubmitting
+                    ? "Enregistrement..."
+                    : editingInterventionId
+                      ? "Enregistrer"
+                      : "Créer l'intervention"}
                 </Button>
               </div>
             </form>
@@ -4185,6 +4442,15 @@ export default function ProjectDetailPage() {
         </div>
       )}
     </div>
+
+    {pendingPlanningProposal && (
+      <PlanningProposalWindow
+        proposal={pendingPlanningProposal}
+        onValidate={handleValidatePlanning}
+        onCancel={() => setPendingPlanningProposal(null)}
+      />
+    )}
+    </>
   );
 }
 

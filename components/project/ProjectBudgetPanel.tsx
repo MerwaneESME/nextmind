@@ -26,33 +26,33 @@ export default function ProjectBudgetPanel({
 
   return (
     <div className="space-y-4">
-      <header>
+      <div className="rounded-2xl bg-white border border-neutral-100 shadow-sm px-6 py-4">
         <div className="text-xl font-semibold text-gray-900">Budget du projet</div>
-        <div className="text-sm text-gray-600">
+        <div className="text-sm text-gray-500 mt-0.5">
           Vue consolidée du budget des interventions. Les factures ajoutées dans chaque intervention mettent à jour
           automatiquement ces montants.
         </div>
-      </header>
+      </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="border-l-4 border-l-slate-200 bg-slate-50/30">
-          <CardHeader className="border-b border-slate-100 bg-slate-50/60">
+        <Card className="border-l-4 border-l-slate-300 bg-slate-50">
+          <CardHeader className="border-b border-slate-100 bg-slate-50">
             <div className="text-sm text-gray-600">Budget total estimé</div>
           </CardHeader>
           <CardContent className="text-xl font-semibold text-gray-900">
             {formatCurrency(totals.budgetEstimated)}
           </CardContent>
         </Card>
-        <Card className="border-l-4 border-l-emerald-200 bg-emerald-50/20">
-          <CardHeader className="border-b border-emerald-100 bg-emerald-50/60">
+        <Card className="border-l-4 border-l-emerald-300 bg-emerald-50">
+          <CardHeader className="border-b border-emerald-100 bg-emerald-50">
             <div className="text-sm text-gray-600">Dépenses réelles (factures payées)</div>
           </CardHeader>
           <CardContent className="text-xl font-semibold text-gray-900">
             {formatCurrency(totals.budgetActual)}
           </CardContent>
         </Card>
-        <Card className="border-l-4 border-l-blue-200 bg-blue-50/20">
-          <CardHeader className="border-b border-blue-100 bg-blue-50/60">
+        <Card className="border-l-4 border-l-blue-200 bg-white">
+          <CardHeader className="border-b border-blue-100 bg-white">
             <div className="text-sm text-gray-600">Budget disponible</div>
           </CardHeader>
           <CardContent className="text-xl font-semibold text-gray-900">

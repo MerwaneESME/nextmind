@@ -156,10 +156,10 @@ export function Header({ user }: HeaderProps) {
   }, [openNotif]);
 
   return (
-    <header className="h-16 bg-white border-b border-neutral-200 flex items-center justify-end px-6 relative">
+    <header className="h-20 bg-white border-b border-neutral-200 shadow-sm flex items-center justify-end px-6 relative z-10">
       {/* Breadcrumb — left side */}
       {breadcrumb.length > 0 ? (
-        <nav aria-label="Fil d'Ariane" className="absolute left-6 flex items-center gap-2 text-sm">
+        <nav aria-label="Fil d'Ariane" className="absolute left-6 top-1/2 -translate-y-1/2 flex items-center gap-2 text-sm">
           {breadcrumb.map((item, i) => (
             <span key={i} className="flex items-center gap-2">
               {i > 0 && <span className="text-neutral-300 select-none">›</span>}
@@ -182,25 +182,26 @@ export function Header({ user }: HeaderProps) {
       <button
         type="button"
         onClick={goToDashboard}
-        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 rounded"
+        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[55%] flex items-center hover:opacity-75 transition-opacity focus-visible:outline-none rounded"
         aria-label="Retour au tableau de bord"
       >
-        <img src="/images/nextmind.png" alt="NextMind" className="h-8 w-auto" />
+        <img src="/images/nextmind.png" alt="NextMind" className="h-12 w-auto" />
       </button>
 
-      {/* Right side — notifications + user */}
-      <div className="flex items-center gap-3 relative">
-        <div className="relative" ref={notifRef}>
-          <button
-            className="relative p-2 text-neutral-500 hover:text-neutral-800 hover:bg-neutral-100 rounded-lg transition-colors"
-            onClick={() => setOpenNotif((v) => !v)}
-            aria-label="Notifications"
-          >
-            <Bell className="w-5 h-5" />
-            {unreadCount > 0 && (
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
-            )}
-          </button>
+      {/* Right side — notifications + user pill */}
+      <div className="flex items-center gap-2 relative">
+        <div className="bg-white border border-neutral-200 shadow-md rounded-2xl px-3 py-2 flex items-center gap-2">
+          <div className="relative" ref={notifRef}>
+            <button
+              className="relative p-1.5 text-neutral-500 hover:text-neutral-800 hover:bg-white/60 rounded-lg transition-colors"
+              onClick={() => setOpenNotif((v) => !v)}
+              aria-label="Notifications"
+            >
+              <Bell className="w-5 h-5" />
+              {unreadCount > 0 && (
+                <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-red-500 rounded-full" />
+              )}
+            </button>
           {openNotif && (
             <div className="absolute right-0 mt-2 w-80 bg-white border border-neutral-200 rounded-lg shadow-lg z-20">
               <div className="px-4 py-3 border-b border-neutral-200">
@@ -257,23 +258,24 @@ export function Header({ user }: HeaderProps) {
           )}
         </div>
 
-        {user && (
-          <button
-            onClick={goProfile}
-            className="flex items-center gap-3 hover:bg-neutral-100 px-2 py-1 rounded-lg transition-colors"
-            aria-label="Ouvrir le profil"
-          >
-            <div className="text-right">
-              <p className="text-sm font-medium text-neutral-900">{user.name}</p>
-              <p className="text-xs text-neutral-500 capitalize">{user.role}</p>
-            </div>
-            <div className="w-9 h-9 bg-gradient-to-br from-primary-400 to-primary-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm">
-              <span className="text-white font-semibold text-sm">
-                {user.name.charAt(0).toUpperCase()}
-              </span>
-            </div>
-          </button>
-        )}
+          {user && (
+            <button
+              onClick={goProfile}
+              className="flex items-center gap-2.5 hover:bg-white/60 px-1.5 py-1 rounded-xl transition-colors"
+              aria-label="Ouvrir le profil"
+            >
+              <div className="text-right">
+                <p className="text-sm font-medium text-neutral-900 leading-tight">{user.name}</p>
+                <p className="text-xs text-neutral-500 capitalize">{user.role}</p>
+              </div>
+              <div className="w-8 h-8 bg-gradient-to-br from-primary-400 to-primary-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm">
+                <span className="text-white font-semibold text-sm">
+                  {user.name.charAt(0).toUpperCase()}
+                </span>
+              </div>
+            </button>
+          )}
+        </div>
       </div>
     </header>
   );

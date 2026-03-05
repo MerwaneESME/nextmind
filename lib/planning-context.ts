@@ -10,8 +10,6 @@
  */
 
 import { supabase } from "@/lib/supabaseClient";
-import type { LotSummary } from "@/lib/lotsDb";
-import type { LotTask } from "@/lib/lotTasksDb";
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -36,13 +34,29 @@ export type InterventionSnapshot = {
   companyName: string | null;
   budgetEstimated: number;
   budgetActual: number;
+  description: string | null;
   tasks: TaskSnapshot[];
+};
+
+export type DevisItemSnapshot = {
+  description: string;
+  qty: number | null;
+  unit_price: number | null;
+  total: number | null;
+};
+
+export type DevisSnapshot = {
+  id: string;
+  status: string;
+  total: number | null;
+  items: DevisItemSnapshot[];
 };
 
 export type ProjectPlanningContext = {
   project: {
     id: string;
     name: string;
+    description: string | null;
     type: string | null;
     status: string | null;
     address: string | null;
@@ -50,6 +64,7 @@ export type ProjectPlanningContext = {
     budgetTotal: number | null;
     createdAt: string | null;
   };
+  devis: DevisSnapshot[];
   interventions: InterventionSnapshot[];
   stats: {
     totalInterventions: number;
@@ -94,7 +109,7 @@ export async function buildPlanningContext(projectId: string): Promise<ProjectPl
   // 1. Fetch the project
   const { data: projectRow, error: projectError } = await supabase
     .from("projects")
-    .select("id,name,project_type,status,address,city,budget_total,created_at")
+    .select("id,name,description,project_type,status,address,city,budget_total,created_at")
     .eq("id", projectId)
     .maybeSingle();
 
@@ -115,7 +130,7 @@ export async function buildPlanningContext(projectId: string): Promise<ProjectPl
     const { data: lotsData } = await supabase
       .from("lots")
       .select(
-        "id,phase_id,name,description,lot_type,company_name,start_date,end_date,budget_estimated,budget_actual,status,progress_percentage"
+        "id,phase_id,name,description,lot_type,company_name,start_date,end_date,budget_estimated,budget_actual,status,progress_percentage,notes"
       )
       .in("phase_id", phaseIds)
       .order("created_at", { ascending: true });
@@ -170,6 +185,7 @@ export async function buildPlanningContext(projectId: string): Promise<ProjectPl
         companyName: lot.company_name ?? null,
         budgetEstimated: Number(lot.budget_estimated) || 0,
         budgetActual: Number(lot.budget_actual) || 0,
+        description: lot.description ?? lot.notes ?? null,
         tasks,
       };
     });
@@ -215,11 +231,51 @@ export async function buildPlanningContext(projectId: string): Promise<ProjectPl
       companyName: null,
       budgetEstimated: 0,
       budgetActual: 0,
+      description: null,
       tasks: legacyTasks,
     });
   }
 
-  // 6. Compute aggregate stats
+  // 6. Fetch devis linked to this project (max 3 most recent, validated or latest)
+  let devisSnapshots: DevisSnapshot[] = [];
+  try {
+    const { data: devisData } = await supabase
+      .from("devis")
+      .select("id,status,total")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false })
+      .limit(3);
+
+    if (devisData && devisData.length > 0) {
+      const devisIds = devisData.map((d: any) => d.id);
+      const { data: itemsData } = await supabase
+        .from("devis_items")
+        .select("devis_id,description,qty,unit_price,total")
+        .in("devis_id", devisIds);
+
+      const itemsByDevis: Record<string, DevisItemSnapshot[]> = {};
+      for (const item of itemsData ?? []) {
+        if (!itemsByDevis[item.devis_id]) itemsByDevis[item.devis_id] = [];
+        itemsByDevis[item.devis_id].push({
+          description: item.description ?? "",
+          qty: item.qty ? Number(item.qty) : null,
+          unit_price: item.unit_price ? Number(item.unit_price) : null,
+          total: item.total ? Number(item.total) : null,
+        });
+      }
+
+      devisSnapshots = devisData.map((d: any) => ({
+        id: d.id,
+        status: d.status ?? "inconnu",
+        total: d.total ? Number(d.total) : null,
+        items: itemsByDevis[d.id] ?? [],
+      }));
+    }
+  } catch {
+    // Devis fetch is non-blocking — planning works without it
+  }
+
+  // 7. Compute aggregate stats
   const allTasksList = interventions.flatMap((i) => i.tasks);
   const totalTasks = allTasksList.length;
   const tasksDone = allTasksList.filter((t) => t.status === "done").length;
@@ -240,6 +296,7 @@ export async function buildPlanningContext(projectId: string): Promise<ProjectPl
     project: {
       id: projectRow.id,
       name: projectRow.name,
+      description: projectRow.description ?? null,
       type: projectRow.project_type ?? null,
       status: projectRow.status ?? null,
       address: projectRow.address ?? null,
@@ -247,6 +304,7 @@ export async function buildPlanningContext(projectId: string): Promise<ProjectPl
       budgetTotal: projectRow.budget_total ? Number(projectRow.budget_total) : null,
       createdAt: projectRow.created_at ?? null,
     },
+    devis: devisSnapshots,
     interventions,
     stats: {
       totalInterventions: interventions.length,
@@ -274,6 +332,7 @@ export function serializePlanningContext(ctx: ProjectPlanningContext): string {
   lines.push(`=== ÉTAT DU PROJET ===`);
   lines.push(`Nom : ${ctx.project.name}`);
   if (ctx.project.type) lines.push(`Type : ${ctx.project.type}`);
+  if (ctx.project.description) lines.push(`Description : ${ctx.project.description}`);
   lines.push(`Statut : ${ctx.project.status ?? "inconnu"}`);
   if (ctx.project.city) lines.push(`Ville : ${ctx.project.city}`);
   if (ctx.project.budgetTotal) lines.push(`Budget total : ${ctx.project.budgetTotal} €`);
@@ -290,11 +349,30 @@ export function serializePlanningContext(ctx: ProjectPlanningContext): string {
   }
   lines.push("");
 
+  // Devis section
+  if (ctx.devis.length > 0) {
+    lines.push(`=== DEVIS DU PROJET ===`);
+    for (const d of ctx.devis) {
+      lines.push(`Devis (statut: ${d.status}${d.total ? `, total: ${d.total} €` : ""}) :`);
+      if (d.items.length > 0) {
+        for (const item of d.items.slice(0, 20)) {
+          const qty = item.qty !== null ? `${item.qty} × ` : "";
+          const price = item.unit_price !== null ? `${item.unit_price} €/u` : "";
+          const total = item.total !== null ? ` = ${item.total} €` : "";
+          lines.push(`  - ${item.description}${qty || price ? ` (${qty}${price}${total})` : ""}`);
+        }
+        if (d.items.length > 20) lines.push(`  ... (${d.items.length - 20} autres lignes)`);
+      }
+    }
+    lines.push("");
+  }
+
   if (ctx.interventions.length > 0) {
     lines.push(`=== INTERVENTIONS ET TÂCHES ===`);
     for (const intervention of ctx.interventions) {
       lines.push(`--- Intervention : ${intervention.name} ---`);
       if (intervention.lotType) lines.push(`  Type : ${intervention.lotType}`);
+      if (intervention.description) lines.push(`  Description : ${intervention.description}`);
       lines.push(`  Statut : ${intervention.status}`);
       lines.push(`  Progression : ${intervention.progressPercent}%`);
       if (intervention.startDate) lines.push(`  Début : ${intervention.startDate}`);

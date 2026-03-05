@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Pencil, Send } from "lucide-react";
+import { ArrowLeft, Pencil, Send, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -11,10 +11,12 @@ import { ChatWindow } from "@/components/chat/ChatWindow";
 import DocumentsList from "@/components/documents/DocumentsList";
 import LotInvoicePanel from "@/components/lot/LotInvoicePanel";
 import ProgressBar from "@/components/ui/ProgressBar";
+import { useBreadcrumb } from "@/contexts/BreadcrumbContext";
 import { useAuth, mapUserTypeToRole } from "@/hooks/useAuth";
-import { formatCurrency, formatDate, isValidDateRange, normalizeDateValue } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, isValidDateRange, normalizeDateValue } from "@/lib/utils";
 import { fetchLotTasks, createLotTask, updateLotTask, deleteLotTask, type LotTask } from "@/lib/lotTasksDb";
-import { getLotById, type LotRow } from "@/lib/lotsDb";
+import { deleteLot, getLotById, updateLot, type LotRow } from "@/lib/lotsDb";
+import { getLotLabelColor, LOT_LABEL_COLORS, lotLabelColorByKey, removeLotLabelColor, setLotLabelColor, type LotLabelColorKey } from "@/lib/lotLabelColors";
 import { supabase } from "@/lib/supabaseClient";
 import { ChatMessageMarkdown } from "@/components/chat/ChatMessageMarkdown";
 import type { AssistantActionButton } from "@/components/assistant/ActionButton";
@@ -41,6 +43,15 @@ const tabItems: Array<{ key: TabKey; label: string; iconSrc: string }> = [
   { key: "documents", label: "Documents", iconSrc: "/images/grey/files.png" },
   { key: "assistant", label: "Assistant IA", iconSrc: "/images/grey/robot.png" },
 ];
+
+const LOT_STATUS_OPTIONS = [
+  { value: "planifie", label: "Planifie" },
+  { value: "devis_en_cours", label: "Devis en cours" },
+  { value: "devis_valide", label: "Devis valide" },
+  { value: "en_cours", label: "En cours" },
+  { value: "termine", label: "Termine" },
+  { value: "valide", label: "Valide" },
+] as const;
 
 const startOfWeek = (date: Date) => {
   const copy = new Date(date);
@@ -100,6 +111,36 @@ type AssistantTask = {
   time_range?: string | null;
 };
 
+const DEFAULT_TIME_SLOTS = ["09:00-11:00", "11:00-13:00", "14:00-16:00", "16:00-18:00"] as const;
+
+const addDefaultTimesToAssistantTasks = (tasks: AssistantTask[]) => {
+  const byDay = new Map<string, AssistantTask[]>();
+  for (const t of tasks) {
+    const hasTime = Boolean((t.time_range ?? "").trim());
+    if (hasTime) continue;
+    const day = String(t.start_date ?? t.end_date ?? "").trim();
+    if (!day) continue;
+    const list = byDay.get(day) ?? [];
+    list.push(t);
+    byDay.set(day, list);
+  }
+
+  const slotByTask = new Map<AssistantTask, string>();
+  for (const list of byDay.values()) {
+    const sorted = [...list].sort((a, b) => String(a.name ?? "").localeCompare(String(b.name ?? "")));
+    for (let i = 0; i < sorted.length; i++) {
+      slotByTask.set(sorted[i], DEFAULT_TIME_SLOTS[i % DEFAULT_TIME_SLOTS.length]);
+    }
+  }
+
+  return tasks.map((t) => {
+    const slot = slotByTask.get(t);
+    if (!slot) return t;
+    if ((t.time_range ?? "").trim()) return t;
+    return { ...t, time_range: slot };
+  });
+};
+
 type AssistantProposal = {
   summary?: string | null;
   tasks: AssistantTask[];
@@ -118,6 +159,7 @@ export default function InterventionPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const { user, profile } = useAuth();
+  const { setBreadcrumb } = useBreadcrumb();
   const roleParam = searchParams.get("role");
   const tabParam = searchParams.get("tab");
   const role = roleParam === "professionnel" ? "professionnel" : "particulier";
@@ -132,6 +174,21 @@ export default function InterventionPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [projectMemberRole, setProjectMemberRole] = useState<string | null>(null);
+
+  const [interventionModalOpen, setInterventionModalOpen] = useState(false);
+  const [interventionSubmitting, setInterventionSubmitting] = useState(false);
+  const [interventionDeleting, setInterventionDeleting] = useState(false);
+  const [interventionFormError, setInterventionFormError] = useState<string | null>(null);
+  const [interventionForm, setInterventionForm] = useState({
+    name: "",
+    description: "",
+    companyName: "",
+    budgetEstimated: "",
+    startDate: "",
+    endDate: "",
+    status: "planifie",
+    labelColor: "slate" as LotLabelColorKey,
+  });
 
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [taskSubmitting, setTaskSubmitting] = useState(false);
@@ -337,6 +394,92 @@ export default function InterventionPage() {
   useEffect(() => {
     void load();
   }, [user?.id, projectId, interventionId]);
+
+  useEffect(() => {
+    const projectName = project?.name ?? "Projet";
+    const interventionName = lot?.name ?? "Intervention";
+    setBreadcrumb([
+      { label: "Projets", href: `/dashboard?role=${role}` },
+      { label: projectName, href: `/dashboard/projets/${projectId}?role=${role}` },
+      { label: "Interventions", href: `/dashboard/projets/${projectId}?role=${role}&tab=interventions` },
+      { label: interventionName },
+    ]);
+    return () => setBreadcrumb([]);
+  }, [setBreadcrumb, role, projectId, project?.name, lot?.name]);
+
+  const openEditInterventionModal = () => {
+    if (!canEditThisLot || !lot) return;
+    setInterventionFormError(null);
+    const storedColor = getLotLabelColor(user?.id, interventionId);
+    setInterventionForm({
+      name: lot.name ?? "",
+      description: lot.description ?? "",
+      companyName: lot.company_name ?? "",
+      budgetEstimated:
+        lot.budget_estimated === null || lot.budget_estimated === undefined ? "" : String(lot.budget_estimated),
+      startDate: normalizeDateValue(lot.start_date ?? "") || (lot.start_date ?? ""),
+      endDate: normalizeDateValue(lot.end_date ?? "") || (lot.end_date ?? ""),
+      status: String(lot.status ?? "planifie"),
+      labelColor: storedColor ?? "slate",
+    });
+    setInterventionModalOpen(true);
+  };
+
+  const handleUpdateIntervention = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canEditThisLot) {
+      setInterventionFormError("Acces refuse: vous ne pouvez pas modifier cette intervention.");
+      return;
+    }
+    const name = interventionForm.name.trim();
+    if (!name) {
+      setInterventionFormError("Le nom est obligatoire.");
+      return;
+    }
+    const start = (interventionForm.startDate ?? "").trim();
+    const end = (interventionForm.endDate ?? "").trim();
+    if (start && end && !isValidDateRange(start, end)) {
+      setInterventionFormError("La date de fin doit etre superieure ou egale a la date de debut.");
+      return;
+    }
+    setInterventionSubmitting(true);
+    setInterventionFormError(null);
+    try {
+      await updateLot(interventionId, {
+        name,
+        description: interventionForm.description?.trim() ? interventionForm.description.trim() : null,
+        companyName: interventionForm.companyName?.trim() ? interventionForm.companyName.trim() : null,
+        startDate: start || null,
+        endDate: end || null,
+        budgetEstimated: interventionForm.budgetEstimated ? Number(interventionForm.budgetEstimated) : 0,
+        status: interventionForm.status as any,
+      });
+      setLotLabelColor(user?.id, interventionId, interventionForm.labelColor);
+      setInterventionModalOpen(false);
+      await load();
+    } catch (err: any) {
+      setInterventionFormError(err?.message ?? "Impossible de modifier l'intervention.");
+    } finally {
+      setInterventionSubmitting(false);
+    }
+  };
+
+  const handleDeleteIntervention = async () => {
+    if (!canEditThisLot || interventionDeleting) return;
+    const ok = window.confirm("Supprimer cette intervention ? Cette action est irreversible.");
+    if (!ok) return;
+    setInterventionDeleting(true);
+    setError(null);
+    try {
+      await deleteLot(interventionId);
+      removeLotLabelColor(user?.id, interventionId);
+      router.push(`/dashboard/projets/${projectId}?role=${role}&tab=interventions`);
+    } catch (err: any) {
+      setError(err?.message ?? "Impossible de supprimer l'intervention.");
+    } finally {
+      setInterventionDeleting(false);
+    }
+  };
 
   useEffect(() => {
     if (activeTab !== "assistant") return;
@@ -566,7 +709,7 @@ export default function InterventionPage() {
       }
     }
     const shouldReplace = window.confirm(
-      "Valider ce planning va remplacer les taches actuelles de l'intervention. Voulez-vous continuer ?"
+      "Valider ce planning va remplacer les tâches actuelles de l'intervention. Voulez-vous continuer ?"
     );
     if (!shouldReplace) return;
     setApplyLoading(true);
@@ -578,9 +721,11 @@ export default function InterventionPage() {
       await deleteLotTask(t.id).catch(() => {});
     }
 
+    const tasksWithTimes = addDefaultTimesToAssistantTasks(pendingProposal.tasks);
+
     // Insert proposed tasks
-    for (let i = 0; i < pendingProposal.tasks.length; i++) {
-      const task = pendingProposal.tasks[i];
+    for (let i = 0; i < tasksWithTimes.length; i++) {
+      const task = tasksWithTimes[i];
       if (!task.name?.trim()) continue;
       const dueDate = task.start_date ?? null;
       const desc = [
@@ -604,7 +749,7 @@ export default function InterventionPage() {
 
     setApplyLoading(false);
     setPendingProposal(null);
-    setAssistantNotice("Planning mis a jour. Les taches precedentes ont ete remplacees.");
+    setAssistantNotice("Planning mis à jour. Les tâches précédentes ont été remplacées.");
     await load();
   };
 
@@ -695,6 +840,24 @@ export default function InterventionPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            {canEditThisLot && (
+              <>
+                <Button variant="outline" size="sm" onClick={openEditInterventionModal}>
+                  <Pencil className="w-4 h-4 mr-2" />
+                  Modifier
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-red-200 text-red-600 hover:bg-red-50"
+                  onClick={() => void handleDeleteIntervention()}
+                  disabled={interventionDeleting}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  {interventionDeleting ? "Suppression..." : "Supprimer"}
+                </Button>
+              </>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -768,8 +931,8 @@ export default function InterventionPage() {
           {activeTab === "overview" && (
             <section className="space-y-6">
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <Card className="border-l-4 border-l-blue-200 bg-blue-50/20">
-                  <CardHeader className="border-b border-blue-100 bg-blue-50/60">
+                <Card className="border-l-4 border-l-blue-200 bg-white">
+                  <CardHeader className="border-b border-blue-100 bg-white">
                     <div className="text-sm text-gray-600">Avancement</div>
                   </CardHeader>
                   <CardContent>
@@ -1432,6 +1595,149 @@ export default function InterventionPage() {
             </section>
           )}
         </>
+      )}
+
+      {interventionModalOpen && (
+        <div
+          className="fixed inset-0 bg-gradient-to-b from-black/15 via-black/35 to-black/35 backdrop-blur-md flex items-center justify-center z-[100] px-4"
+          onClick={(e) => { if (e.target === e.currentTarget) { setInterventionModalOpen(false); setInterventionFormError(null); } }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl border border-neutral-200 max-w-lg w-full p-6">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-neutral-900">Modifier l'intervention</h3>
+                <p className="text-sm text-neutral-600">Mettez a jour les informations de l'intervention.</p>
+              </div>
+              <Button variant="ghost" onClick={() => { setInterventionModalOpen(false); setInterventionFormError(null); }}>
+                Fermer
+              </Button>
+            </div>
+            {interventionFormError && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {interventionFormError}
+              </div>
+            )}
+            <form className="space-y-4" onSubmit={handleUpdateIntervention}>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Nom *</label>
+                <Input
+                  value={interventionForm.name}
+                  onChange={(event) => setInterventionForm({ ...interventionForm, name: event.target.value })}
+                  placeholder="Demolition, Electricite, Plomberie..."
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Description</label>
+                <Input
+                  value={interventionForm.description}
+                  onChange={(event) => setInterventionForm({ ...interventionForm, description: event.target.value })}
+                  placeholder="Details de l'intervention"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Entreprise</label>
+                <Input
+                  value={interventionForm.companyName}
+                  onChange={(event) => setInterventionForm({ ...interventionForm, companyName: event.target.value })}
+                  placeholder="Nom de l'entreprise (optionnel)"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Couleur</label>
+                <div className="flex flex-wrap gap-2">
+                  {LOT_LABEL_COLORS.map((c) => {
+                    const selected = interventionForm.labelColor === c.key;
+                    return (
+                      <button
+                        key={c.key}
+                        type="button"
+                        onClick={() => setInterventionForm({ ...interventionForm, labelColor: c.key })}
+                        className={cn(
+                          "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-medium transition-all",
+                          "hover:-translate-y-[1px] hover:shadow-sm",
+                          selected ? "border-neutral-900 ring-2 ring-neutral-900/15 bg-neutral-50" : "border-neutral-200 bg-white hover:bg-neutral-50"
+                        )}
+                        aria-pressed={selected}
+                      >
+                        <span
+                          className="h-2.5 w-2.5 rounded-full ring-1 ring-black/10"
+                          style={{ backgroundColor: c.accentHex }}
+                        />
+                        <span className="text-neutral-800">{c.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Budget estime</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={interventionForm.budgetEstimated}
+                    onChange={(event) => setInterventionForm({ ...interventionForm, budgetEstimated: event.target.value })}
+                    placeholder="0"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Statut</label>
+                  <select
+                    value={interventionForm.status}
+                    onChange={(event) => setInterventionForm({ ...interventionForm, status: event.target.value })}
+                    className="w-full h-10 px-3 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 text-sm"
+                  >
+                    {LOT_STATUS_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Debut</label>
+                  <Input
+                    type="date"
+                    value={interventionForm.startDate}
+                    onChange={(event) =>
+                      setInterventionForm({
+                        ...interventionForm,
+                        startDate: normalizeDateValue(event.target.value) || event.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Fin</label>
+                  <Input
+                    type="date"
+                    value={interventionForm.endDate}
+                    onChange={(event) =>
+                      setInterventionForm({
+                        ...interventionForm,
+                        endDate: normalizeDateValue(event.target.value) || event.target.value,
+                      })
+                    }
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => { setInterventionModalOpen(false); setInterventionFormError(null); }}
+                >
+                  Annuler
+                </Button>
+                <Button type="submit" disabled={interventionSubmitting || !canEditThisLot}>
+                  {interventionSubmitting ? "Enregistrement..." : "Enregistrer"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {taskModalOpen && (

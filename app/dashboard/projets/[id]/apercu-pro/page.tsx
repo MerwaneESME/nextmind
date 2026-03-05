@@ -170,7 +170,7 @@ export default function ApercuProPage() {
       : []),
     ...(r.dateDebutSouhaitee ? [{ label: "Date de début souhaitée", value: formatDateFr(r.dateDebutSouhaitee) }] : []),
     ...questionnaireItems.map((item) => ({ label: item.label, value: item.value })),
-  ].filter((row): row is { label: string; value: React.ReactNode } => row.value != null && row.value !== "");
+  ].filter((row) => row.value != null && row.value !== "");
 
   return (
     <div className="max-w-2xl mx-auto py-8 px-4">

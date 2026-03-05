@@ -331,7 +331,7 @@ function ProjectShareRecapCard({
       : []),
     ...(r.dateDebutSouhaitee ? [{ label: "Date de début souhaitée", value: formatDateFr(r.dateDebutSouhaitee) }] : []),
     ...questionnaireItems.map((item) => ({ label: item.label, value: item.value })),
-  ].filter((row): row is { label: string; value: React.ReactNode } => row.value != null && row.value !== "");
+  ].filter((row) => row.value != null && row.value !== "");
 
   return (
     <div className="max-w-[85%] rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm">
@@ -1224,7 +1224,7 @@ export default function MessagesPage() {
     <div className="space-y-6">
       {/* Page header banner */}
       <header className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <div className="absolute inset-0 bg-white" />
         <div className="relative flex items-start justify-between gap-6 p-6 sm:p-8">
           <div className="flex items-start gap-4">
             <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
@@ -1453,14 +1453,14 @@ export default function MessagesPage() {
                           </div>
                         </div>
                       ) : sharePayload ? (
-                        <ProjectShareRecapCard
-                          sharePayload={sharePayload}
-                          inviteRow={inviteRow}
-                          isPendingInvite={isPendingInvite}
-                          decisionLabel={decisionLabel}
-                          inviteActionId={inviteActionId}
-                          onAccept={() => handleAcceptInvite(inviteRow?.id ?? "")}
-                          onDecline={() => handleDeclineInvite(inviteRow?.id ?? "")}
+                          <ProjectShareRecapCard
+                            sharePayload={sharePayload}
+                            inviteRow={inviteRow ?? undefined}
+                            isPendingInvite={isPendingInvite}
+                            decisionLabel={decisionLabel}
+                            inviteActionId={inviteActionId}
+                            onAccept={() => handleAcceptInvite(inviteRow?.id ?? "")}
+                            onDecline={() => handleDeclineInvite(inviteRow?.id ?? "")}
                           messageCreatedAt={message.createdAt}
                           userRole={userRole}
                         />

@@ -94,3 +94,8 @@ export async function deleteLotTask(taskId: string) {
   if (error) throw error;
 }
 
+export async function deleteAllLotTasks(lotId: string) {
+  const { error } = await supabase.from("lot_tasks").delete().eq("lot_id", lotId);
+  if (error) throw error;
+}
+

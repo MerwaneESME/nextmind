@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
   AlertCircle,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CheckCircle,
@@ -152,6 +153,8 @@ function ProfessionalDashboard() {
   const [quotesError, setQuotesError] = useState<string | null>(null);
   const [monthOffset, setMonthOffset] = useState(0);
   const [activeMonthKey, setActiveMonthKey] = useState<string | null>(null);
+  const [projectsExpanded, setProjectsExpanded] = useState(false);
+  const [devisExpanded, setDevisExpanded] = useState(false);
 
   const normalizeStoragePath = (bucket?: string, path?: string) => {
     if (!bucket || !path) return path;
@@ -425,7 +428,7 @@ function ProfessionalDashboard() {
   return (
     <div className="space-y-6">
       <header className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <div className="absolute inset-0 bg-white" />
         <div className="relative flex items-start justify-between gap-6 p-6 sm:p-8">
           <div className="flex items-start gap-4">
             <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
@@ -518,7 +521,7 @@ function ProfessionalDashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="relative lg:col-span-2 overflow-hidden border border-primary-100 shadow-sm">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <div className="absolute inset-0 bg-white" />
           <CardHeader className="relative z-10 border-primary-100/80">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -724,7 +727,7 @@ function ProfessionalDashboard() {
         </Card>
 
         <Card className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <div className="absolute inset-0 bg-white" />
           <CardHeader className="relative z-10 border-neutral-100">
             <div className="flex items-center justify-between">
               <div>
@@ -785,7 +788,7 @@ function ProfessionalDashboard() {
       </div>
 
       <Card className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <div className="absolute inset-0 bg-white" />
         <CardHeader className="relative z-10">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-neutral-900">Projets récents</h2>
@@ -812,7 +815,7 @@ function ProfessionalDashboard() {
                   </TableRow>
                 </TableHeader>
                 <tbody>
-                  {projects.slice(0, 5).map((project) => {
+                  {projects.slice(0, projectsExpanded ? undefined : 2).map((project) => {
                     const statusKey = resolveProjectStatus(project.status);
                     return (
                       <TableRow key={project.id} onClick={() => handleOpenProject(project.id)}>
@@ -846,13 +849,22 @@ function ProfessionalDashboard() {
               {!projects.length && (
                 <p className="text-sm text-neutral-500 mt-4">Aucun projet pour le moment.</p>
               )}
+              {projects.length > 2 && (
+                <button
+                  onClick={() => setProjectsExpanded((v) => !v)}
+                  className="w-full mt-2 flex items-center justify-center gap-1.5 py-2 text-sm text-neutral-500 hover:text-primary-600 hover:bg-neutral-50 rounded-lg transition-colors"
+                >
+                  <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${projectsExpanded ? "rotate-180" : ""}`} />
+                  {projectsExpanded ? "Voir moins" : `Voir ${projects.length - 2} de plus`}
+                </button>
+              )}
             </>
           )}
         </CardContent>
       </Card>
 
       <Card className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <div className="absolute inset-0 bg-white" />
         <CardHeader className="relative z-10">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-neutral-900">Devis récents</h2>
@@ -881,7 +893,7 @@ function ProfessionalDashboard() {
               </TableRow>
             </TableHeader>
             <tbody>
-              {quotes.slice(0, 5).map((quote) => {
+              {quotes.slice(0, devisExpanded ? undefined : 2).map((quote) => {
                 const workflowStatus = resolveWorkflowStatus(quote);
                 return (
                   <TableRow key={quote.id}>
@@ -934,6 +946,15 @@ function ProfessionalDashboard() {
           </Table>
           {!quotesLoading && quotes.length === 0 && (
             <p className="text-sm text-neutral-500 mt-4">Aucun devis pour le moment.</p>
+          )}
+          {quotes.length > 2 && (
+            <button
+              onClick={() => setDevisExpanded((v) => !v)}
+              className="w-full mt-2 flex items-center justify-center gap-1.5 py-2 text-sm text-neutral-500 hover:text-primary-600 hover:bg-neutral-50 rounded-lg transition-colors"
+            >
+              <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${devisExpanded ? "rotate-180" : ""}`} />
+              {devisExpanded ? "Voir moins" : `Voir ${quotes.length - 2} de plus`}
+            </button>
           )}
           {quotesLoading && (
             <p className="text-sm text-neutral-500 mt-4">Chargement des devis...</p>
@@ -1155,8 +1176,8 @@ function ParticulierDashboard() {
     }));
   };
 
-  const questionnaireFields = getQuestionnaireFields(formData.projectType);
-  const needsSurface = ["renovation", "construction", "extension", "peinture", "carrelage", "toiture"].includes(formData.projectType);
+  const questionnaireFields = getQuestionnaireFields(formData.projectType ?? "");
+  const needsSurface = ["renovation", "construction", "extension", "peinture", "carrelage", "toiture"].includes(formData.projectType ?? "");
 
   const handleOpenProject = (projectId: string) => {
     const roleParam = user?.role === "professionnel" ? "professionnel" : "particulier";
@@ -1166,7 +1187,7 @@ function ParticulierDashboard() {
   return (
     <div className="space-y-6">
       <header className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <div className="absolute inset-0 bg-white" />
         <div className="relative flex items-start justify-between gap-6 p-6 sm:p-8">
           <div className="flex items-start gap-4">
             <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
@@ -1311,7 +1332,7 @@ function ParticulierDashboard() {
                 <select
                   id="particulier-project-type"
                   aria-label="Type de travaux"
-                  value={formData.projectType}
+                  value={formData.projectType ?? ""}
                   onChange={(e) => handleProjectTypeChange(e.target.value)}
                   className="w-full px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   required
@@ -1323,7 +1344,7 @@ function ParticulierDashboard() {
               </div>
               <Input
                 label="Titre du projet *"
-                value={formData.name}
+                value={formData.name ?? ""}
                 onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
                 placeholder="Ex. Rénovation cuisine"
                 required
@@ -1332,7 +1353,7 @@ function ParticulierDashboard() {
                 <div className="sm:col-span-2">
                   <Input
                     label="Adresse du chantier *"
-                    value={formData.address}
+                    value={formData.address ?? ""}
                     onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
                     placeholder="Numéro et rue"
                     required
@@ -1341,7 +1362,7 @@ function ParticulierDashboard() {
                 <div>
                   <Input
                     label="Code postal *"
-                    value={formData.postalCode}
+                    value={formData.postalCode ?? ""}
                     onChange={(e) => setFormData((prev) => ({ ...prev, postalCode: e.target.value }))}
                     placeholder="75001"
                     required
@@ -1350,7 +1371,7 @@ function ParticulierDashboard() {
               </div>
               <Input
                 label="Ville *"
-                value={formData.city}
+                value={formData.city ?? ""}
                 onChange={(e) => setFormData((prev) => ({ ...prev, city: e.target.value }))}
                 placeholder="Paris"
                 required
@@ -1359,7 +1380,7 @@ function ParticulierDashboard() {
                 <div>
                   <label className="block text-sm font-medium text-neutral-800 mb-1">Description détaillée *</label>
                   <textarea
-                    value={formData.description}
+                    value={formData.description ?? ""}
                     onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
                     className="w-full min-h-[100px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     placeholder="Décrivez votre projet : dimensions, contraintes, délais souhaités..."
@@ -1386,7 +1407,7 @@ function ParticulierDashboard() {
                   type="number"
                   min={1}
                   step={0.01}
-                  value={formData.surfaceSqmStr}
+                  value={formData.surfaceSqmStr ?? ""}
                   onChange={(e) => setFormData((prev) => ({ ...prev, surfaceSqmStr: e.target.value }))}
                   placeholder="Ex. 25"
                   required
@@ -1396,7 +1417,7 @@ function ParticulierDashboard() {
                 label="Budget (€) *"
                 type="number"
                 min={0}
-                value={formData.budgetStr}
+                value={formData.budgetStr ?? ""}
                 onChange={(e) => setFormData((prev) => ({ ...prev, budgetStr: e.target.value }))}
                 placeholder="Ex. 10000"
                 required
@@ -1404,7 +1425,7 @@ function ParticulierDashboard() {
               <Input
                 label="Date de début souhaitée *"
                 type="date"
-                value={formData.desiredStartDate}
+                value={formData.desiredStartDate ?? ""}
                 onChange={(e) => setFormData((prev) => ({ ...prev, desiredStartDate: e.target.value }))}
                 required
               />

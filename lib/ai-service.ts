@@ -451,29 +451,139 @@ function getCurrentWeekStart(): string {
   return monday.toISOString().slice(0, 10);
 }
 
+function addDaysIsoDate(isoDate: string, days: number): string {
+  const base = new Date(`${isoDate}T00:00:00.000Z`);
+  if (Number.isNaN(base.getTime())) return isoDate;
+  base.setUTCDate(base.getUTCDate() + days);
+  return base.toISOString().slice(0, 10);
+}
+
+function normalizeForMatch(text: string): string {
+  return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function derivePlanningWindowFromMessage(
+  message: string,
+  defaultWeekStart: string
+): { start: string; end: string; weeks: number } | null {
+  const normalized = normalizeForMatch(message);
+
+  const wordToNumber: Record<string, number> = {
+    un: 1,
+    une: 1,
+    deux: 2,
+    trois: 3,
+    quatre: 4,
+    cinq: 5,
+    six: 6,
+  };
+
+  let weeks: number | null = null;
+  const digitMatch = normalized.match(/(\d+)\s*semaine/);
+  if (digitMatch?.[1]) {
+    const parsed = Number(digitMatch[1]);
+    if (Number.isFinite(parsed) && parsed > 0) weeks = parsed;
+  }
+  if (!weeks) {
+    const wordMatch = normalized.match(/\b(un|une|deux|trois|quatre|cinq|six)\s*semaine/);
+    if (wordMatch?.[1] && wordToNumber[wordMatch[1]]) weeks = wordToNumber[wordMatch[1]];
+  }
+
+  const wantsNextWeek =
+    normalized.includes("semaine prochaine") ||
+    normalized.includes("la semaine prochaine") ||
+    normalized.includes("prochaine semaine");
+  const wantsThisWeek = normalized.includes("cette semaine") || normalized.includes("semaine en cours");
+
+  if (!weeks && !wantsNextWeek && !wantsThisWeek) return null;
+
+  const start = wantsNextWeek ? addDaysIsoDate(defaultWeekStart, 7) : defaultWeekStart;
+  const finalWeeks = weeks ?? 1;
+  const end = addDaysIsoDate(start, finalWeeks * 7 - 1);
+
+  return { start, end, weeks: finalWeeks };
+}
+
+function enforcePlanningWindow(
+  proposal: PlanningProposal,
+  window: { start: string; end: string; weeks: number }
+): { proposal: PlanningProposal; adjustedCount: number } {
+  let adjustedCount = 0;
+
+  const clamp = (d: string) => {
+    if (d < window.start) return window.start;
+    if (d > window.end) return window.end;
+    return d;
+  };
+
+  const normalizeTask = (t: { start_date: string; end_date: string }) => {
+    const originalStart = t.start_date;
+    const originalEnd = t.end_date;
+
+    t.start_date = clamp(t.start_date);
+    t.end_date = clamp(t.end_date);
+    if (t.end_date < t.start_date) t.end_date = t.start_date;
+
+    if (t.start_date !== originalStart || t.end_date !== originalEnd) adjustedCount++;
+  };
+
+  for (const iv of proposal.existing_interventions) {
+    for (const t of iv.suggested_tasks) {
+      if (!t.start_date && !t.end_date) continue;
+      t.start_date = t.start_date ?? t.end_date;
+      t.end_date = t.end_date ?? t.start_date;
+      normalizeTask(t as any);
+    }
+  }
+  for (const iv of proposal.suggested_interventions) {
+    for (const t of iv.suggested_tasks) {
+      if (!t.start_date && !t.end_date) continue;
+      t.start_date = t.start_date ?? t.end_date;
+      t.end_date = t.end_date ?? t.start_date;
+      normalizeTask(t as any);
+    }
+  }
+
+  if (adjustedCount > 0) {
+    const warning = `Certaines dates ont été ajustées pour respecter la fenêtre demandée (${window.start} → ${window.end}).`;
+    if (!proposal.warnings.includes(warning)) {
+      proposal.warnings = [warning, ...proposal.warnings];
+    }
+  }
+
+  return { proposal, adjustedCount };
+}
+
 /**
- * Parse the AI response to extract a JSON planning proposal from a markdown
- * code fence. Falls back to null if no valid JSON block is found.
+ * Parse the AI response to extract a JSON planning proposal.
+ * Tries in order: ```json block → raw JSON object → null.
  */
 function extractPlanningProposal(reply: string): PlanningProposal | null {
-  // Try to extract ```json ... ``` block
-  const jsonMatch = reply.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
-  if (!jsonMatch?.[1]) return null;
+  const candidates: string[] = [];
 
-  try {
-    const parsed = JSON.parse(jsonMatch[1].trim());
-    // Basic shape validation
-    if (typeof parsed === "object" && parsed !== null && "summary" in parsed) {
-      return {
-        summary: parsed.summary ?? "",
-        existing_interventions: Array.isArray(parsed.existing_interventions) ? parsed.existing_interventions : [],
-        suggested_interventions: Array.isArray(parsed.suggested_interventions) ? parsed.suggested_interventions : [],
-        warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
-        next_week_priorities: Array.isArray(parsed.next_week_priorities) ? parsed.next_week_priorities : [],
-      };
+  // 1. Try ```json ... ``` or ``` ... ``` code fence
+  const fenceMatch = reply.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  if (fenceMatch?.[1]) candidates.push(fenceMatch[1].trim());
+
+  // 2. Try raw JSON object (starts with { and ends with })
+  const rawMatch = reply.match(/\{[\s\S]*\}/);
+  if (rawMatch?.[0]) candidates.push(rawMatch[0]);
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (typeof parsed === "object" && parsed !== null && "summary" in parsed) {
+        return {
+          summary: parsed.summary ?? "",
+          existing_interventions: Array.isArray(parsed.existing_interventions) ? parsed.existing_interventions : [],
+          suggested_interventions: Array.isArray(parsed.suggested_interventions) ? parsed.suggested_interventions : [],
+          warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
+          next_week_priorities: Array.isArray(parsed.next_week_priorities) ? parsed.next_week_priorities : [],
+        };
+      }
+    } catch {
+      // Try next candidate
     }
-  } catch {
-    // JSON parse failed — not critical
   }
 
   return null;
@@ -569,6 +679,9 @@ export async function sendPlanningMessageToAI(
 
   const isForcePlan = context.forcePlan ?? false;
   const isPlanningIntent = isForcePlan || detectPlanningIntent(message);
+  const defaultWeekStart = getCurrentWeekStart();
+  const planningWindow = derivePlanningWindowFromMessage(message, defaultWeekStart);
+  const weekStartForPrompt = planningWindow?.start ?? defaultWeekStart;
 
   // 1. Build the project context snapshot
   const planningCtx = await buildPlanningContext(projectId);
@@ -577,8 +690,8 @@ export async function sendPlanningMessageToAI(
   let systemPrompt: string | null = null;
   if (planningCtx) {
     const serialized = serializePlanningContext(planningCtx);
-    if (isForcePlan) {
-      systemPrompt = buildPlanningSystemPrompt(serialized, getCurrentWeekStart());
+    if (isForcePlan || planningWindow) {
+      systemPrompt = buildPlanningSystemPrompt(serialized, weekStartForPrompt, planningWindow);
     } else if (isPlanningIntent) {
       systemPrompt = buildLightPlanningHint(serialized);
     }
@@ -593,7 +706,20 @@ export async function sendPlanningMessageToAI(
     enrichedHistory.push(...history);
   }
 
-  // 4. Send to backend
+  // 4. Build the enriched user message — embed the planning instruction directly
+  //    so it cannot be ignored even if the backend strips system-role messages.
+  let enrichedMessage = message;
+  if ((isForcePlan || planningWindow) && planningCtx) {
+    const serialized = serializePlanningContext(planningCtx);
+    enrichedMessage = `${message}
+
+---
+ [INSTRUCTION SYSTÈME — PLANNING]
+ ${buildPlanningSystemPrompt(serialized, weekStartForPrompt, planningWindow)}
+ ---`;
+  }
+
+  // 5. Send to backend
   const endpoint =
     context.userRole === "professionnel" ? "/project-chat" : "/project-chat-client";
 
@@ -604,7 +730,7 @@ export async function sendPlanningMessageToAI(
     context_type: context.contextType ?? "project",
     user_id: context.userId,
     user_role: context.userRole,
-    message,
+    message: enrichedMessage,
     history: enrichedHistory,
     force_plan: isForcePlan,
     // Send the structured context as well for backends that can use it
@@ -633,6 +759,10 @@ export async function sendPlanningMessageToAI(
   // Fallback: try to parse JSON from the reply text
   if (!proposal) {
     proposal = extractPlanningProposal(rawReply);
+  }
+
+  if (proposal && planningWindow) {
+    proposal = enforcePlanningWindow(proposal, planningWindow).proposal;
   }
 
   // 6. Build display message

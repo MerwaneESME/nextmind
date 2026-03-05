@@ -219,7 +219,7 @@ export default function DevisPage() {
   return (
     <div className="space-y-6">
       <header className="relative overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <div className="absolute inset-0 bg-white" />
         <div className="relative flex items-start justify-between gap-6 p-6 sm:p-8">
           <div className="flex items-start gap-4">
             <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 text-white flex items-center justify-center shadow-sm flex-shrink-0">
@@ -289,7 +289,7 @@ export default function DevisPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="relative overflow-hidden cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFilter("a_faire")} role="button">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <div className="absolute inset-0 bg-white" />
           <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -302,7 +302,7 @@ export default function DevisPage() {
         </Card>
 
         <Card className="relative overflow-hidden cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFilter("envoye")} role="button">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <div className="absolute inset-0 bg-white" />
           <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -315,7 +315,7 @@ export default function DevisPage() {
         </Card>
 
         <Card className="relative overflow-hidden cursor-pointer hover:shadow-md transition-shadow" onClick={() => setFilter("valide")} role="button">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <div className="absolute inset-0 bg-white" />
           <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -328,7 +328,7 @@ export default function DevisPage() {
         </Card>
 
         <Card className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+          <div className="absolute inset-0 bg-white" />
           <CardContent className="relative z-10 p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -344,7 +344,7 @@ export default function DevisPage() {
       </div>
 
       <Card className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-white" />
+        <div className="absolute inset-0 bg-white" />
         <CardHeader className="relative z-10">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900">
