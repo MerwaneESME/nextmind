@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabaseClient";
 import {
+  Camera,
   User,
   Mail,
   Phone,
@@ -15,6 +16,7 @@ import {
   FileText,
   Bell,
   BriefcaseBusiness,
+  Loader2,
   Save,
   Shield,
 } from "lucide-react";
@@ -24,6 +26,8 @@ type ProfilePreferences = {
   project_alerts: boolean;
   message_alerts: boolean;
 };
+
+const AVATARS_STORAGE_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_AVATARS_BUCKET ?? "avatar";
 
 const DEFAULT_PREFERENCES: ProfilePreferences = {
   email_notifications: true,
@@ -96,8 +100,10 @@ export default function ProfilePage() {
   });
   const [preferences, setPreferences] = useState<ProfilePreferences>(DEFAULT_PREFERENCES);
   const [saving, setSaving] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!profile) return;
@@ -116,6 +122,69 @@ export default function ProfilePage() {
     });
     setPreferences({ ...DEFAULT_PREFERENCES, ...(profile.preferences ?? {}) });
   }, [profile, user?.email]);
+
+  const handlePickAvatar = () => {
+    avatarInputRef.current?.click();
+  };
+
+  const uploadAvatar = async (file: File) => {
+    if (!user?.id) return;
+
+    if (!file.type?.startsWith("image/")) {
+      setError("Veuillez choisir une image (PNG/JPG/WebP...).");
+      return;
+    }
+    const maxBytes = 5 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      setError("Image trop volumineuse (max 5 Mo).");
+      return;
+    }
+
+    setAvatarUploading(true);
+    setError(null);
+    setSuccess(null);
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      setError("Session invalide. Veuillez vous reconnecter.");
+      setAvatarUploading(false);
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await fetch("/api/profile/avatar", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    const json = (await response.json().catch(() => null)) as { avatarUrl?: string; error?: string } | null;
+    if (!response.ok) {
+      const message = json?.error ?? `Erreur upload (HTTP ${response.status})`;
+      if (/bucket not found/i.test(message)) {
+        setError(
+          `Bucket Supabase Storage introuvable: "${AVATARS_STORAGE_BUCKET}". Créez ce bucket dans Supabase Storage, ou définissez NEXT_PUBLIC_SUPABASE_AVATARS_BUCKET.`
+        );
+      } else if (/SUPABASE_SERVICE_ROLE_KEY/i.test(message)) {
+        setError(
+          `Upload serveur non configuré: ajoutez SUPABASE_SERVICE_ROLE_KEY dans l'environnement (Next.js) ou configurez des policies RLS sur le bucket "${AVATARS_STORAGE_BUCKET}".`
+        );
+      } else {
+        setError(message);
+      }
+      setAvatarUploading(false);
+      return;
+    }
+
+    await refreshProfile();
+    setAvatarUploading(false);
+    setSuccess("Photo de profil mise à jour.");
+  };
 
   const handleSave = async () => {
     if (!user?.id) return;
@@ -177,8 +246,44 @@ export default function ProfilePage() {
     <div className="space-y-6 max-w-4xl mx-auto">
       {/* Page header with avatar */}
       <div className="flex items-center gap-5">
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center shadow-md flex-shrink-0">
-          <span className="text-white font-bold text-xl">{initials}</span>
+        <div className="flex items-center gap-3">
+          <div className="relative flex-shrink-0">
+            <button
+              type="button"
+              onClick={handlePickAvatar}
+              disabled={avatarUploading}
+              className="group relative w-16 h-16 rounded-2xl overflow-hidden shadow-md flex items-center justify-center bg-gradient-to-br from-primary-400 to-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-400 disabled:opacity-60 disabled:cursor-not-allowed"
+              aria-label="Changer la photo de profil"
+              title="Changer la photo de profil"
+            >
+              {profile?.avatar_url ? (
+                <img
+                  src={profile.avatar_url}
+                  alt="Photo de profil"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="text-white font-bold text-xl">{initials}</span>
+              )}
+              <span className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors" />
+              <span className="absolute bottom-1.5 right-1.5 w-7 h-7 rounded-full bg-white/90 text-neutral-800 flex items-center justify-center shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                {avatarUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+              </span>
+            </button>
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void uploadAvatar(file);
+              }}
+            />
+          </div>
+
+
         </div>
         <div>
           <h1 className="text-2xl font-bold text-neutral-900">{form.fullName || "Mon profil"}</h1>

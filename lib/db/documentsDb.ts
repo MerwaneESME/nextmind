@@ -23,13 +23,19 @@ export interface DocumentRow {
   lot_id: string | null;
   created_at: string;
   updated_at: string;
-  uploader?: { id: string; email: string | null; full_name: string | null } | null;
+  uploader?: {
+    id: string;
+    email: string | null;
+    full_name: string | null;
+    avatar_url?: string | null;
+    user_type?: "pro" | "client" | null;
+  } | null;
 }
 
 export async function getDocuments(context: { projectId?: string; phaseId?: string; lotId?: string; fileType?: DocumentType }) {
   let query = supabase
     .from("documents")
-    .select("*,uploader:profiles!documents_uploaded_by_fkey(id,email,full_name)")
+    .select("*,uploader:profiles!documents_uploaded_by_fkey(id,email,full_name,avatar_url,user_type)")
     .order("created_at", { ascending: false });
 
   if (context.projectId) {

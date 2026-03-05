@@ -542,3 +542,40 @@ export const deleteProjectCascade = async (projectId: string) => {
     throw projectError;
   }
 };
+
+export type ProjectMemberPreview = {
+  projectId: string;
+  userId: string;
+  name: string;
+  role: string | null;
+  avatarUrl: string | null;
+};
+
+/** Batch-fetch accepted members for multiple projects at once. */
+export const fetchMembersForProjects = async (
+  projectIds: string[]
+): Promise<Map<string, ProjectMemberPreview[]>> => {
+  if (!projectIds.length) return new Map();
+  const { data, error } = await supabase
+    .from("project_members")
+    .select("project_id,role,user:profiles!project_members_user_id_fkey(id,full_name,avatar_url)")
+    .in("project_id", projectIds)
+    .in("status", ["accepted", "active"]);
+  if (error) return new Map();
+
+  const map = new Map<string, ProjectMemberPreview[]>();
+  for (const row of data ?? []) {
+    const profile = Array.isArray(row.user) ? row.user[0] : row.user;
+    if (!profile?.full_name) continue;
+    const pid = row.project_id as string;
+    if (!map.has(pid)) map.set(pid, []);
+    map.get(pid)!.push({
+      projectId: pid,
+      userId: profile.id,
+      name: profile.full_name,
+      role: row.role ?? null,
+      avatarUrl: (profile as any).avatar_url ?? null,
+    });
+  }
+  return map;
+};

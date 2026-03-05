@@ -30,6 +30,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
       email,
       name: email || "Utilisateur",
       role: fallbackRole,
+      avatarUrl: null,
       createdAt: new Date().toISOString(),
     };
   }, [user, session, fallbackRole]);
@@ -72,7 +73,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
           userRole={activeUser.role}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
-          user={{ name: activeUser.name, role: activeUser.role }}
+          user={{ name: activeUser.name, role: activeUser.role, avatarUrl: activeUser.avatarUrl }}
         />
         <div
           className={cn(

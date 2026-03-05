@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { formatDate } from "@/lib/utils";
 import { Eye, Trash2 } from "lucide-react";
+import { AnimatedTooltip } from "@/components/ui/animated-tooltip";
 import {
   deleteDocument,
   getDocuments,
@@ -162,13 +163,28 @@ export default function DocumentsList({
               key={doc.id}
               className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white p-3"
             >
-              <div className="min-w-[220px]">
+              <div className="min-w-[220px] flex-1">
                 <div className="font-medium text-gray-900">{doc.name}</div>
                 <div className="text-xs text-gray-500">
                   {String(doc.file_type)} • {formatFileSize(doc.file_size)} •{" "}
                   {doc.created_at ? formatDate(doc.created_at) : "-"}
                 </div>
               </div>
+              {doc.uploader?.full_name && (
+                <AnimatedTooltip
+                  items={[{
+                    id: doc.uploader.id,
+                    name: doc.uploader.full_name,
+                    image: doc.uploader.avatar_url ?? null,
+                    role: doc.uploader.user_type === "pro"
+                      ? "Professionnel"
+                      : doc.uploader.user_type === "client"
+                        ? "Particulier"
+                        : undefined,
+                  }]}
+                  size="sm"
+                />
+              )}
               <div className="flex items-center gap-2">
                 <DocumentPreviewTrigger
                   url={doc.file_url}

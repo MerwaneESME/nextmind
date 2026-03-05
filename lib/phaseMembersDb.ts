@@ -18,6 +18,7 @@ export type PhaseMemberProfile = {
   email: string | null;
   full_name: string | null;
   company_name: string | null;
+  avatar_url?: string | null;
 };
 
 export type PhaseMemberWithProfile = PhaseMemberRow & {
@@ -79,7 +80,7 @@ export async function listPhaseMembers(phaseId: string): Promise<PhaseMember[]> 
 export async function listPhaseMembersWithProfiles(phaseId: string): Promise<PhaseMemberWithProfile[]> {
   const { data, error } = await supabase
     .from("phase_members")
-    .select("id,phase_id,user_id,role,can_edit,can_view_other_lots,assigned_lots,user:profiles(id,email,full_name,company_name)")
+    .select("id,phase_id,user_id,role,can_edit,can_view_other_lots,assigned_lots,user:profiles(id,email,full_name,company_name,avatar_url)")
     .eq("phase_id", phaseId)
     .order("created_at", { ascending: true });
   if (error) throw error;

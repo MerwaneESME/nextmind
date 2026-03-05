@@ -73,9 +73,17 @@ export default function PhaseMembersPanel({ phaseId }: { phaseId: string }) {
                 key={m.id}
                 className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-3"
               >
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary-700">
-                  {(m.user?.full_name || m.user?.email || "?").charAt(0).toUpperCase()}
-                </div>
+                {m.user?.avatar_url ? (
+                  <img
+                    src={m.user.avatar_url}
+                    alt={`Avatar de ${m.user?.full_name || m.user?.email || "membre"}`}
+                    className="h-9 w-9 rounded-full object-cover shrink-0 border border-white/40 shadow-sm"
+                  />
+                ) : (
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary-700">
+                    {(m.user?.full_name || m.user?.email || "?").charAt(0).toUpperCase()}
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="font-medium text-gray-900 truncate">
                     {m.user?.full_name || m.user?.company_name || m.user?.email || "Utilisateur"}

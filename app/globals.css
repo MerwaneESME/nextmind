@@ -138,6 +138,23 @@
     border-left: 2px solid #38b6ff;
   }
 
+  /* Context menu item */
+  .ctx-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    padding: 7px 12px;
+    font-size: 13px;
+    color: #374151;
+    transition: background 0.1s;
+    cursor: pointer;
+  }
+  .ctx-item:hover {
+    background: #f9fafb;
+  }
+
   /* Header du chat */
   .chat-header {
     display: flex;

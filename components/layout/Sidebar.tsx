@@ -11,7 +11,7 @@ interface SidebarProps {
   userRole: UserRole;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
-  user?: { name: string; role: string };
+  user?: { name: string; role: string; avatarUrl?: string | null };
 }
 
 const particulierNavItems = [
@@ -23,7 +23,7 @@ const particulierNavItems = [
 const professionnelNavItems = [
   { href: "/dashboard", label: "Tableau de bord", iconSrc: "/images/squares-four.png" },
   { href: "/dashboard/projets", label: "Projets", iconSrc: "/images/folder-open.png" },
-  { href: "/dashboard/devis", label: "Devis", iconSrc: "/images/file.png" },
+  { href: "/dashboard/devis", label: "Documents", iconSrc: "/images/file.png" },
   { href: "/dashboard/professionnels", label: "Professionnels", iconSrc: "/images/users-three.png" },
   { href: "/dashboard/portfolio", label: "Portfolio", iconSrc: "/images/article.png" },
   { href: "/dashboard/messages", label: "Messages", iconSrc: "/images/chats.png" },
@@ -127,9 +127,17 @@ export function Sidebar({ userRole, collapsed = false, onToggleCollapse, user }:
               collapsed && "justify-center px-0"
             )}
           >
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center flex-shrink-0">
-              <span className="text-xs font-bold text-white">{initials}</span>
-            </div>
+            {user.avatarUrl ? (
+              <img
+                src={user.avatarUrl}
+                alt={`Avatar de ${user.name}`}
+                className="w-8 h-8 rounded-full object-cover flex-shrink-0 border border-white/20"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center flex-shrink-0">
+                <span className="text-xs font-bold text-white">{initials}</span>
+              </div>
+            )}
             {!collapsed && (
               <>
                 <div className="min-w-0 flex-1">

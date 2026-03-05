@@ -268,11 +268,19 @@ export function Header({ user }: HeaderProps) {
                 <p className="text-sm font-medium text-neutral-900 leading-tight">{user.name}</p>
                 <p className="text-xs text-neutral-500 capitalize">{user.role}</p>
               </div>
-              <div className="w-8 h-8 bg-gradient-to-br from-primary-400 to-primary-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm">
-                <span className="text-white font-semibold text-sm">
-                  {user.name.charAt(0).toUpperCase()}
-                </span>
-              </div>
+              {user.avatarUrl ? (
+                <img
+                  src={user.avatarUrl}
+                  alt={`Avatar de ${user.name}`}
+                  className="w-8 h-8 rounded-full object-cover flex-shrink-0 shadow-sm border border-neutral-200"
+                />
+              ) : (
+                <div className="w-8 h-8 bg-gradient-to-br from-primary-400 to-primary-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm">
+                  <span className="text-white font-semibold text-sm">
+                    {user.name.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+              )}
             </button>
           )}
         </div>

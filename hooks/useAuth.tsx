@@ -68,6 +68,7 @@ const toUser = (profile: Profile, fallbackEmail?: string | null): User => {
     email,
     name,
     role: mapUserTypeToRole(profile.user_type),
+    avatarUrl: profile.avatar_url,
     createdAt: new Date().toISOString(),
   };
 };
@@ -227,6 +228,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         email,
         name: email || "Utilisateur",
         role: "particulier" as UserRole,
+        avatarUrl: null,
         createdAt: new Date().toISOString(),
       };
     }

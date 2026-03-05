@@ -19,7 +19,7 @@ import { getLotLabelColorMap, LOT_LABEL_COLORS, lotLabelColorByKey, removeLotLab
 import type { QuoteSummary } from "@/lib/quotesStore";
 import { ChatMessageMarkdown } from "@/components/chat/ChatMessageMarkdown";
 import ChatBox from "@/components/chat/ChatBox";
-import DocumentsList from "@/components/documents/DocumentsList";
+import ProjectDocumentsPanel from "@/components/documents/ProjectDocumentsPanel";
 import type { AssistantActionButton } from "@/components/assistant/ActionButton";
 import { ActionMenu } from "@/components/assistant/ActionMenu";
 import { formatAssistantReply, type AssistantUiMode } from "@/lib/assistantResponses";
@@ -61,6 +61,7 @@ type Member = {
     full_name: string | null;
     email: string | null;
     company_name: string | null;
+    avatar_url?: string | null;
   } | null;
 };
 
@@ -124,7 +125,7 @@ const tabItems: Array<{ key: TabKey; label: string; iconSrc: string }> = [
   { key: "interventions", label: "Interventions", iconSrc: "/images/grey/files.png" },
   { key: "budget", label: "Budget", iconSrc: "/images/grey/files.png" },
   { key: "chat", label: "Chat", iconSrc: "/images/grey/chat-teardrop-dots.png" },
-  { key: "devis", label: "Devis", iconSrc: "/images/grey/files.png" },
+  { key: "devis", label: "Documents", iconSrc: "/images/grey/files.png" },
   { key: "planning", label: "Planning", iconSrc: "/images/grey/calendar%20(1).png" },
   { key: "membres", label: "Membres", iconSrc: "/images/grey/users-three%20(1).png" },
   { key: "assistant", label: "Assistant IA", iconSrc: "/images/grey/robot.png" },
@@ -707,7 +708,7 @@ export default function ProjectDetailPage() {
         supabase
           .from("project_members")
           .select(
-            "id,role,status,invited_email,user:profiles!project_members_user_id_fkey(id,full_name,email,company_name)"
+            "id,role,status,invited_email,user:profiles!project_members_user_id_fkey(id,full_name,email,company_name,avatar_url)"
           )
           .eq("project_id", projectId),
         supabase
@@ -2019,17 +2020,18 @@ export default function ProjectDetailPage() {
     await loadProject();
   };
 
-  const handleAttachQuote = async () => {
+  const handleAttachQuote = async (quoteIdOverride?: string) => {
     if (!canEditQuotes) {
       setError("Seuls les professionnels peuvent lier un devis.");
       return;
     }
-    if (!selectedQuoteId || !user?.id) return;
+    const qId = quoteIdOverride ?? selectedQuoteId;
+    if (!qId || !user?.id) return;
     setError(null);
     const { data, error: attachError } = await supabase
       .from("devis")
       .update({ project_id: projectId })
-      .eq("id", selectedQuoteId)
+      .eq("id", qId)
       .eq("user_id", user.id)
       .select("id");
     if (attachError || !data || data.length === 0) {
@@ -2920,9 +2922,17 @@ export default function ProjectDetailPage() {
                       const name = member.user?.full_name || member.user?.email || member.invited_email || "Invité";
                       return (
                         <div key={member.id} className="flex items-center gap-3 px-5 py-3">
-                          <div className="h-8 w-8 rounded-full bg-primary-50 flex items-center justify-center flex-shrink-0">
-                            <span className="text-xs font-semibold text-primary-500">{name.charAt(0).toUpperCase()}</span>
-                          </div>
+                          {member.user?.avatar_url ? (
+                            <img
+                              src={member.user.avatar_url}
+                              alt={`Avatar de ${name}`}
+                              className="h-8 w-8 rounded-full object-cover flex-shrink-0 border border-white/40 shadow-sm"
+                            />
+                          ) : (
+                            <div className="h-8 w-8 rounded-full bg-primary-50 flex items-center justify-center flex-shrink-0">
+                              <span className="text-xs font-semibold text-primary-500">{name.charAt(0).toUpperCase()}</span>
+                            </div>
+                          )}
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium text-neutral-900 truncate">{name}</p>
                             <p className="text-xs text-neutral-500">{roleInfo.label}</p>
@@ -3106,9 +3116,17 @@ export default function ProjectDetailPage() {
                 const statusInfo = formatMemberStatus(member.status);
                 return (
                   <div key={member.id} className="flex items-center gap-2 text-sm">
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-100 text-xs font-semibold text-primary-700">
-                      {(member.user?.full_name || member.user?.email || "?").charAt(0).toUpperCase()}
-                    </div>
+                    {member.user?.avatar_url ? (
+                      <img
+                        src={member.user.avatar_url}
+                        alt={`Avatar de ${member.user?.full_name || member.user?.email || "membre"}`}
+                        className="h-7 w-7 rounded-full object-cover shrink-0 border border-white/40 shadow-sm"
+                      />
+                    ) : (
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-100 text-xs font-semibold text-primary-700">
+                        {(member.user?.full_name || member.user?.email || "?").charAt(0).toUpperCase()}
+                      </div>
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="font-medium text-gray-900 truncate">
                         {member.user?.full_name || member.user?.email || member.invited_email || "Invité"}
@@ -3129,129 +3147,22 @@ export default function ProjectDetailPage() {
       )}
 
       {!loading && activeTab === "devis" && (
-        <section className="grid gap-6 lg:grid-cols-[2fr_1fr] items-start">
-          <Card>
-            <CardHeader>
-              <div className="font-semibold text-gray-900">Devis du projet</div>
-              <div className="text-sm text-gray-500">Documents liés au chantier.</div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <DocumentsList context={{ projectId }} title="Documents (projet)" showUpload={canManageProject} />
-              {quotes.length === 0 && (
-                <div className="text-sm text-gray-500">Aucun devis lié au projet.</div>
-              )}
-              {quotes.map((quote) => {
-                const workflowStatus = resolveWorkflowStatus(quote);
-                const isUpdating = quoteStatusUpdatingId === quote.id;
-                const isDeleting = quoteDeletingId === quote.id;
-                const isBusy = isUpdating || isDeleting;
-                return (
-                <div
-                  key={quote.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-4"
-                >
-                  <div>
-                    <div className="font-semibold text-gray-900">{quote.title}</div>
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getWorkflowBadge(
-                          workflowStatus
-                        )}`}
-                      >
-                        {getWorkflowLabel(workflowStatus)}
-                      </span>
-                      <span>Mis à jour : {formatDate(quote.updatedAt)}</span>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleViewQuote(quote)}
-                      disabled={isBusy || (!quote.fileUrl && !quote.previewData)}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
-                      aria-label="Voir"
-                      title="Voir"
-                    >
-                      <img src="/images/file-pdf.png" alt="" className="w-5 h-5 object-contain" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDownloadQuote(quote)}
-                      disabled={isBusy || (!quote.fileUrl && !quote.previewData)}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 transition hover:bg-gray-50 disabled:opacity-50"
-                      aria-label="Télécharger"
-                      title="Télécharger"
-                    >
-                      <img src="/images/download-simple.png" alt="" className="w-5 h-5 object-contain" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateQuoteWorkflow(quote, "valide")}
-                      disabled={isBusy || workflowStatus === "valide" || !canEditQuotes}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-green-200 bg-white transition hover:bg-green-50 disabled:opacity-50"
-                      aria-label="Valider"
-                      title="Valider"
-                    >
-                      <img src="/images/check-circle%20(1).png" alt="" className="w-5 h-5 object-contain" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateQuoteWorkflow(quote, "refuse")}
-                      disabled={isBusy || workflowStatus === "refuse" || !canEditQuotes}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-200 bg-white transition hover:bg-red-50 disabled:opacity-50"
-                      aria-label="Refuser"
-                      title="Refuser"
-                    >
-                      <img src="/images/x-circle%20(1).png" alt="" className="w-5 h-5 object-contain" />
-                    </button>
-                    {canEditQuotes && profile?.user_type === "pro" && (
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteQuote(quote)}
-                        disabled={isDeleting}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-200 bg-white transition hover:bg-red-50 disabled:opacity-50"
-                        aria-label="Supprimer"
-                        title="Supprimer"
-                      >
-                        <img src="/images/trash.png" alt="" className="w-5 h-5 object-contain" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-
-          {canEditQuotes && (
-            <Card>
-              <CardHeader>
-                <div className="font-semibold text-gray-900">Lier un devis</div>
-                <div className="text-sm text-gray-500">Associer un devis existant.</div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Devis disponible</label>
-                  <select
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
-                    value={selectedQuoteId}
-                    onChange={(event) => setSelectedQuoteId(event.target.value)}
-                  >
-                    <option value="">Sélectionner</option>
-                    {availableQuotes.map((quote) => (
-                      <option key={quote.id} value={quote.id}>
-                        {quote.title}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <Button onClick={handleAttachQuote} disabled={!selectedQuoteId}>
-                  Lier au projet
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-        </section>
+        <ProjectDocumentsPanel
+          projectId={projectId}
+          canUpload={canManageProject}
+          quotes={quotes}
+          canEditQuotes={canEditQuotes}
+          availableQuotes={availableQuotes}
+          selectedQuoteId={selectedQuoteId}
+          onSetSelectedQuoteId={setSelectedQuoteId}
+          onAttachQuote={handleAttachQuote}
+          quoteStatusUpdatingId={quoteStatusUpdatingId}
+          quoteDeletingId={quoteDeletingId}
+          onUpdateWorkflow={handleUpdateQuoteWorkflow}
+          onDeleteQuote={handleDeleteQuote}
+          onDownloadQuote={handleDownloadQuote}
+          onViewQuote={handleViewQuote}
+        />
       )}
 
       {!loading && activeTab === "planning" && (
@@ -3546,9 +3457,17 @@ export default function ProjectDetailPage() {
                 const statusInfo = formatMemberStatus(member.status);
                 return (
                   <div key={member.id} className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-4">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary-700">
-                      {(member.user?.full_name || member.user?.email || "?").charAt(0).toUpperCase()}
-                    </div>
+                    {member.user?.avatar_url ? (
+                      <img
+                        src={member.user.avatar_url}
+                        alt={`Avatar de ${member.user?.full_name || member.user?.email || "membre"}`}
+                        className="h-10 w-10 rounded-full object-cover shrink-0 border border-white/40 shadow-sm"
+                      />
+                    ) : (
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary-700">
+                        {(member.user?.full_name || member.user?.email || "?").charAt(0).toUpperCase()}
+                      </div>
+                    )}
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-gray-900 truncate">
                         {member.user?.full_name || member.user?.email || member.invited_email || "Invité"}

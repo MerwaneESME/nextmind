@@ -5,6 +5,7 @@ export interface User {
   email: string;
   name: string;
   role: UserRole;
+  avatarUrl?: string | null;
   createdAt: string;
 }
 
@@ -65,4 +66,3 @@ export interface Alert {
   read: boolean;
   createdAt: string;
 }
-

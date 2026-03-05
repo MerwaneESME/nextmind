@@ -3,17 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/Card";
-import { Plus, Search, FolderOpen, Clock, Layers } from "lucide-react";
+import { Plus, Search, FolderOpen, Layers } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import ProgressBar from "@/components/ui/ProgressBar";
 import EmptyState from "@/components/ui/EmptyState";
 import {
   createProject,
+  fetchMembersForProjects,
   fetchProjectsForUser,
   inviteProjectMemberByEmail,
+  type ProjectMemberPreview,
   ProjectSummary,
 } from "@/lib/projectsDb";
+import { AnimatedTooltip } from "@/components/ui/animated-tooltip";
 
 type StatusKey = "draft" | "en_cours" | "termine" | "en_attente";
 
@@ -53,6 +56,7 @@ export default function ProjetsPage() {
   const canCreateProject = role === "professionnel";
 
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [membersMap, setMembersMap] = useState<Map<string, ProjectMemberPreview[]>>(new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | StatusKey>("all");
@@ -67,7 +71,10 @@ export default function ProjetsPage() {
     if (!user?.id) return;
     if (!silent) { setLoading(true); setError(null); }
     try {
-      setProjects(await fetchProjectsForUser(user.id));
+      const fetched = await fetchProjectsForUser(user.id);
+      setProjects(fetched);
+      const ids = fetched.map((p) => p.id);
+      fetchMembersForProjects(ids).then(setMembersMap).catch(() => {});
     } catch (err: any) {
       if (!silent) setError(err?.message ?? "Impossible de charger les projets.");
       setProjects([]);
@@ -278,6 +285,7 @@ export default function ProjetsPage() {
                     project={project}
                     statusKey={sk}
                     progress={getProgressPercent(sk)}
+                    members={membersMap.get(project.id) ?? []}
                     onOpen={() => handleOpen(project.id)}
                   />
                 );
@@ -395,11 +403,12 @@ export default function ProjetsPage() {
 }
 
 function ProjectCard({
-  project, statusKey, progress, onOpen,
+  project, statusKey, progress, members, onOpen,
 }: {
   project: ProjectSummary;
   statusKey: StatusKey;
   progress: number;
+  members: ProjectMemberPreview[];
   onOpen: () => void;
 }) {
   const cfg = statusConfig[statusKey];
@@ -415,57 +424,53 @@ function ProjectCard({
       {/* Accent left border */}
       <div className={`absolute left-0 top-0 h-full w-1 ${cfg.accent} rounded-l-xl`} aria-hidden />
 
-      <div className="pl-5 pr-6 py-5">
+      <div className="pl-4 pr-5 py-3.5">
         {/* Top row */}
-        <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <h3 className="text-sm font-semibold text-neutral-900 group-hover:text-primary-700 transition-colors truncate">
+              {project.name}
+            </h3>
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold flex-shrink-0 ${cfg.badge}`}>
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${cfg.dot}`} />
+              {cfg.label}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 flex-shrink-0">
+              {members.length > 0 && (
+                <AnimatedTooltip
+                  items={members.map((m) => ({ id: m.userId, name: m.name, role: m.role, image: m.avatarUrl }))}
+                  size="sm"
+                  max={4}
+                />
+              )}
+            <span className="text-[11px] text-neutral-400 whitespace-nowrap hidden sm:block">
+              {project.updatedAt ? formatDate(project.updatedAt) : ""}
+            </span>
+          </div>
+        </div>
+
+        {/* Meta + Progress row */}
+        <div className="flex items-center gap-4 mt-2">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2.5 mb-1 flex-wrap">
-              <h3 className="text-base font-semibold text-neutral-900 group-hover:text-primary-700 transition-colors truncate">
-                {project.name}
-              </h3>
-              {/* Status badge */}
-              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold shadow-sm ${cfg.badge}`}>
-                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot}`} />
-                {cfg.label}
+            <ProgressBar percentage={progress} showLabel={false} />
+          </div>
+          <div className="flex items-center gap-3 text-[11px] text-neutral-400 flex-shrink-0">
+            <span className="flex items-center gap-1">
+              <Layers className="w-3 h-3" />
+              {project.lotsCount ?? 0}
+            </span>
+            {typeof project.budgetTotal === "number" && (
+              <span className="font-medium text-neutral-600">
+                {project.budgetTotal.toLocaleString("fr-FR")} €
               </span>
-            </div>
-            {project.description && (
-              <p className="text-sm text-neutral-500 line-clamp-1">{project.description}</p>
             )}
           </div>
-          <span className="text-xs text-neutral-400 whitespace-nowrap flex-shrink-0">
-            {project.updatedAt ? `Màj: ${formatDate(project.updatedAt)}` : ""}
-          </span>
         </div>
 
-        {/* Meta */}
-        <div className="flex items-center gap-4 text-xs text-neutral-500 mb-4">
-          <span className="flex items-center gap-1">
-            <Layers className="w-3.5 h-3.5" />
-            {project.lotsCount ?? 0} intervention{(project.lotsCount ?? 0) !== 1 ? "s" : ""}
-          </span>
-          {project.createdAt && (
-            <span className="flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5" />
-              {formatDate(project.createdAt)}
-            </span>
-          )}
-        </div>
-
-        {/* Progress */}
-        <div className="mb-3">
-          <ProgressBar percentage={progress} showLabel />
-        </div>
-
-        {/* Budget */}
-        <div className="flex items-center justify-between pt-3 border-t border-neutral-100">
-          <span className="text-xs text-neutral-500">Budget</span>
-          <span className="text-sm font-semibold text-neutral-900">
-            {typeof project.budgetTotal === "number"
-              ? `${project.budgetTotal.toLocaleString("fr-FR")} €`
-              : "—"}
-          </span>
-        </div>
+        {project.description && (
+          <p className="text-xs text-neutral-400 line-clamp-1 mt-1">{project.description}</p>
+        )}
       </div>
     </div>
   );
