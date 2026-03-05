@@ -35,6 +35,8 @@ import { buildSmartPlanningFallback } from "@/lib/planning-fallback";
 import { createLotTask, deleteAllLotTasks } from "@/lib/lotTasksDb";
 import { Badge } from "@/components/ui/Badge";
 import ProjectBudgetPanel from "@/components/project/ProjectBudgetPanel";
+import GanttView from "@/components/project/GanttView";
+import ExportProjectModal from "@/components/project/ExportProjectModal";
 
 type Project = {
   id: string;
@@ -76,6 +78,7 @@ type Task = {
   end_date: string | null;
   description: string | null;
   completed_at?: string | null;
+  lot_id?: string; // set for lot_tasks — used by GanttView
 };
 
 type AssistantTask = {
@@ -350,8 +353,10 @@ const normalizeLabel = (value: string) =>
 
 function splitTaskDescription(description: string | null) {
   if (!description) return { time: null, text: null };
-  const match = description.match(/^\[\[time:([^\]]+)\]\]\s*(.*)$/);
-  if (!match) return { time: null, text: description };
+  // Strip [[start:YYYY-MM-DD]] metadata (stored for multi-day lot_tasks range recovery)
+  const withoutStart = description.replace(/\[\[start:\d{4}-\d{2}-\d{2}\]\]\s*/g, "");
+  const match = withoutStart.match(/^\[\[time:([^\]]+)\]\]\s*(.*)$/);
+  if (!match) return { time: null, text: withoutStart || null };
   return { time: match[1], text: match[2] || "" };
 }
 
@@ -431,6 +436,7 @@ export default function ProjectDetailPage() {
   const [interventions, setInterventions] = useState<LotSummary[]>([]);
   const [interventionsLoading, setInterventionsLoading] = useState(false);
   const [lotLabelColors, setLotLabelColors] = useState<Record<string, LotLabelColorKey>>({});
+  const [planningView, setPlanningView] = useState<"week" | "gantt">("gantt");
   const [interventionModalOpen, setInterventionModalOpen] = useState(false);
   const [interventionSubmitting, setInterventionSubmitting] = useState(false);
   const [editingInterventionId, setEditingInterventionId] = useState<string | null>(null);
@@ -468,6 +474,7 @@ export default function ProjectDetailPage() {
   const [publishSubmitting, setPublishSubmitting] = useState(false);
   const [rendezVousModalOpen, setRendezVousModalOpen] = useState(false);
   const [editInfoModalOpen, setEditInfoModalOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
   const [editInfoSubmitting, setEditInfoSubmitting] = useState(false);
   const [editInfoForm, setEditInfoForm] = useState({ name: "", project_type: "", address: "", city: "", description: "" });
   const [publishForm, setPublishForm] = useState({
@@ -510,6 +517,11 @@ export default function ProjectDetailPage() {
   const assistantSectionRef = useRef<HTMLDivElement | null>(null);
   const assistantMessagesContainerRef = useRef<HTMLDivElement | null>(null);
   const assistantMessagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  const pendingSuggestedInterventions = pendingPlanningProposal?.suggested_interventions ?? [];
+  const pendingNextWeekPriorities = pendingPlanningProposal?.next_week_priorities ?? [];
+  const pendingLegacySummary = pendingProposal?.summary ?? "";
+  const pendingLegacyTasks = pendingProposal?.tasks ?? [];
 
   const updateQuery = (patch: Record<string, string | null | undefined>) => {
     const next = new URLSearchParams(searchParams.toString());
@@ -744,14 +756,18 @@ export default function ProjectDetailPage() {
               const interventionTasks: Task[] = lotTasksRes.data.map((row: any) => {
                 const lotName = lotNameMap.get(row.lot_id) ?? "";
                 const prefix = lotName ? `[${lotName}] ` : "";
+                // Recover start_date stored as [[start:YYYY-MM-DD]] in description
+                const startFromDesc = (row.description as string | null)
+                  ?.match(/\[\[start:(\d{4}-\d{2}-\d{2})\]\]/)?.[1] ?? null;
                 return {
                   id: `lot-${row.id}`,
                   name: `${prefix}${row.title}`,
                   status: row.status ?? "todo",
-                  start_date: row.due_date ?? null,
+                  start_date: startFromDesc ?? row.due_date ?? null,
                   end_date: row.due_date ?? null,
                   description: row.description ?? null,
                   completed_at: row.completed_at ?? null,
+                  lot_id: row.lot_id as string,
                 };
               });
               allTasks = [...allTasks, ...interventionTasks];
@@ -1189,27 +1205,28 @@ export default function ProjectDetailPage() {
     return `${prefix} ${base}`;
   };
 
-  const addDefaultTimesToPlanningTasks = (tasks: PlanningSuggestedTask[]) => {
-    const byDay = new Map<string, PlanningSuggestedTask[]>();
-    for (const t of tasks) {
-      const day = String(t.end_date ?? t.start_date ?? "").trim();
-      if (!day) continue;
-      const list = byDay.get(day) ?? [];
-      list.push(t);
-      byDay.set(day, list);
-    }
-
-    const slotByTask = new Map<PlanningSuggestedTask, string>();
-    for (const list of byDay.values()) {
-      const sorted = [...list].sort((a, b) => String(a.title ?? "").localeCompare(String(b.title ?? "")));
-      for (let i = 0; i < sorted.length; i++) {
-        slotByTask.set(sorted[i], DEFAULT_TIME_SLOTS[i % DEFAULT_TIME_SLOTS.length]);
-      }
-    }
-
+  const addDefaultTimesToPlanningTasks = (
+    tasks: PlanningSuggestedTask[],
+    sharedDaySlots?: Map<string, number>
+  ) => {
+    const daySlots = sharedDaySlots ?? new Map<string, number>();
     return tasks.map((t) => {
-      const slot = slotByTask.get(t);
-      if (!slot) return t;
+      const startDate = (t.start_date ?? "").trim();
+      const endDate = (t.end_date ?? t.start_date ?? "").trim();
+      if (!startDate && !endDate) return t;
+
+      const isMultiDay = startDate && endDate && startDate !== endDate;
+      if (isMultiDay) {
+        // Multi-day task: embed start_date + work-hours time so calendar shows full day range
+        const desc = (t.description ?? "").trim();
+        return { ...t, description: desc ? `[[start:${startDate}]][[time:09:00-18:00]] ${desc}` : `[[start:${startDate}]][[time:09:00-18:00]]` };
+      }
+
+      // Single-day task: assign a staggered time slot to avoid same-day overlaps
+      const day = endDate || startDate;
+      const idx = daySlots.get(day) ?? 0;
+      daySlots.set(day, idx + 1);
+      const slot = DEFAULT_TIME_SLOTS[idx % DEFAULT_TIME_SLOTS.length];
       return { ...t, description: ensureTimePrefix(t.description, slot) };
     });
   };
@@ -1337,6 +1354,8 @@ export default function ProjectDetailPage() {
 
     try {
       const defaultPhaseId = await getOrCreateDefaultPhase(projectId);
+      // Shared map so tasks from different interventions on the same day get different time slots
+      const globalDaySlots = new Map<string, number>();
 
       // 1. Add suggested tasks to existing interventions
       for (const intervention of proposal.existing_interventions) {
@@ -1344,7 +1363,7 @@ export default function ProjectDetailPage() {
         if (intervention.suggested_tasks.length === 0) continue;
 
         await deleteAllLotTasks(intervention.intervention_id);
-        const tasksWithTimes = addDefaultTimesToPlanningTasks(intervention.suggested_tasks);
+        const tasksWithTimes = addDefaultTimesToPlanningTasks(intervention.suggested_tasks, globalDaySlots);
 
         for (let idx = 0; idx < tasksWithTimes.length; idx++) {
           const task = tasksWithTimes[idx];
@@ -1371,7 +1390,7 @@ export default function ProjectDetailPage() {
         });
 
         // Add tasks to the new lot
-        const tasksWithTimes = addDefaultTimesToPlanningTasks(newIntervention.suggested_tasks);
+        const tasksWithTimes = addDefaultTimesToPlanningTasks(newIntervention.suggested_tasks, globalDaySlots);
         for (let idx = 0; idx < tasksWithTimes.length; idx++) {
           const task = tasksWithTimes[idx];
           if (!task.title?.trim()) continue;
@@ -1403,6 +1422,8 @@ export default function ProjectDetailPage() {
     if (!projectId || !user?.id) return;
 
     const defaultPhaseId = await getOrCreateDefaultPhase(projectId);
+    // Shared map so tasks from different interventions on the same day get different time slots
+    const globalDaySlots = new Map<string, number>();
 
     // Add suggested tasks to existing interventions
     for (const intervention of proposal.existing_interventions) {
@@ -1410,7 +1431,7 @@ export default function ProjectDetailPage() {
       if (intervention.suggested_tasks.length === 0) continue;
 
       await deleteAllLotTasks(intervention.intervention_id);
-      const tasksWithTimes = addDefaultTimesToPlanningTasks(intervention.suggested_tasks);
+      const tasksWithTimes = addDefaultTimesToPlanningTasks(intervention.suggested_tasks, globalDaySlots);
 
       for (let idx = 0; idx < tasksWithTimes.length; idx++) {
         const task = tasksWithTimes[idx];
@@ -1434,7 +1455,7 @@ export default function ProjectDetailPage() {
         description: newIntervention.reason?.trim() || null,
         status: "planifie",
       });
-      const tasksWithTimes = addDefaultTimesToPlanningTasks(newIntervention.suggested_tasks);
+      const tasksWithTimes = addDefaultTimesToPlanningTasks(newIntervention.suggested_tasks, globalDaySlots);
       for (let idx = 0; idx < tasksWithTimes.length; idx++) {
         const task = tasksWithTimes[idx];
         if (!task.title?.trim()) continue;
@@ -2357,7 +2378,10 @@ export default function ProjectDetailPage() {
   const timedTaskBlocks = useMemo(() => {
     const dayStartMinutes = hourRange.start * 60;
     const dayEndMinutes = (hourRange.end + 1) * 60;
-    const byDay = new Map<string, Array<{
+    const LUNCH_START = 12 * 60; // 720
+    const LUNCH_END   = 13 * 60; // 780
+
+    type Block = {
       id: string;
       task: Task;
       top: number;
@@ -2365,10 +2389,11 @@ export default function ProjectDetailPage() {
       timeLabel: string | null;
       description: string | null;
       colorClass: string;
-    }>>();
-    dayKeys.forEach((dayKey) => {
-      byDay.set(dayKey, []);
-    });
+      colIndex: number;
+      totalCols: number;
+    };
+    const byDay = new Map<string, Block[]>();
+    dayKeys.forEach((dayKey) => byDay.set(dayKey, []));
 
     tasks.forEach((task) => {
       if (!task.start_date) return;
@@ -2378,37 +2403,66 @@ export default function ProjectDetailPage() {
       const startKey = task.start_date;
       const endKey = task.end_date ?? task.start_date;
       const dayRange = buildDayRange(startKey, endKey);
+      const rawStart = timeRange.startHour * 60 + timeRange.startMinute;
+      const rawEnd   = timeRange.endHour   * 60 + timeRange.endMinute;
+      const crossesLunch = rawStart < LUNCH_START && rawEnd > LUNCH_END;
+
+      const addBlock = (
+        start: number, end: number,
+        label: string, desc: string | null,
+        dayKey: string, idSuffix: string
+      ) => {
+        const s = Math.max(start, dayStartMinutes);
+        const e = Math.min(end,   dayEndMinutes);
+        if (e <= s) return;
+        const top    = ((s - dayStartMinutes) / 60) * planningRowHeight;
+        const height = Math.max(22, ((e - s) / 60) * planningRowHeight);
+        const blocks = byDay.get(dayKey) ?? [];
+        blocks.push({
+          id: `${task.id}-${dayKey}${idSuffix}`,
+          task, top, height,
+          timeLabel: label,
+          description: desc,
+          colorClass: pickTaskColor(task.name),
+          colIndex: 0,
+          totalCols: 1,
+        });
+        byDay.set(dayKey, blocks);
+      };
 
       dayRange.forEach((dayKey) => {
         if (!dayKeySet.has(dayKey)) return;
-        const startMinutes = Math.max(
-          timeRange.startHour * 60 + timeRange.startMinute,
-          dayStartMinutes
-        );
-        const endMinutes = Math.min(
-          timeRange.endHour * 60 + timeRange.endMinute,
-          dayEndMinutes
-        );
-        if (endMinutes <= startMinutes) return;
-        const top = ((startMinutes - dayStartMinutes) / 60) * planningRowHeight;
-        const height = ((endMinutes - startMinutes) / 60) * planningRowHeight;
-        const colorClass = pickTaskColor(task.name);
-        const blocks = byDay.get(dayKey) ?? [];
-        blocks.push({
-          id: `${task.id}-${dayKey}`,
-          task,
-          top,
-          height: Math.max(32, height),
-          timeLabel: timeRange.label ?? null,
-          description: parsed.text ?? null,
-          colorClass,
-        });
-        byDay.set(dayKey, blocks);
+        if (crossesLunch) {
+          addBlock(rawStart, LUNCH_START, `${String(timeRange.startHour).padStart(2,"0")}:00–12:00`, parsed.text ?? null, dayKey, "-am");
+          addBlock(LUNCH_END, rawEnd,     `13:00–${String(timeRange.endHour).padStart(2,"0")}:00`,   null,                dayKey, "-pm");
+        } else {
+          addBlock(rawStart, rawEnd, timeRange.label ?? "", parsed.text ?? null, dayKey, "");
+        }
       });
     });
 
+    // Assign columns so overlapping blocks appear side-by-side
     byDay.forEach((blocks) => {
       blocks.sort((a, b) => a.top - b.top);
+      const colEnds: number[] = [];
+      for (const block of blocks) {
+        const blockEnd = block.top + block.height;
+        let placed = false;
+        for (let c = 0; c < colEnds.length; c++) {
+          if (colEnds[c] <= block.top + 1) {
+            block.colIndex = c;
+            colEnds[c] = blockEnd;
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) {
+          block.colIndex = colEnds.length;
+          colEnds.push(blockEnd);
+        }
+      }
+      const totalCols = Math.max(1, colEnds.length);
+      blocks.forEach((b) => { b.totalCols = totalCols; });
     });
 
     return byDay;
@@ -2449,9 +2503,12 @@ export default function ProjectDetailPage() {
             </div>
           </div>
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => {
-              // TODO: export action
-            }}>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!project}
+              onClick={() => setExportModalOpen(true)}
+            >
               <FileText className="h-4 w-4" />
               Exporter
             </Button>
@@ -3199,6 +3256,67 @@ export default function ProjectDetailPage() {
 
       {!loading && activeTab === "planning" && (
         <section className="space-y-6">
+          {/* ── View toggle ── */}
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex rounded-xl border border-neutral-200 bg-white shadow-sm p-1 gap-1">
+              <button
+                type="button"
+                onClick={() => setPlanningView("gantt")}
+                className={cn(
+                  "px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150",
+                  planningView === "gantt"
+                    ? "bg-gradient-to-r from-primary-400 to-primary-600 text-white shadow-sm"
+                    : "text-gray-600 hover:bg-gray-100"
+                )}
+              >
+                Vue Gantt
+              </button>
+              <button
+                type="button"
+                onClick={() => setPlanningView("week")}
+                className={cn(
+                  "px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-150",
+                  planningView === "week"
+                    ? "bg-gradient-to-r from-primary-400 to-primary-600 text-white shadow-sm"
+                    : "text-gray-600 hover:bg-gray-100"
+                )}
+              >
+                Calendrier semaine
+              </button>
+            </div>
+            {planningView === "week" && (
+              <div className="flex items-center gap-2">
+                {canEditPlanning && (
+                  <Button
+                    size="sm"
+                    className="inline-flex items-center gap-2"
+                    onClick={() => openTaskModal(new Date())}
+                  >
+                    <Plus className="w-4 h-4" />
+                    Ajouter un événement
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={() => setWeekStart(addDays(weekStart, -7))}>
+                  Semaine précédente
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setWeekStart(addDays(weekStart, 7))}>
+                  Semaine suivante
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* ── Gantt view ── */}
+          {planningView === "gantt" && (
+            <GanttView
+              interventions={interventions}
+              tasks={tasks.filter((t) => !!t.lot_id) as import("@/components/project/GanttView").GanttTask[]}
+              lotLabelColors={lotLabelColors}
+            />
+          )}
+
+          {/* ── Week calendar ── */}
+          {planningView === "week" && (
           <Card>
             <CardHeader>
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -3207,24 +3325,6 @@ export default function ProjectDetailPage() {
                   <div className="text-sm text-gray-500">
                     Semaine du {formatDate(weekDays[0])} au {formatDate(weekDays[6])}
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {canEditPlanning && (
-                    <Button
-                      size="sm"
-                      className="inline-flex items-center gap-2"
-                      onClick={() => openTaskModal(new Date())}
-                    >
-                      <Plus className="w-4 h-4" />
-                      Ajouter un événement
-                    </Button>
-                  )}
-                  <Button variant="outline" size="sm" onClick={() => setWeekStart(addDays(weekStart, -7))}>
-                    Semaine précédente
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => setWeekStart(addDays(weekStart, 7))}>
-                    Semaine suivante
-                  </Button>
                 </div>
               </div>
             </CardHeader>
@@ -3356,7 +3456,10 @@ export default function ProjectDetailPage() {
                             ))}
                           </div>
                           <div className="relative z-10">
-                            {blocks.map((block) => (
+                            {blocks.map((block) => {
+                              const colW = 100 / block.totalCols;
+                              const colL = block.colIndex * colW;
+                              return (
                               <div
                                 key={block.id}
                                 role="button"
@@ -3372,11 +3475,16 @@ export default function ProjectDetailPage() {
                                   }
                                 }}
                                 className={cn(
-                                  "absolute left-2 right-2 rounded-md border-l-4 border px-3 py-2 text-[11px]",
+                                  "absolute rounded-md border-l-4 border px-2 py-1 text-[11px]",
                                   "shadow-sm overflow-hidden break-words transition-shadow",
                                   block.colorClass
                                 )}
-                                style={{ top: `${block.top}px`, height: `${block.height}px` }}
+                                style={{
+                                  top: `${block.top}px`,
+                                  height: `${block.height}px`,
+                                  left: `calc(${colL}% + 2px)`,
+                                  width: `calc(${colW}% - 4px)`,
+                                }}
                                 data-task-id={block.task.id}
                               >
                                 <div className="flex items-center justify-between gap-2">
@@ -3411,7 +3519,7 @@ export default function ProjectDetailPage() {
                                   </div>
                                 )}
                               </div>
-                            ))}
+                            ); })}
                           </div>
                         </div>
                       );
@@ -3421,6 +3529,7 @@ export default function ProjectDetailPage() {
               </div>
             </CardContent>
           </Card>
+          )}
         </section>
       )}
 
@@ -3784,10 +3893,10 @@ export default function ProjectDetailPage() {
                       </div>
                     )}
 
-                    {pendingPlanningProposal.suggested_interventions.length > 0 && (
+                    {pendingSuggestedInterventions.length > 0 && (
                       <div className="space-y-3">
                         <div className="text-sm font-semibold text-emerald-800">Nouvelles interventions suggérées</div>
-                        {pendingPlanningProposal.suggested_interventions.map((intervention, iIdx) => (
+                        {pendingSuggestedInterventions.map((intervention, iIdx) => (
                           <div key={iIdx} className="rounded-lg border border-emerald-200 bg-emerald-50/30 p-3 space-y-2">
                             <div className="font-medium text-gray-900">
                               {intervention.name}
@@ -3815,10 +3924,10 @@ export default function ProjectDetailPage() {
                       </div>
                     )}
 
-                    {pendingPlanningProposal.next_week_priorities.length > 0 && (
+                    {pendingNextWeekPriorities.length > 0 && (
                       <div className="space-y-1">
                         <div className="text-sm font-semibold text-gray-800">Priorités de la semaine</div>
-                        {pendingPlanningProposal.next_week_priorities.map((p, i) => (
+                        {pendingNextWeekPriorities.map((p, i) => (
                           <div key={i} className="text-xs text-gray-700">{i + 1}. {p}</div>
                         ))}
                       </div>
@@ -3864,14 +3973,14 @@ export default function ProjectDetailPage() {
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-gray-800">Résumé du planning</label>
                       <textarea
-                        value={pendingProposal.summary ?? ""}
+                        value={pendingLegacySummary}
                         onChange={(event) => updateProposalSummary(event.target.value)}
                         className="w-full min-h-[90px] px-3 py-2 border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 selection:bg-primary-200 selection:text-neutral-900"
                         placeholder="Résumé rapide du planning proposé."
                       />
                     </div>
                     <div className="space-y-4">
-                      {pendingProposal.tasks.map((task, index) => (
+                      {pendingLegacyTasks.map((task, index) => (
                         <div key={`${task.name}-${index}`} className="rounded-lg border border-gray-200 p-3 bg-white">
                           <div className="flex items-center justify-between gap-2 mb-2">
                             <div className="text-sm font-semibold text-gray-900">Tache {index + 1}</div>
@@ -4442,6 +4551,20 @@ export default function ProjectDetailPage() {
         </div>
       )}
     </div>
+
+    {exportModalOpen && project && (
+      <ExportProjectModal
+        project={project}
+        projectId={projectId}
+        userId={user?.id ?? ""}
+        userRole={userRole}
+        interventions={interventions}
+        members={members}
+        quotes={quotes}
+        tasks={tasks}
+        onClose={() => setExportModalOpen(false)}
+      />
+    )}
 
     {pendingPlanningProposal && (
       <PlanningProposalWindow

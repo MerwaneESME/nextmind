@@ -105,6 +105,18 @@ PLANNING COMPACT ET DENSE (PRIORITÉ ABSOLUE) :
 4. L'horizon total du planning doit refléter la réalité : un projet de salle de bain → 3-5 semaines, une extension → 3-6 mois, un ravalement → 2-4 semaines.
 5. N'espace JAMAIS deux interventions consécutives de plus de 3 jours sans raison technique (ex : séchage obligatoire).
 
+RÈGLE ANTI-CHEVAUCHEMENT (CRITIQUE) :
+- Deux tâches de deux interventions DIFFÉRENTES ne doivent PAS être planifiées au même moment, sauf si elles sont explicitement parallélisables (ex : Électricité + Plomberie peuvent se chevaucher car ce sont des corps de métier distincts qui travaillent souvent en même temps).
+- Les interventions qui DOIVENT se succéder (Démolition → Gros œuvre → Réseaux → Plâtrerie → Peinture) NE DOIVENT PAS se chevaucher.
+- Méthode : construis une "timeline globale" mentalement. Attribue un créneau à chaque intervention. Une intervention commence au plus tôt quand la précédente (dépendante) est terminée + 1 jour.
+- Exemple :
+  • Démolition : J+0 → J+3
+  • Gros œuvre : J+4 → J+12 (commence après la fin de la démolition)
+  • Électricité : J+8 → J+13 (commence après les réseaux principaux, PEUT chevaucher partiellement le GO en fin de phase)
+  • Plomberie : J+8 → J+14 (même créneau que Électricité, corps de métier différent = OK)
+  • Plâtrerie : J+15 → J+22 (après les réseaux)
+  • Peinture : J+23 → J+28 (après la plâtrerie)
+
 ═══════════════════════════════════════════════════
 DONNÉES DU PROJET (SNAPSHOT)
 ═══════════════════════════════════════════════════

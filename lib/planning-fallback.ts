@@ -510,12 +510,10 @@ function buildDefaultTasksForLot(lotName: string, today: Date): PlanningSuggeste
   // Try to find a matching template across all categories
   for (const templates of Object.values(TEMPLATES_BY_CATEGORY)) {
     for (const tmpl of templates) {
-      if (alreadyExists({ ...tmpl, keywords: [lower] }, [tmpl.name]) === false) {
-        for (const kw of tmpl.keywords) {
-          const norm = kw.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-          if (lower.includes(norm)) {
-            return tmpl.buildTasks(today, 0);
-          }
+      for (const kw of tmpl.keywords) {
+        const norm = kw.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        if (lower.includes(norm)) {
+          return tmpl.buildTasks(today, 0);
         }
       }
     }
@@ -558,16 +556,23 @@ export function buildSmartPlanningFallback(
   const existingNames = existingLots.map((l) => l.name);
 
   // Build existing_interventions with smart default tasks
-  const existingInterventions = existingLots.map((lot) => ({
-    intervention_id: lot.id,
-    intervention_name: lot.name,
-    existing_tasks: [],
-    suggested_tasks: buildDefaultTasksForLot(lot.name, today),
-  }));
+  // Enchaîner chaque intervention existante séquentiellement (pas de chevauchement)
+  let existingOffset = 0;
+  const existingInterventions = existingLots.map((lot) => {
+    const tasks = buildDefaultTasksForLot(lot.name, new Date(today.getTime() + existingOffset * 86_400_000));
+    existingOffset += computeTasksDurationDays(tasks) + 1;
+    return {
+      intervention_id: lot.id,
+      intervention_name: lot.name,
+      existing_tasks: [],
+      suggested_tasks: tasks,
+    };
+  });
 
   // Build suggested_interventions: templates not already covered by existing lots
   const templates = TEMPLATES_BY_CATEGORY[category] ?? GENERIC_INTERVENTIONS;
-  let offset = 14; // suggested interventions start 2 weeks from now
+  // Start after all existing interventions, with a 2-day buffer
+  let offset = existingOffset > 0 ? existingOffset + 2 : 3;
 
   const suggestedInterventions: PlanningSuggestedIntervention[] = [];
   for (const tmpl of templates) {
