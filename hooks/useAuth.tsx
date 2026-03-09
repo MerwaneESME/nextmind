@@ -44,7 +44,7 @@ const loadPendingProfile = () => {
   }
 };
 
-const clearPendingProfile = () => {
+export const clearPendingProfile = () => {
   if (typeof localStorage === "undefined") return;
   localStorage.removeItem(PENDING_PROFILE_KEY);
 };

@@ -4,14 +4,16 @@ import { cn } from "@/lib/utils";
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
+  showRequired?: boolean;
 }
 
-export function Input({ label, error, className, ...props }: InputProps) {
+export function Input({ label, error, className, showRequired, ...props }: InputProps) {
   return (
     <div className="w-full">
       {label && (
         <label className="block text-sm font-medium text-neutral-800 mb-1.5">
           {label}
+          {showRequired && <span className="text-red-500"> *</span>}
         </label>
       )}
       <input

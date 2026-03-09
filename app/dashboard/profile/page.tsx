@@ -96,6 +96,7 @@ export default function ProfilePage() {
   });
   const [preferences, setPreferences] = useState<ProfilePreferences>(DEFAULT_PREFERENCES);
   const [saving, setSaving] = useState(false);
+  const [fixingRole, setFixingRole] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -153,6 +154,25 @@ export default function ProfilePage() {
     setSuccess("Profil mis à jour avec succès.");
   };
 
+  const handleFixRoleToPro = async () => {
+    if (!user?.id) return;
+    setFixingRole(true);
+    setError(null);
+    setSuccess(null);
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({ user_type: "pro" })
+      .eq("id", user.id);
+    setFixingRole(false);
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+    await refreshProfile();
+    setSuccess("Votre compte a été corrigé en professionnel. La page va se recharger.");
+    setTimeout(() => window.location.reload(), 1500);
+  };
+
   if (loading && !profile) {
     return (
       <div className="flex items-center justify-center h-48 text-sm text-neutral-500">
@@ -202,6 +222,23 @@ export default function ProfilePage() {
       {success && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           {success}
+        </div>
+      )}
+
+      {/* Correction type de compte : inscrit en pro mais affiché en particulier */}
+      {profile?.user_type === "client" && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <p className="text-sm text-amber-800">
+            Vous vous êtes inscrit en <strong>professionnel</strong> mais votre compte affiche « Particulier » ?
+          </p>
+          <button
+            type="button"
+            onClick={handleFixRoleToPro}
+            disabled={fixingRole}
+            className="shrink-0 px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {fixingRole ? "Correction..." : "Corriger en professionnel"}
+          </button>
         </div>
       )}
 

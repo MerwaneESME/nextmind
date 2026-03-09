@@ -17,22 +17,27 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
   const roleParam = searchParams.get("role");
   const tabParam = searchParams.get("tab");
   const fallbackRole: UserRole = roleParam === "professionnel" ? "professionnel" : "particulier";
-  const { session, user, loading } = useAuth();
+  const { session, user, profile, loading } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const hideChatWidget = true; // Bouton Agent IA désactivé pour les deux rôles
 
   const activeUser = useMemo(() => {
-    if (user) return user;
     if (!session?.user?.id) return null;
     const email = session.user.email ?? "";
+    const name = (user?.name ?? profile?.full_name ?? profile?.company_name ?? email) || "Utilisateur";
+    const roleFromProfile = profile?.user_type === "pro" ? "professionnel" : profile?.user_type === "client" ? "particulier" : null;
+    const resolvedRole: UserRole = (roleFromProfile ?? user?.role ?? fallbackRole) as UserRole;
+    if (user) {
+      return { ...user, role: resolvedRole };
+    }
     return {
       id: session.user.id,
       email,
-      name: email || "Utilisateur",
-      role: fallbackRole,
+      name,
+      role: resolvedRole,
       createdAt: new Date().toISOString(),
     };
-  }, [user, session, fallbackRole]);
+  }, [user, session, profile, fallbackRole]);
 
   useEffect(() => {
     if (!loading && !session) {

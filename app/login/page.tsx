@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { UserRole } from "@/types";
@@ -11,6 +11,15 @@ import { mapRoleToUserType, mapUserTypeToRole } from "@/hooks/useAuth";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const [inscriptionSuccess, setInscriptionSuccess] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get("inscription") === "ok") {
+      setInscriptionSuccess(true);
+    }
+  }, [searchParams]);
+
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -74,28 +83,6 @@ export default function LoginPage() {
     setIsLoading(false);
   };
 
-  const handleConfirmEmail = async () => {
-    if (!formData.email.trim()) return;
-    setIsConfirming(true);
-    setError("");
-    try {
-      const res = await fetch("/api/auth/confirm-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: formData.email }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.error ?? "Erreur lors de la confirmation.");
-        return;
-      }
-      setError("");
-      setNotice("Email confirmé. Cliquez sur « Se connecter » pour continuer.");
-    } finally {
-      setIsConfirming(false);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#f3f6ff] via-white to-[#e9f6ff] flex items-center justify-center px-4 py-12">
       <div className="max-w-md w-full">
@@ -123,6 +110,11 @@ export default function LoginPage() {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           {/* Sélection du rôle (simulation côté front) */}
           <form onSubmit={handleSubmit} className="space-y-4">
+            {inscriptionSuccess && (
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+                Inscription réalisée avec succès. Connectez-vous pour accéder à votre compte.
+              </div>
+            )}
             {error && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
                 {error}
