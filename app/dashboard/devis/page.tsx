@@ -19,10 +19,6 @@ import {
   Upload,
   Paperclip,
   Trash2,
-  Clock,
-  Send,
-  CheckCircle2,
-  Euro,
   FolderOpen,
   ExternalLink,
   File,
@@ -56,10 +52,10 @@ import { downloadQuotePdf } from "@/lib/quotePdf";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabaseClient";
 import { AnimatePresence, motion } from "framer-motion";
+import { resolveWorkflowStatus, type WorkflowStatus } from "@/lib/statusHelpers";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type WorkflowStatus = "a_faire" | "envoye" | "valide" | "refuse";
 type CustomFolder = { id: string; name: string };
 type SelectedFile = {
   id: string;
@@ -93,16 +89,6 @@ const DragCtx = createContext<{
 const LS_FOLDERS = "nm_doc_folders";
 const LS_FOLDER_MAP = "nm_doc_folder_map";
 const LS_FILE_NAMES = "nm_doc_file_names";
-
-const resolveWorkflowStatus = (q: QuoteSummary): WorkflowStatus => {
-  const m = q.rawMetadata ?? {};
-  const w = typeof m.workflow_status === "string" ? m.workflow_status : null;
-  if (w === "a_faire" || w === "envoye" || w === "valide" || w === "refuse") return w;
-  const s = typeof q.status === "string" ? q.status.toLowerCase() : "";
-  if (s === "valide" || s === "refuse") return s as WorkflowStatus;
-  if (s === "envoye" || s === "published") return "envoye";
-  return "a_faire";
-};
 
 const isImageFile = (name: string, type?: string) => {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
@@ -996,19 +982,6 @@ export default function DocumentsPage() {
 
   useEffect(() => { void loadQuotes(); }, [user?.id]);
 
-  const stats = useMemo(() => {
-    const c = { a_faire: 0, envoye: 0, valide: 0 };
-    let total = 0;
-    quotes.forEach((q) => {
-      const s = resolveWorkflowStatus(q);
-      if (s === "a_faire") c.a_faire++;
-      if (s === "envoye") c.envoye++;
-      if (s === "valide") c.valide++;
-      if (typeof q.totalTtc === "number") total += q.totalTtc;
-    });
-    return { ...c, total };
-  }, [quotes]);
-
   const quotesInFolder = useMemo(() => {
     const map: Record<string, QuoteSummary[]> = {};
     customFolders.forEach((f) => (map[f.id] = []));
@@ -1135,11 +1108,6 @@ export default function DocumentsPage() {
                   <span className="rounded-full border border-neutral-200 bg-white px-3 py-1 text-neutral-600">
                     {quotes.length} document{quotes.length !== 1 ? "s" : ""}
                   </span>
-                  {stats.valide > 0 && (
-                    <span className="rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 px-3 py-1">
-                      {stats.valide} validé{stats.valide !== 1 ? "s" : ""}
-                    </span>
-                  )}
                   <button
                     onClick={() => uploadInputRef.current?.click()}
                     className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-neutral-300 bg-white text-neutral-700 font-medium hover:bg-neutral-50 transition-colors"
@@ -1162,25 +1130,6 @@ export default function DocumentsPage() {
         <input ref={uploadInputRef} type="file" accept="application/pdf,image/*,video/*" className="hidden" onChange={handleUploadFile} />
         <input ref={attachInputRef} type="file" accept="application/pdf" className="hidden" onChange={handleAttachFile} />
         {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
-
-        {/* ── Stats ── */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {[
-            { label: "En étude", val: stats.a_faire, icon: <Clock className="w-8 h-8 text-neutral-300" /> },
-            { label: "Envoyés", val: stats.envoye, icon: <Send className="w-8 h-8 text-primary-300" /> },
-            { label: "Validés", val: stats.valide, icon: <CheckCircle2 className="w-8 h-8 text-emerald-400" /> },
-            { label: "Total devis", val: formatCurrency(stats.total), icon: <Euro className="w-8 h-8 text-primary-300" /> },
-          ].map((s) => (
-            <Card key={s.label}>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div><p className="text-sm text-gray-600 mb-1">{s.label}</p><p className="text-2xl font-bold text-gray-900">{s.val}</p></div>
-                  {s.icon}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
 
         {/* ── File manager + Preview ── */}
         <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6 items-start">

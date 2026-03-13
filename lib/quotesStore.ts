@@ -28,4 +28,5 @@ export type QuoteSummary = {
   fileName?: string | null;
   previewData?: QuotePreviewData | null;
   rawMetadata?: Record<string, unknown> | null;
+  projectId?: string | null;
 };

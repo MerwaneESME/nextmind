@@ -11,7 +11,7 @@ import {
   type ExportPresetId,
 } from "@/lib/export-prompt";
 import { generateProjectExportPdf } from "@/lib/exportPdf";
-import { buildPlanningContext, serializePlanningContext } from "@/lib/planning-context";
+import { buildPlanningContext, serializePlanningContext, type InterventionSnapshot } from "@/lib/planning-context";
 import type { LotSummary } from "@/lib/lotsDb";
 import type { QuoteSummary } from "@/lib/quotesStore";
 import { formatCurrency } from "@/lib/utils";
@@ -60,6 +60,30 @@ type Props = {
   tasks: Task[];
   onClose: () => void;
 };
+
+/** Maps a planning-context snapshot to the LotSummary shape used by PDF/fallback */
+function snapshotToLotSummary(snap: InterventionSnapshot): LotSummary {
+  const tasksDone = snap.tasks.filter((t) => String(t.status ?? "").toLowerCase() === "done").length;
+  const tasksTotal = snap.tasks.length;
+  return {
+    id: snap.id,
+    phaseId: "",
+    name: snap.name,
+    description: snap.description,
+    lotType: snap.lotType,
+    companyName: snap.companyName,
+    startDate: snap.startDate,
+    endDate: snap.endDate,
+    tasksStartDate: null,
+    tasksEndDate: null,
+    budgetEstimated: snap.budgetEstimated,
+    budgetActual: snap.budgetActual,
+    status: snap.status as LotSummary["status"],
+    progressPercentage: snap.progressPercent,
+    tasksDone,
+    tasksTotal,
+  };
+}
 
 const PRESET_ICONS = {
   resume: FileText,
@@ -129,25 +153,25 @@ function buildFallbackAiContent(args: {
 
   const executiveSummary =
     presetId === "resume"
-      ? `Ce document présente une synthèse du projet "${project.name}". Statut actuel : ${status}. ${interventionsCount ? `Interventions : ${interventionsCount} lot(s).` : ""} ${tasks.length ? `Tâches : ${done}/${tasks.length} terminées.` : ""}`.trim()
+      ? `Ce document présente une synthèse du projet "${project.name}". Statut actuel : ${status}. ${interventionsCount ? `Interventions : ${interventionsCount}.` : ""} ${tasks.length ? `Tâches : ${done}/${tasks.length} terminées.` : ""}`.trim()
       : presetId === "cloture"
         ? `Ce rapport clôture le projet "${project.name}". Statut : ${status}. Il récapitule les éléments clés (budget, interventions, planning) et propose un retour d'expérience actionnable.`
         : `Ce rapport d'avancement fait le point sur le projet "${project.name}". Statut : ${status}. Il synthétise la progression par intervention, l'état des tâches et les points d'attention planning.`;
 
   const keyPoints: string[] = [
     `Statut : ${status}`,
-    interventionsCount ? `Interventions : ${interventionsCount} lot(s)` : "Interventions : —",
-    interventionsCount ? `Avancement moyen (lots) : ${avgProgress}%` : "",
+    interventionsCount ? `Interventions : ${interventionsCount}` : "Interventions : —",
+    interventionsCount ? `Avancement moyen (interventions) : ${avgProgress}%` : "",
     tasks.length ? `Tâches : ${done} terminée(s), ${inProgress} en cours, ${todo} à faire${late ? `, ${late} en retard` : ""}` : "",
     validatedQuotesTotal ? `Devis validés (TTC) : ${formatCurrency(validatedQuotesTotal)}` : "",
   ].filter(Boolean);
 
   const sectionNotes = {
     budget: validatedQuotesTotal
-      ? "Les montants TTC ci-dessous reflètent les devis validés. Vérifier l'alignement avec les budgets estimés/réels des lots si ces champs sont renseignés."
+      ? "Les montants TTC ci-dessous reflètent les devis validés. Vérifier l'alignement avec les budgets estimés/réels des interventions si ces champs sont renseignés."
       : undefined,
     interventions: interventionsCount
-      ? "La progression est présentée par lot. Identifier les lots en retard et sécuriser les dépendances entre interventions."
+      ? "La progression est présentée par intervention. Identifier les interventions en retard et sécuriser les dépendances."
       : "Aucune intervention n'est enregistrée dans le projet.",
     planning: tasks.length
       ? "Le planning est basé sur les tâches existantes. Mettre à jour les dates et statuts pour fiabiliser l'analyse."
@@ -162,15 +186,15 @@ function buildFallbackAiContent(args: {
           "Clôturer les tâches restantes et mettre à jour le statut du projet si nécessaire.",
         ]
       : [
-          "Mettre à jour l'avancement des lots et les statuts des tâches (done/todo/late).",
+          "Mettre à jour l'avancement des interventions et les statuts des tâches.",
           "Prioriser les points bloquants et sécuriser les jalons de la semaine à venir.",
-          "Valider les devis en attente et contrôler l'impact budget avant lancement des lots critiques.",
+          "Valider les devis en attente et contrôler l'impact budget avant lancement des interventions critiques.",
         ];
 
   const conclusion =
     presetId === "cloture"
       ? `Le projet "${project.name}" est en statut "${status}". Ce rapport récapitule les éléments disponibles et peut être complété par les données budgétaires et planning pour une clôture exhaustive.`
-      : `Le projet "${project.name}" est en statut "${status}". Une mise à jour régulière des lots, tâches et devis permettra de fiabiliser le suivi et d'anticiper les risques.`;
+      : `Le projet "${project.name}" est en statut "${status}". Une mise à jour régulière des interventions, tâches et devis permettra de fiabiliser le suivi et d'anticiper les risques.`;
 
   return {
     report_title: title,
@@ -225,6 +249,12 @@ export default function ExportProjectModal({
       setLoadingStep("Analyse du projet en cours…");
       const ctx = await buildPlanningContext(projectId);
       const projectContext = ctx ? serializePlanningContext(ctx) : `Projet: ${project.name}`;
+
+      // Use interventions from planning context if page state didn't load them yet
+      const effectiveInterventions =
+        interventions.length > 0
+          ? interventions
+          : (ctx?.interventions ?? []).map(snapshotToLotSummary);
 
       // Step 2 — call AI for narrative content
       setLoadingStep("L'agent rédige le rapport…");
@@ -289,7 +319,7 @@ RENVOIE UNIQUEMENT un JSON valide (dans un bloc \`\`\`json ... \`\`\`) conforme 
       if (!aiContent) {
         aiContent = buildFallbackAiContent({
           project,
-          interventions,
+          interventions: effectiveInterventions,
           quotes,
           tasks,
           presetId: selectedPreset,
@@ -300,7 +330,7 @@ RENVOIE UNIQUEMENT un JSON valide (dans un bloc \`\`\`json ... \`\`\`) conforme 
       setLoadingStep("Génération du PDF…");
       const blob = await generateProjectExportPdf(
         project,
-        interventions,
+        effectiveInterventions,
         members,
         quotes,
         tasks,
@@ -342,7 +372,7 @@ RENVOIE UNIQUEMENT un JSON valide (dans un bloc \`\`\`json ... \`\`\`) conforme 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
       <div
         className={cn(
           "bg-white rounded-2xl shadow-2xl flex flex-col w-full max-h-[95vh] overflow-hidden",

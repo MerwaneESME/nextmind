@@ -1,0 +1,7 @@
+app/dashboard/projets/[id]/page.tsx(2197,11): error TS2322: Type '(day: Date) => void' is not assignable to type '(date?: Date | undefined) => void'.
+  Types of parameters 'day' and 'date' are incompatible.
+    Type 'Date | undefined' is not assignable to type 'Date'.
+      Type 'undefined' is not assignable to type 'Date'.
+components/project/tabs/PlanningTab.tsx(263,11): error TS2322: Type 'Record<string, string>' is not assignable to type 'Record<string, LotLabelColorKey>'.
+  'string' index signatures are incompatible.
+    Type 'string' is not assignable to type 'LotLabelColorKey'.

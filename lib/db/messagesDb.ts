@@ -4,6 +4,7 @@ export type MessageAuthor = {
   id: string;
   email: string | null;
   full_name: string | null;
+  avatar_url: string | null;
 };
 
 export interface Message {
@@ -25,7 +26,7 @@ export interface Message {
 export async function getMessages(context: { projectId?: string; phaseId?: string; lotId?: string }) {
   let query = supabase
     .from("messages")
-    .select("*,author:profiles!messages_author_id_fkey(id,email,full_name)")
+    .select("*,author:profiles!messages_author_id_fkey(id,email,full_name,avatar_url)")
     .order("created_at", { ascending: true });
 
   if (context.projectId) {

@@ -57,7 +57,7 @@ const PRESET_INSTRUCTIONS: Record<ExportPresetId, string> = {
   avancement: `Tu génères un RAPPORT D'AVANCEMENT détaillé (format 2-4 pages).
 - Résumé exécutif avec état actuel et tendance
 - Points clés : % avancement, tâches terminées/en retard, risques identifiés
-- Section interventions : analyse de chaque lot (bien avancé ? retard ? blocage ?)
+- Section interventions : analyse de chaque intervention (bien avancée ? retard ? blocage ?)
 - Section planning : la timeline est-elle respectée ? quelles actions urgentes ?
 - Recommandations opérationnelles concrètes (min 3)
 - Conclusion avec prochaines étapes prioritaires`,
@@ -65,7 +65,7 @@ const PRESET_INSTRUCTIONS: Record<ExportPresetId, string> = {
   cloture: `Tu génères un RAPPORT DE CLÔTURE professionnel (format 2-4 pages).
 - Résumé exécutif : bilan de l'opération, objectifs atteints ou non
 - Points clés : budget final vs estimé, durée réelle vs prévue, intervenants
-- Section interventions : retour sur chaque lot (délais, qualité perçue)
+- Section interventions : retour sur chaque intervention (délais, qualité perçue)
 - Section budget : analyse des écarts (dépassements, économies)
 - Recommandations : retours d'expérience, points d'amélioration pour futurs projets
 - Conclusion : valorisation du projet livré`,

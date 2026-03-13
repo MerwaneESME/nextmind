@@ -1,11 +1,12 @@
 "use client";
 
+import { Suspense } from "react";
 import { ChatWindow } from "@/components/chat/ChatWindow";
 import { Card } from "@/components/ui/Card";
 import { Bot, Sparkles } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
-export default function ChatPage() {
+function ChatPageContent() {
   const { user } = useAuth();
   const userRole = user?.role ?? "particulier";
   const userId = user?.id ?? "demo-user";
@@ -84,5 +85,13 @@ export default function ChatPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center"><span className="text-gray-400">Chargement...</span></div>}>
+      <ChatPageContent />
+    </Suspense>
   );
 }

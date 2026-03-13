@@ -40,81 +40,23 @@ import { QuoteSummary } from "@/lib/quotesStore";
 import { fetchDevisForUser } from "@/lib/devisDb";
 import { downloadQuotePdf } from "@/lib/quotePdf";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  resolveWorkflowStatus,
+  resolveProjectStatus,
+  getStatusBadge,
+  getStatusDotClass,
+  getStatusLabel,
+} from "@/lib/statusHelpers";
+import { toMonthKey } from "@/lib/dateHelpers";
 
-type WorkflowStatus = "a_faire" | "envoye" | "valide" | "refuse";
-
-const resolveWorkflowStatus = (quote: QuoteSummary): WorkflowStatus => {
-  const metadata = quote.rawMetadata ?? {};
-  const workflow =
-    typeof metadata.workflow_status === "string" ? metadata.workflow_status : null;
-  if (workflow === "a_faire" || workflow === "envoye" || workflow === "valide" || workflow === "refuse") {
-    return workflow;
-  }
-  const status = typeof quote.status === "string" ? quote.status.toLowerCase() : "";
-  if (status === "valide" || status === "refuse") {
-    return status as WorkflowStatus;
-  }
-  if (status === "envoye" || status === "published") {
-    return "envoye";
-  }
-  return "a_faire";
-};
-
-type ProjectStatusKey = "draft" | "en_cours" | "termine" | "en_attente";
-
-const resolveProjectStatus = (status: string | null): ProjectStatusKey => {
-  if (!status) return "draft";
-  const normalized = status.toLowerCase();
-  if (["draft", "a_faire"].includes(normalized)) return "draft";
-  if (["en_cours", "in_progress", "active"].includes(normalized)) return "en_cours";
-  if (["termine", "completed", "done"].includes(normalized)) return "termine";
-  if (["en_attente", "pending"].includes(normalized)) return "en_attente";
-  return "en_attente";
-};
-
-const toMonthKey = (date: Date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-
-const getStatusBadge = (status: string) => {
-  const styles = {
-    draft: "bg-neutral-100 text-neutral-700",
-    en_cours: "bg-primary-50 text-primary-700",
-    termine: "bg-emerald-50 text-emerald-700",
-    en_attente: "bg-amber-50 text-amber-700",
-    a_faire: "bg-neutral-100 text-neutral-700",
-    envoye: "bg-primary-50 text-primary-700",
-    valide: "bg-emerald-50 text-emerald-700",
-    refuse: "bg-red-50 text-red-700",
-  };
-  return styles[status as keyof typeof styles] || styles.en_attente;
-};
-
-const getStatusDotClass = (status: string) => {
-  const dots = {
-    draft: "bg-neutral-400",
-    en_cours: "bg-primary-400",
-    termine: "bg-emerald-400",
-    en_attente: "bg-amber-400",
-    a_faire: "bg-neutral-400",
-    envoye: "bg-primary-400",
-    valide: "bg-emerald-400",
-    refuse: "bg-red-400",
-  };
-  return dots[status as keyof typeof dots] || dots.en_attente;
-};
-
-const getStatusLabel = (status: string) => {
-  const labels: Record<string, string> = {
-    draft: "En étude",
-    en_cours: "En cours",
-    termine: "Terminé",
-    en_attente: "En attente",
-    a_faire: "En étude",
-    envoye: "Envoyé",
-    valide: "Validé",
-    refuse: "Refusé",
-  };
-  return labels[status] || status;
+type UpcomingItem = {
+  id: string;
+  name: string;
+  date: string | null;
+  project_id: string | null;
+  kind: "task" | "intervention";
+  task_type?: string | null;
+  attendees?: string[] | null;
 };
 
 function DashboardContent() {
@@ -155,6 +97,10 @@ function ProfessionalDashboard() {
   const [activeMonthKey, setActiveMonthKey] = useState<string | null>(null);
   const [projectsExpanded, setProjectsExpanded] = useState(false);
   const [devisExpanded, setDevisExpanded] = useState(false);
+  const [upcomingItems, setUpcomingItems] = useState<UpcomingItem[]>([]);
+  const [attendeeProfiles, setAttendeeProfiles] = useState<Map<string, { full_name: string | null; avatar_url: string | null }>>(new Map());
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [tasksError, setTasksError] = useState<string | null>(null);
 
   const normalizeStoragePath = (bucket?: string, path?: string) => {
     if (!bucket || !path) return path;
@@ -191,6 +137,90 @@ function ProfessionalDashboard() {
     }
   };
 
+  const loadUpcomingItems = async (projectList: typeof projects) => {
+    if (!user?.id || !projectList.length) return;
+    // Only show loading spinner on first load — avoids flicker on silent refresh
+    if (upcomingItems.length === 0) setTasksLoading(true);
+    setTasksError(null);
+    try {
+      const today = new Date().toISOString().split("T")[0];
+      const projectIds = projectList.map((p) => p.id);
+
+      // Batch query: project_tasks (correct table) for all projects at once
+      const { data: taskData, error: taskError } = await supabase
+        .from("project_tasks")
+        .select("id, name, start_date, end_date, completed_at, project_id, task_type, attendees")
+        .in("project_id", projectIds)
+        .is("completed_at", null)
+        .limit(200);
+
+      if (taskError) throw taskError;
+
+      // Batch query: phases for all projects, then lots
+      const { data: phaseData, error: phaseError } = await supabase
+        .from("phases")
+        .select("id, project_id")
+        .in("project_id", projectIds);
+
+      if (phaseError) throw phaseError;
+
+      const phaseMap = new Map<string, string>(); // phaseId -> projectId
+      for (const ph of (phaseData ?? [])) phaseMap.set(String(ph.id), String(ph.project_id));
+
+      const phaseIds = [...phaseMap.keys()];
+      const LOT_DONE = new Set(["termine", "valide"]);
+      let lotData: any[] = [];
+
+      if (phaseIds.length > 0) {
+        const { data, error: lotError } = await supabase
+          .from("lots")
+          .select("id, phase_id, name, start_date, end_date, status")
+          .in("phase_id", phaseIds);
+        if (lotError) throw lotError;
+        lotData = (data ?? []).filter((lot: any) => !LOT_DONE.has(String(lot.status ?? "").toLowerCase()));
+      }
+
+      const items: UpcomingItem[] = [];
+
+      // Add tasks
+      for (const t of (taskData ?? []) as any[]) {
+        const date: string | null = t.start_date ?? t.end_date ?? null;
+        if (!date || date < today) continue;
+        const attendees = Array.isArray(t.attendees) ? (t.attendees as string[]) : null;
+        items.push({ id: String(t.id), name: String(t.name ?? "Tâche"), date, project_id: t.project_id, kind: "task", task_type: t.task_type ?? "task", attendees });
+      }
+
+      // Add lots/interventions
+      for (const lot of lotData) {
+        const date: string | null = lot.start_date ?? lot.end_date ?? null;
+        if (!date || date < today) continue;
+        const projectId = phaseMap.get(String(lot.phase_id)) ?? null;
+        items.push({ id: String(lot.id), name: String(lot.name ?? "Intervention"), date, project_id: projectId, kind: "intervention" });
+      }
+
+      items.sort((a, b) => (a.date ?? "9999") < (b.date ?? "9999") ? -1 : 1);
+      const finalItems = items.slice(0, 6);
+      setUpcomingItems(finalItems);
+
+      // Load profiles for RDV attendees
+      const allAttendeeIds = [...new Set(finalItems.flatMap((it) => it.attendees ?? []))];
+      if (allAttendeeIds.length > 0) {
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("id, full_name, avatar_url")
+          .in("id", allAttendeeIds);
+        const map = new Map<string, { full_name: string | null; avatar_url: string | null }>();
+        for (const p of (profileData ?? []) as any[]) map.set(String(p.id), { full_name: p.full_name ?? null, avatar_url: p.avatar_url ?? null });
+        setAttendeeProfiles(map);
+      }
+    } catch (e: any) {
+      setTasksError(e?.message ?? "Erreur chargement");
+      setUpcomingItems([]);
+    } finally {
+      setTasksLoading(false);
+    }
+  };
+
   useEffect(() => {
     void loadProjects();
     void loadQuotes();
@@ -204,6 +234,11 @@ function ProfessionalDashboard() {
     }, 20000);
     return () => clearInterval(interval);
   }, [user?.id]);
+
+  useEffect(() => {
+    if (user?.id) void loadUpcomingItems(projects);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects, user?.id]);
 
   const monthSeries = useMemo(() => {
     const now = new Date();
@@ -244,21 +279,9 @@ function ProfessionalDashboard() {
     return counters;
   }, [quotes]);
 
-  const conversionStats = useMemo(() => {
-    const counters = { envoye: 0, valide: 0, refuse: 0 };
-    quotes.forEach((quote) => {
-      const status = resolveWorkflowStatus(quote);
-      if (status === "envoye") counters.envoye += 1;
-      if (status === "valide") counters.valide += 1;
-      if (status === "refuse") counters.refuse += 1;
-    });
-    const total = counters.envoye + counters.valide + counters.refuse;
-    const rate = total > 0 ? counters.valide / total : 0;
-    return { ...counters, total, rate };
-  }, [quotes]);
 
   const revenueSeries = useMemo(() => {
-    const series = monthSeries.map((point) => ({ ...point, value: 0 }));
+    const series = monthSeries.map((point) => ({ ...point, value: 0, count: 0 }));
     const seriesMap = new Map(series.map((point) => [point.key, point]));
     quotes.forEach((quote) => {
       if (resolveWorkflowStatus(quote) !== "valide") return;
@@ -268,38 +291,12 @@ function ProfessionalDashboard() {
       const bucket = seriesMap.get(key);
       if (bucket) {
         bucket.value += quote.totalTtc;
+        bucket.count += 1;
       }
     });
     return series;
   }, [quotes, monthSeries]);
 
-  const projectSeries = useMemo(() => {
-    const series = monthSeries.map((point) => ({ ...point, items: [] as ProjectSummary[] }));
-    const seriesMap = new Map(series.map((point) => [point.key, point]));
-    projects.forEach((project) => {
-      const source = project.createdAt ?? project.updatedAt;
-      if (!source) return;
-      const key = toMonthKey(new Date(source));
-      const bucket = seriesMap.get(key);
-      if (bucket) {
-        bucket.items.push(project);
-      }
-    });
-    return series;
-  }, [projects, monthSeries]);
-
-  const projectBudgetSeries = useMemo(
-    () =>
-      projectSeries.map((point) => ({
-        key: point.key,
-        value: point.items.reduce(
-          (sum, project) =>
-            sum + (typeof project.budgetTotal === "number" ? project.budgetTotal : 0),
-          0
-        ),
-      })),
-    [projectSeries]
-  );
 
   const revenueTotal = useMemo(
     () => revenueSeries.reduce((sum, point) => sum + point.value, 0),
@@ -316,42 +313,22 @@ function ProfessionalDashboard() {
     return { value: Math.abs(change), direction: change >= 0 ? "up" : "down" };
   }, [revenueSeries]);
 
-  const annualRevenue = useMemo(() => {
-    const now = new Date();
-    const windowStart = new Date(now.getFullYear(), now.getMonth() - 11, 1);
-    return quotes.reduce((sum, quote) => {
-      if (resolveWorkflowStatus(quote) !== "valide") return sum;
-      if (typeof quote.totalTtc !== "number") return sum;
-      const date = new Date(quote.updatedAt);
-      if (date < windowStart || date > now) return sum;
-      return sum + quote.totalTtc;
-    }, 0);
-  }, [quotes]);
-
-  const totalProjectBudget = useMemo(
-    () =>
-      projects.reduce(
-        (sum, project) => sum + (typeof project.budgetTotal === "number" ? project.budgetTotal : 0),
-        0
-      ),
-    [projects]
+  const maxRevenue = useMemo(
+    () => Math.max(...revenueSeries.map((p) => p.value), 0),
+    [revenueSeries]
   );
-
-  const budgetBaseline = annualRevenue > 0 ? annualRevenue : totalProjectBudget;
-  const budgetBaselineLabel =
-    annualRevenue > 0 ? "CA annuel" : totalProjectBudget > 0 ? "Budget total" : "Base indisponible";
-  const budgetBaselineDisplay =
-    budgetBaselineLabel === "Base indisponible"
-      ? budgetBaselineLabel
-      : `Base ${budgetBaselineLabel}`;
-  const budgetBaselineShortLabel =
-    budgetBaselineLabel === "Base indisponible" ? "Base" : budgetBaselineLabel;
 
   const activeMonth =
     monthSeries.find((point) => point.key === activeMonthKey) ??
     monthSeries[monthSeries.length - 1];
-  const activeProjects =
-    projectSeries.find((point) => point.key === activeMonth?.key)?.items ?? [];
+  const activeDevis = useMemo(() => {
+    if (!activeMonth) return [];
+    return quotes.filter((q) => {
+      if (resolveWorkflowStatus(q) !== "valide") return false;
+      return toMonthKey(new Date(q.updatedAt)) === activeMonth.key;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quotes, activeMonth?.key]);
   const windowLabel = monthSeries.length
     ? `${monthSeries[0].label} ${monthSeries[0].year} - ${
         monthSeries[monthSeries.length - 1].label
@@ -381,9 +358,6 @@ function ProfessionalDashboard() {
   const projectsTermines = projects.filter(
     (project) => resolveProjectStatus(project.status) === "termine"
   ).length;
-  const devisRecus = 0;
-  const conversionPercent = Math.round(conversionStats.rate * 100);
-  const conversionTarget = 35;
 
   const handleViewQuote = (quote: QuoteSummary) => {
     const roleParam = user?.role === "professionnel" ? "professionnel" : "particulier";
@@ -586,19 +560,13 @@ function ProfessionalDashboard() {
             <div className="relative">
               <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-primary-400/10 blur-3xl" />
               <div className="flex items-end gap-3 h-36">
-                {revenueSeries.map((point, index) => {
-                  const projectCount = projectSeries[index]?.items.length ?? 0;
+                {revenueSeries.map((point) => {
                   const isActive = activeMonth?.key === point.key;
-                  const hasProjects = projectCount > 0;
-                  const projectBudget = projectBudgetSeries[index]?.value ?? 0;
-                  const budgetBaseForBar = budgetBaseline > 0 ? budgetBaseline : 1;
-                  const projectPercent =
-                    projectBudget > 0 ? (projectBudget / budgetBaseForBar) * 100 : 0;
-                  const projectHeight = projectBudget > 0
-                    ? Math.max(12, Math.min(100, Math.round(projectPercent)))
-                    : hasProjects
-                      ? 12
-                      : 0;
+                  const revenueValue = point.value;
+                  const barHeight = maxRevenue > 0
+                    ? Math.max(8, Math.round((revenueValue / maxRevenue) * 100))
+                    : 0;
+                  const hasRevenue = revenueValue > 0;
                   return (
                     <button
                       key={point.key}
@@ -612,14 +580,18 @@ function ProfessionalDashboard() {
                           isActive ? "ring-2 ring-primary-200/80" : ""
                         }`}
                       >
-                        <div
-                          className={`w-full rounded-md transition-all ${
-                            isActive
-                              ? "bg-gradient-to-t from-primary-600 via-primary-500 to-primary-300"
-                              : "bg-gradient-to-t from-primary-500 via-primary-400 to-primary-200"
-                          } ${projectHeight > 0 ? "opacity-100" : "opacity-0"}`}
-                          style={{ height: `${projectHeight}%` }}
-                        />
+                        {hasRevenue ? (
+                          <div
+                            className={`w-full rounded-md transition-all ${
+                              isActive
+                                ? "bg-gradient-to-t from-primary-600 via-primary-500 to-primary-300"
+                                : "bg-gradient-to-t from-primary-500 via-primary-400 to-primary-200"
+                            }`}
+                            style={{ height: `${barHeight}%` }}
+                          />
+                        ) : (
+                          <div className="w-full rounded-sm bg-neutral-100" style={{ height: "4px" }} />
+                        )}
                       </div>
                       <div className="flex flex-col items-center gap-1">
                         <span
@@ -629,12 +601,8 @@ function ProfessionalDashboard() {
                         >
                           {point.label}
                         </span>
-                        <span
-                          className={`text-[10px] ${
-                            hasProjects ? "text-primary-600" : "text-neutral-400"
-                          }`}
-                        >
-                          {projectCount} projet{projectCount > 1 ? "s" : ""}
+                        <span className={`text-[10px] ${hasRevenue ? "text-primary-600 font-medium" : "text-neutral-300"}`}>
+                          {hasRevenue ? formatCurrency(revenueValue) : "—"}
                         </span>
                       </div>
                     </button>
@@ -645,83 +613,36 @@ function ProfessionalDashboard() {
             <div className="rounded-xl border border-primary-100/80 bg-primary-50/60 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-700">
                 <span className="uppercase tracking-[0.2em] text-neutral-800">
-                  Projets {activeMonth?.label} {activeMonth?.year}
+                  Devis validés — {activeMonth?.label} {activeMonth?.year}
                 </span>
-                <span className="text-neutral-600">
-                  {activeProjects.length} projet{activeProjects.length > 1 ? "s" : ""} |{" "}
-                  {budgetBaselineDisplay}
-                  {budgetBaseline > 0 ? `: ${formatCurrency(budgetBaseline)}` : ""}
+                <span className="text-neutral-600 font-medium">
+                  {activeDevis.length > 0
+                    ? `${activeDevis.length} devis · ${formatCurrency(activeDevis.reduce((s, q) => s + (q.totalTtc ?? 0), 0))}`
+                    : "Aucun devis validé ce mois"}
                 </span>
               </div>
-              <div className="mt-3 space-y-3">
-                {activeProjects.length ? (
-                  activeProjects.map((project) => {
-                    const statusKey = resolveProjectStatus(project.status);
-                    const dotClass = {
-                      draft: "bg-neutral-300",
-                      en_cours: "bg-primary-300",
-                      termine: "bg-success-300",
-                      en_attente: "bg-warning-300",
-                    }[statusKey];
-                    const budgetValue =
-                      typeof project.budgetTotal === "number" ? project.budgetTotal : 0;
-                    const baseline = budgetBaseline > 0 ? budgetBaseline : 1;
-                    const rawPercent = budgetValue > 0 ? (budgetValue / baseline) * 100 : 0;
-                    const displayPercent =
-                      budgetValue > 0 ? Math.max(6, Math.min(100, rawPercent)) : 0;
+              {activeDevis.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {activeDevis.map((quote) => {
+                    const projectName = projects.find((p) => p.id === quote.projectId)?.name ?? null;
                     return (
-                      <div
-                        key={project.id}
-                        className="rounded-lg border border-primary-100/70 bg-white px-3 py-2"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-neutral-900 truncate">
-                              {project.name}
-                            </p>
-                            <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-600">
-                              <span
-                                className={`h-1.5 w-1.5 rounded-full ${dotClass ?? "bg-neutral-300"}`}
-                              />
-                              <span className="uppercase tracking-[0.15em] text-neutral-500">
-                                {project.projectType ?? "Projet"}
-                              </span>
-                              {budgetValue > 0 && (
-                                <>
-                                  <span className="text-neutral-400">|</span>
-                                  <span className="text-neutral-700">{formatCurrency(budgetValue)}</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                          {budgetValue > 0 ? (
-                            <div className="text-right flex-shrink-0">
-                              <p className="text-xs font-semibold text-primary-600">
-                                {Math.round(rawPercent)}%
-                              </p>
-                              <p className="text-[10px] uppercase tracking-[0.15em] text-neutral-500">
-                                {budgetBaselineShortLabel}
-                              </p>
-                            </div>
-                          ) : (
-                            <span className="text-[10px] text-neutral-400 italic flex-shrink-0">Budget à définir</span>
+                      <div key={quote.id} className="rounded-lg border border-primary-100/70 bg-white px-3 py-2 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-neutral-900 truncate">
+                            {projectName ?? quote.clientName ?? quote.title}
+                          </p>
+                          {quote.clientName && projectName && (
+                            <p className="text-xs text-neutral-500 truncate">{quote.clientName}</p>
                           )}
                         </div>
-                        {budgetValue > 0 && (
-                          <div className="mt-2 h-1.5 rounded-full bg-neutral-200">
-                            <div
-                              className="h-1.5 rounded-full bg-gradient-to-r from-primary-400 to-primary-600"
-                              style={{ width: `${displayPercent}%` }}
-                            />
-                          </div>
-                        )}
+                        <span className="text-sm font-semibold text-primary-700 flex-shrink-0">
+                          {typeof quote.totalTtc === "number" ? formatCurrency(quote.totalTtc) : "—"}
+                        </span>
                       </div>
                     );
-                  })
-                ) : (
-                  <span className="text-xs text-neutral-500">Aucun projet ce mois</span>
-                )}
-              </div>
+                  })}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -731,58 +652,85 @@ function ProfessionalDashboard() {
           <CardHeader className="relative z-10 border-neutral-100">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-neutral-500">Taux de conversion client</p>
-                <p className="text-lg font-semibold text-neutral-900">Conversion</p>
+                <p className="text-sm text-neutral-500">À venir</p>
+                <p className="text-lg font-semibold text-neutral-900">Prochaines tâches</p>
               </div>
-              <img
-                src="/images/conversion.png"
-                alt="Conversion"
-                className="h-28 w-28 object-contain logo-blend"
-              />
+              <div className="h-10 w-10 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
+                <Clock className="h-5 w-5 text-primary-600" />
+              </div>
             </div>
           </CardHeader>
-          <CardContent className="relative z-10 space-y-6">
-            <div className="flex items-center gap-4">
-              <div className="relative h-24 w-24">
-                <div
-                  className="absolute inset-0 rounded-full"
-                  style={{
-                    background: `conic-gradient(#10b981 ${Math.round(
-                      conversionStats.rate * 360
-                    )}deg, #e5e7eb 0deg)`,
-                  }}
-                />
-                <div className="absolute inset-2 rounded-full bg-white shadow-sm flex items-center justify-center">
-                  <span className="text-2xl font-semibold text-neutral-900">
-                    {conversionPercent}%
-                  </span>
-                </div>
+          <CardContent className="relative z-10">
+            {tasksLoading && upcomingItems.length === 0 ? (
+              <p className="text-sm text-neutral-400 py-4 text-center">Chargement...</p>
+            ) : tasksError ? (
+              <p className="text-xs text-red-500 py-4 text-center">{tasksError}</p>
+            ) : upcomingItems.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
+                <FolderOpen className="w-8 h-8 text-neutral-200" />
+                <p className="text-sm text-neutral-400">Aucun élément à venir</p>
+                <p className="text-xs text-neutral-300">Tâches et interventions planifiées apparaîtront ici</p>
               </div>
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center justify-between gap-6">
-                  <span className="text-neutral-500">Envoyés</span>
-                  <span className="font-semibold text-neutral-900">{conversionStats.envoye}</span>
-                </div>
-                <div className="flex items-center justify-between gap-6">
-                  <span className="text-neutral-500">Validés</span>
-                  <span className="font-semibold text-neutral-900">{conversionStats.valide}</span>
-                </div>
-                <div className="flex items-center justify-between gap-6">
-                  <span className="text-neutral-500">Refusés</span>
-                  <span className="font-semibold text-neutral-900">{conversionStats.refuse}</span>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center justify-between text-xs text-neutral-500">
-              <span>Objectif {conversionTarget}%</span>
-              <span
-                className={`font-semibold ${
-                  conversionPercent >= conversionTarget ? "text-success-600" : "text-warning-600"
-                }`}
-              >
-                {conversionPercent >= conversionTarget ? "Au-dessus" : "Sous l'objectif"}
-              </span>
-            </div>
+            ) : (
+              <ul className="space-y-2">
+                {upcomingItems.map((item) => {
+                  const projectName = projects.find((p) => p.id === item.project_id)?.name ?? null;
+                  const itemDate = item.date ? new Date(`${item.date}T00:00:00`) : null;
+                  const todayMs = new Date(); todayMs.setHours(0, 0, 0, 0);
+                  const diffDays = itemDate
+                    ? Math.ceil((itemDate.getTime() - todayMs.getTime()) / (1000 * 60 * 60 * 24))
+                    : null;
+                  const isUrgent = diffDays !== null && diffDays <= 3;
+                  const isToday = diffDays === 0;
+                  return (
+                    <li key={`${item.kind}-${item.id}`} className="flex items-start gap-3 rounded-lg border border-neutral-100 bg-neutral-50/60 px-3 py-2.5">
+                      <div className={`mt-1 h-2 w-2 rounded-full flex-shrink-0 ${isUrgent ? "bg-red-400" : item.kind === "intervention" ? "bg-amber-400" : item.task_type === "rdv" ? "bg-violet-400" : "bg-primary-400"}`} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-neutral-900 truncate">{item.name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {projectName && <p className="text-xs text-neutral-500 truncate">{projectName}</p>}
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 font-medium ${item.kind === "intervention" ? "bg-amber-50 text-amber-700" : item.task_type === "rdv" ? "bg-violet-50 text-violet-700" : "bg-primary-50 text-primary-700"}`}>
+                            {item.kind === "intervention" ? "Lot" : item.task_type === "rdv" ? "RDV" : "Tâche"}
+                          </span>
+                        </div>
+                        {item.task_type === "rdv" && item.attendees && item.attendees.length > 0 && (
+                          <div className="flex items-center mt-1.5 -space-x-1.5">
+                            {item.attendees.slice(0, 4).map((uid) => {
+                              const profile = attendeeProfiles.get(uid);
+                              const name = profile?.full_name ?? uid;
+                              const initials = name.split(" ").map((n: string) => n[0]).slice(0, 2).join("").toUpperCase();
+                              const colors = ["from-primary-400 to-primary-600", "from-violet-400 to-violet-600", "from-emerald-400 to-emerald-600", "from-amber-400 to-amber-600"];
+                              const color = colors[item.attendees!.indexOf(uid) % colors.length];
+                              return profile?.avatar_url ? (
+                                <img key={uid} src={profile.avatar_url} alt={name} title={name} className="h-5 w-5 rounded-full object-cover ring-1 ring-white" />
+                              ) : (
+                                <div key={uid} title={name} className={`h-5 w-5 rounded-full ring-1 ring-white bg-gradient-to-br ${color} flex items-center justify-center text-[9px] font-semibold text-white`}>
+                                  {initials}
+                                </div>
+                              );
+                            })}
+                            {item.attendees.length > 4 && (
+                              <div className="h-5 w-5 rounded-full ring-1 ring-white bg-neutral-200 flex items-center justify-center text-[9px] font-medium text-neutral-600">
+                                +{item.attendees.length - 4}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {itemDate && (
+                        <span className={`text-[10px] font-semibold flex-shrink-0 px-2 py-0.5 rounded-full ${
+                          isToday ? "bg-red-100 text-red-700"
+                          : isUrgent ? "bg-amber-100 text-amber-700"
+                          : "bg-neutral-100 text-neutral-600"
+                        }`}>
+                          {isToday ? "Aujourd'hui" : diffDays === 1 ? "Demain" : `J+${diffDays}`}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </CardContent>
         </Card>
       </div>

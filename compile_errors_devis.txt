@@ -1,0 +1,11 @@
+app/dashboard/projets/[id]/page.tsx(736,12): error TS2304: Cannot find name 'loadAvailableQuotes'.
+app/dashboard/projets/[id]/page.tsx(1125,36): error TS2304: Cannot find name 'selectedQuoteId'.
+app/dashboard/projets/[id]/page.tsx(1138,5): error TS2304: Cannot find name 'setSelectedQuoteId'.
+app/dashboard/projets/[id]/page.tsx(1140,11): error TS2304: Cannot find name 'loadAvailableQuotes'.
+app/dashboard/projets/[id]/page.tsx(1175,5): error TS2552: Cannot find name 'setQuoteStatusUpdatingId'. Did you mean 'setStatusUpdating'?
+app/dashboard/projets/[id]/page.tsx(1196,7): error TS2552: Cannot find name 'setQuoteStatusUpdatingId'. Did you mean 'setStatusUpdating'?
+app/dashboard/projets/[id]/page.tsx(1209,5): error TS2304: Cannot find name 'setQuoteDeletingId'.
+app/dashboard/projets/[id]/page.tsx(1216,20): error TS2304: Cannot find name 'normalizeStoragePath'.
+app/dashboard/projets/[id]/page.tsx(1219,13): error TS2304: Cannot find name 'loadAvailableQuotes'.
+app/dashboard/projets/[id]/page.tsx(1223,7): error TS2304: Cannot find name 'setQuoteDeletingId'.
+app/dashboard/projets/[id]/page.tsx(1236,18): error TS2304: Cannot find name 'normalizeStoragePath'.

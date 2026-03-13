@@ -48,10 +48,15 @@ import {
   type DocumentRow,
 } from "@/lib/db/documentsDb";
 import type { QuoteSummary } from "@/lib/quotesStore";
+import {
+  resolveWorkflowStatus,
+  getWorkflowBadge,
+  getWorkflowLabel,
+  type WorkflowStatus,
+} from "@/lib/statusHelpers";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type WorkflowStatus = "a_faire" | "envoye" | "valide" | "refuse";
 type CustomFolder = { id: string; name: string };
 type SelectedFile = {
   id: string; name: string; url: string | null; fileType: string;
@@ -95,24 +100,6 @@ function getFileIcon(name: string, fileType?: string) {
 }
 
 const formatTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-
-const BADGE_COLORS: Record<WorkflowStatus, string> = {
-  a_faire: "bg-amber-100 text-amber-800",
-  envoye: "bg-blue-100 text-blue-800",
-  valide: "bg-green-100 text-green-800",
-  refuse: "bg-red-100 text-red-800",
-};
-const WF_LABELS: Record<WorkflowStatus, string> = { a_faire: "En étude", envoye: "Envoyé", valide: "Validé", refuse: "Refusé" };
-
-const resolveWorkflowStatus = (q: QuoteSummary): WorkflowStatus => {
-  const m = q.rawMetadata ?? {};
-  const w = typeof m.workflow_status === "string" ? m.workflow_status : null;
-  if (w === "a_faire" || w === "envoye" || w === "valide" || w === "refuse") return w;
-  const s = typeof q.status === "string" ? q.status.toLowerCase() : "";
-  if (s === "valide" || s === "refuse") return s as WorkflowStatus;
-  if (s === "envoye" || s === "published") return "envoye";
-  return "a_faire";
-};
 
 const isQuotePdf = (quote: QuoteSummary) => {
   const fileName = (quote.fileName ?? "").toLowerCase();
@@ -366,35 +353,55 @@ function FolderRow({
   useEffect(() => { if (isEditing) { setEditVal(folder.name); setTimeout(() => inputRef.current?.select(), 30); } }, [isEditing, folder.name]);
   const confirmRename = () => { if (editVal.trim()) onRenameConfirm(folder.id, editVal.trim()); else onRenameCancel(); };
   return (
-    <li>
+    <li
+      onDragOver={(e) => { if (draggingType === "doc") { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropTarget(folder.id); } }}
+      onDragEnter={(e) => { if (draggingType === "doc") { e.preventDefault(); setDropTarget(folder.id); } }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTarget(null); }}
+      onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const id = e.dataTransfer.getData("docId"); if (id) onMoveToFolder(id, folder.id); setDropTarget(null); setOpen(true); }}
+    >
       <div onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e, folder.id); }}
-        onDragOver={(e) => { if (draggingType === "doc") { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropTarget(folder.id); } }}
-        onDragEnter={(e) => { if (draggingType === "doc") { e.preventDefault(); setDropTarget(folder.id); } }}
-        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTarget(null); }}
-        onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData("docId"); if (id) onMoveToFolder(id, folder.id); setDropTarget(null); setOpen(true); }}
-        className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-colors cursor-pointer select-none ${isDropTarget ? "bg-primary-100 ring-2 ring-primary-300 ring-inset" : "hover:bg-neutral-50"}`}
+        className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all cursor-pointer select-none ${
+          isDropTarget
+            ? "bg-primary-100 ring-2 ring-primary-400 ring-inset"
+            : draggingType === "doc"
+              ? "border border-dashed border-primary-200 bg-primary-50/40"
+              : "hover:bg-neutral-50"
+        }`}
         onClick={() => !isEditing && setOpen((v) => !v)}>
         <motion.span animate={{ rotate: open ? 90 : 0 }} transition={{ type: "spring", bounce: 0, duration: 0.3 }} className="flex flex-shrink-0"
           onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}>
           <ChevronRight className="size-3.5 text-neutral-400" />
         </motion.span>
-        {open ? <FolderOpen className="size-4 text-primary-500 flex-shrink-0" /> : <Folder className="size-4 text-sky-500 flex-shrink-0" />}
+        {open
+          ? <FolderOpen className={`size-4 flex-shrink-0 ${isDropTarget ? "text-primary-600" : "text-primary-500"}`} />
+          : <Folder className={`size-4 flex-shrink-0 ${isDropTarget ? "text-primary-600" : "text-sky-500"}`} />
+        }
         {isEditing ? (
           <input ref={inputRef} value={editVal} onChange={(e) => setEditVal(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") confirmRename(); if (e.key === "Escape") onRenameCancel(); }}
             onBlur={confirmRename} onClick={(e) => e.stopPropagation()}
             className="flex-1 min-w-0 text-sm font-medium border border-primary-300 rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-primary-400 bg-white" />
         ) : (
-          <span className="flex-1 min-w-0 text-sm font-medium text-neutral-700 truncate">{folder.name}</span>
+          <span className={`flex-1 min-w-0 text-sm font-medium truncate ${isDropTarget ? "text-primary-700" : "text-neutral-700"}`}>{folder.name}</span>
         )}
-        <span className="text-xs text-neutral-400 flex-shrink-0">{docs.length}</span>
-        {!isEditing && (
+        {isDropTarget ? (
+          <span className="text-[10px] font-semibold text-primary-600 bg-primary-200 px-1.5 py-0.5 rounded-full flex-shrink-0">Déposer ici</span>
+        ) : (
+          <span className="text-xs text-neutral-400 flex-shrink-0">{docs.length}</span>
+        )}
+        {!isEditing && !isDropTarget && (
           <button type="button" onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); onContextMenu(e, folder.id); }}
             className="w-5 h-5 flex-shrink-0 flex items-center justify-center text-neutral-400 hover:text-neutral-700 opacity-0 group-hover:opacity-100 transition-opacity rounded">
             <MoreHorizontal className="w-3.5 h-3.5" />
           </button>
         )}
       </div>
+      {isDropTarget && (
+        <div className="mx-2 my-0.5 rounded-lg border-2 border-dashed border-primary-300 bg-primary-50 flex items-center justify-center gap-2 py-2">
+          <FolderOpen className="size-3.5 text-primary-400 flex-shrink-0" />
+          <span className="text-xs text-primary-600 font-medium">Déposer dans « {folder.name} »</span>
+        </div>
+      )}
       <AnimatePresence initial={false}>
         {open && (
           <motion.ul
@@ -440,10 +447,19 @@ function RootFilesSection({
       <div onDragOver={(e) => { if (draggingType === "doc") { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropTarget("root"); } }}
         onDragEnter={(e) => { if (draggingType === "doc") { e.preventDefault(); setDropTarget("root"); } }}
         onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTarget(null); }}
-        onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData("docId"); if (id) onMoveToFolder(id, null); setDropTarget(null); }}
-        className={`flex items-center gap-1.5 px-2 py-1 mt-1 rounded-lg transition-colors ${isDropTarget ? "bg-neutral-100 ring-2 ring-neutral-200 ring-inset" : ""}`}>
-        <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wide flex-1">Non classés</span>
-        <span className="text-[10px] text-neutral-400">{docs.length}</span>
+        onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const id = e.dataTransfer.getData("docId"); if (id) onMoveToFolder(id, null); setDropTarget(null); }}
+        className={`flex items-center gap-1.5 px-2 py-1 mt-1 rounded-lg transition-all ${
+          isDropTarget
+            ? "bg-neutral-100 ring-2 ring-neutral-300 ring-inset border border-dashed border-neutral-400"
+            : draggingType === "doc"
+              ? "border border-dashed border-neutral-200"
+              : ""
+        }`}>
+        <span className={`text-[10px] font-semibold uppercase tracking-wide flex-1 ${isDropTarget ? "text-neutral-600" : "text-neutral-400"}`}>Non classés</span>
+        {isDropTarget
+          ? <span className="text-[10px] font-semibold text-neutral-600 bg-neutral-200 px-1.5 py-0.5 rounded-full">Déposer ici</span>
+          : <span className="text-[10px] text-neutral-400">{docs.length}</span>
+        }
       </div>
       {docs.length === 0
         ? <p className="px-3 py-2 text-xs text-neutral-400 italic">Glissez des fichiers ici pour les déclasser</p>
@@ -486,45 +502,62 @@ function DevisLiesSection({
     return null;
   };
 
+  const isDraggingCompatible = draggingType === "quote" || draggingType === "doc";
+
   return (
-    <li>
+    <li
+      onDragOver={(e) => {
+        e.preventDefault();
+        const dragged = readDragged(e.dataTransfer);
+        if (!dragged) return;
+        e.dataTransfer.dropEffect = dragged.kind === "doc" ? "move" : "link";
+        setDropTarget("devis_lies");
+      }}
+      onDragEnter={(e) => {
+        e.preventDefault();
+        const dragged = readDragged(e.dataTransfer);
+        if (dragged) setDropTarget("devis_lies");
+      }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTarget(null); }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const dragged = readDragged(e.dataTransfer);
+        if (!dragged) return;
+        if (dragged.kind === "quote") onAttachQuoteById(dragged.id);
+        else void onAttachDocumentById(dragged.id);
+        setDropTarget(null);
+      }}
+    >
       <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          const dragged = readDragged(e.dataTransfer);
-          if (!dragged) return;
-          e.dataTransfer.dropEffect = dragged.kind === "doc" ? "move" : "link";
-          setDropTarget("devis_lies");
-        }}
-        onDragEnter={(e) => {
-          e.preventDefault();
-          const dragged = readDragged(e.dataTransfer);
-          if (dragged) setDropTarget("devis_lies");
-        }}
-        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTarget(null); }}
-        onDrop={(e) => {
-          e.preventDefault();
-          const dragged = readDragged(e.dataTransfer);
-          if (!dragged) return;
-          if (dragged.kind === "quote") onAttachQuoteById(dragged.id);
-          else void onAttachDocumentById(dragged.id);
-          setDropTarget(null);
-        }}
-        className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-colors cursor-pointer select-none ${
-          isDropTarget ? "bg-amber-50 ring-2 ring-amber-300 ring-inset" : "hover:bg-neutral-50"
+        className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all cursor-pointer select-none ${
+          isDropTarget
+            ? "bg-amber-50 ring-2 ring-amber-400 ring-inset"
+            : isDraggingCompatible
+              ? "border border-dashed border-amber-200 bg-amber-50/30"
+              : "hover:bg-neutral-50"
         }`}
         onClick={() => setOpen((v) => !v)}
       >
         <motion.span animate={{ rotate: open ? 90 : 0 }} transition={{ type: "spring", bounce: 0, duration: 0.3 }} className="flex flex-shrink-0">
           <ChevronRight className="size-3.5 text-neutral-400" />
         </motion.span>
-        <Folder className="size-4 text-amber-500 flex-shrink-0" />
-        <span className="flex-1 min-w-0 text-sm font-medium text-neutral-700 truncate">
+        <Folder className={`size-4 flex-shrink-0 ${isDropTarget ? "text-amber-600" : "text-amber-500"}`} />
+        <span className={`flex-1 min-w-0 text-sm font-medium truncate ${isDropTarget ? "text-amber-700" : "text-neutral-700"}`}>
           Devis liés
-          {isDropTarget && <span className="ml-2 text-[10px] text-amber-600 font-normal">Déposer pour lier</span>}
         </span>
-        <span className="text-xs text-neutral-400 flex-shrink-0">{quotes.length}</span>
+        {isDropTarget ? (
+          <span className="text-[10px] font-semibold text-amber-700 bg-amber-200 px-1.5 py-0.5 rounded-full flex-shrink-0">Déposer ici</span>
+        ) : (
+          <span className="text-xs text-neutral-400 flex-shrink-0">{quotes.length}</span>
+        )}
       </div>
+      {isDropTarget && (
+        <div className="mx-2 my-0.5 rounded-lg border-2 border-dashed border-amber-300 bg-amber-50 flex items-center justify-center gap-2 py-2">
+          <Folder className="size-3.5 text-amber-400 flex-shrink-0" />
+          <span className="text-xs text-amber-700 font-medium">Déposer pour lier à ce projet</span>
+        </div>
+      )}
 
       <AnimatePresence initial={false}>
         {open && (
@@ -532,27 +565,6 @@ function DevisLiesSection({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              const dragged = readDragged(e.dataTransfer);
-              if (!dragged) return;
-              e.dataTransfer.dropEffect = dragged.kind === "doc" ? "move" : "link";
-              setDropTarget("devis_lies");
-            }}
-            onDragEnter={(e) => {
-              e.preventDefault();
-              const dragged = readDragged(e.dataTransfer);
-              if (dragged) setDropTarget("devis_lies");
-            }}
-            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTarget(null); }}
-            onDrop={(e) => {
-              e.preventDefault();
-              const dragged = readDragged(e.dataTransfer);
-              if (!dragged) return;
-              if (dragged.kind === "quote") onAttachQuoteById(dragged.id);
-              else void onAttachDocumentById(dragged.id);
-              setDropTarget(null);
-            }}
             transition={{ type: "spring", bounce: 0, duration: 0.3 }}
             className="overflow-hidden border-l border-neutral-100 ml-[13px] pl-2"
           >
@@ -569,7 +581,7 @@ function DevisLiesSection({
                       className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-sm transition-colors cursor-pointer select-none ${isSelected ? "bg-primary-50 text-primary-700 font-medium" : "text-neutral-700 hover:bg-neutral-50"}`}>
                       <span className="ml-[22px]"><FileText className="size-4 text-primary-600 flex-shrink-0" /></span>
                       <span className="truncate flex-1 min-w-0">{q.title}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${BADGE_COLORS[ws]}`}>{WF_LABELS[ws]}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${getWorkflowBadge(ws)}`}>{getWorkflowLabel(ws)}</span>
                     </div>
                   </li>
                 );
@@ -1014,8 +1026,8 @@ export default function ProjectDocumentsPanel({
                       return (
                         <button key={s} type="button" onClick={() => onUpdateWorkflow(selectedQuote, s as "valide" | "refuse")}
                           disabled={quoteStatusUpdatingId === selectedQuote.id}
-                          className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all disabled:opacity-50 ${current === s ? BADGE_COLORS[s] + " ring-1 ring-current" : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200"}`}>
-                          {WF_LABELS[s]}
+                          className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all disabled:opacity-50 ${current === s ? getWorkflowBadge(s) + " ring-1 ring-current" : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200"}`}>
+                          {getWorkflowLabel(s)}
                         </button>
                       );
                     })}

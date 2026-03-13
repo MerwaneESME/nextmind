@@ -11,6 +11,7 @@ type DevisRow = {
   updated_at: string | null;
   created_at?: string | null;
   metadata: Record<string, unknown> | null;
+  project_id?: string | null;
 };
 
 const getMetadata = (row: DevisRow) =>
@@ -71,13 +72,14 @@ export const mapDevisRowToSummary = (row: DevisRow): QuoteSummary => {
     fileName: (metadata.file_name as string | undefined) ?? null,
     previewData,
     rawMetadata: metadata,
+    projectId: row.project_id ?? (typeof metadata.project_id === "string" ? metadata.project_id : null),
   };
 };
 
 export const fetchDevisForUser = async (userId: string, limit?: number) => {
   let query = supabase
     .from("devis")
-    .select("id,status,total,updated_at,created_at,metadata")
+    .select("id,status,total,updated_at,created_at,metadata,project_id")
     .eq("user_id", userId)
     .order("updated_at", { ascending: false });
 

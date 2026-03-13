@@ -9,6 +9,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { BreadcrumbProvider } from "@/contexts/BreadcrumbContext";
+import { ModalOverlayProvider } from "@/contexts/ModalOverlayContext";
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -68,7 +69,10 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <BreadcrumbProvider>
+      <ModalOverlayProvider>
       <div className="relative min-h-screen overflow-x-hidden bg-neutral-50">
+        {/* Full-width top gradient spanning sidebar + content */}
+        <div className="pointer-events-none fixed inset-x-0 top-0 z-[45] h-24 bg-gradient-to-b from-black/[0.06] to-transparent" />
         <Sidebar
           userRole={activeUser.role}
           collapsed={sidebarCollapsed}
@@ -92,6 +96,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
           />
         )}
       </div>
+      </ModalOverlayProvider>
     </BreadcrumbProvider>
   );
 }
