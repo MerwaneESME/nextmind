@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Euro, TrendingUp, CheckCircle2, Users, Wrench, MapPin, FileText, Calendar, Clock, Pencil } from "lucide-react";
+import { Euro, TrendingUp, CheckCircle2, Users, Wrench, MapPin, FileText, Calendar, Clock } from "lucide-react";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -28,7 +28,6 @@ type OverviewTabProps = {
   interventionsBudgetActual: number;
   canManageProject: boolean;
   onTabChange: (tab: string) => void;
-  openEditInfoModal: () => void;
   openCreateInterventionModal: () => void;
   loadProject: () => Promise<void>;
   setError: (msg: string | null) => void;
@@ -50,7 +49,6 @@ export function OverviewTab({
   interventionsBudgetActual,
   canManageProject,
   onTabChange,
-  openEditInfoModal,
   openCreateInterventionModal,
   loadProject,
   setError,
@@ -317,15 +315,6 @@ export function OverviewTab({
           <div className="rounded-xl border border-neutral-100 bg-white shadow-sm overflow-hidden card-hover">
             <div className="px-5 py-4 flex items-center justify-between">
               <h3 className="font-semibold text-neutral-900">Informations</h3>
-              {canManageProject && (
-                <button
-                  onClick={openEditInfoModal}
-                  className="h-8 w-8 rounded-lg bg-neutral-100 hover:bg-primary-50 flex items-center justify-center transition-colors"
-                  title="Modifier les informations"
-                >
-                  <Pencil className="h-4 w-4 text-neutral-500 hover:text-primary-600" />
-                </button>
-              )}
             </div>
             <div className="px-5 pb-5 grid sm:grid-cols-2 gap-4">
               <div className="flex items-start gap-3">

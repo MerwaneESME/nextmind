@@ -54,37 +54,48 @@ export default function RegisterPage() {
       user_type: userType,
     };
 
-    savePendingProfile(profilePayload);
+    try {
+      // 0. Sauvegarder les infos en local (fallback)
+      savePendingProfile(profilePayload);
 
-    const { data, error: authError } = await supabase.auth.signUp({
-      email: formData.email,
-      password: formData.password,
-    });
+      // 1. Inscription via Supabase (Standard)
+      // NOTE: Pour que cela fonctionne sans mail, désactivez "Confirm email" dans le dashboard Supabase
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            full_name: formData.name.trim(),
+            user_type: userType,
+          },
+        },
+      });
 
-    if (authError || !data.user) {
-      setFormError(authError?.message ?? "Inscription impossible.");
-      setIsLoading(false);
-      return;
-    }
+      if (signUpError) throw signUpError;
 
-    if (data.session?.user?.id) {
-      const { error: profileError } = await supabase
-        .from("profiles")
-        .update(profilePayload)
-        .eq("id", data.session.user.id);
-      if (profileError) {
-        setFormError(profileError.message);
-        setIsLoading(false);
+      // 2. Connexion immédiate
+      // Si la confirmation par mail est active sur Supabase, cette étape échouera pour les nouveaux comptes
+      const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password,
+      });
+
+      if (loginError || !loginData.user) {
+        // Si l'e-mail n'est pas encore confirmé, Supabase peut bloquer ici
+        setNotice(
+          "Compte créé ! (Si vous avez activé la confirmation par mail, vérifiez votre boîte de réception avant de vous connecter)."
+        );
         return;
       }
+
+      // 3. Redirection vers le dashboard
       const nextRole = mapUserTypeToRole(userType);
       router.push(`/dashboard?role=${nextRole}`);
+    } catch (err: any) {
+      setFormError(err.message);
+    } finally {
       setIsLoading(false);
-      return;
     }
-
-    setNotice("Compte créé. Vérifiez vos emails puis connectez-vous.");
-    setIsLoading(false);
   };
 
   return (

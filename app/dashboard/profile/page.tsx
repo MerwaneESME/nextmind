@@ -79,12 +79,6 @@ function SectionHeader({ icon: Icon, title, subtitle }: { icon: React.ElementTyp
 
 export default function ProfilePage() {
   const { user, profile, loading, refreshProfile } = useAuth();
-  const isPro = profile?.user_type === "pro";
-  const roleLabel = useMemo(
-    () => (profile?.user_type === "pro" ? "Professionnel" : "Particulier"),
-    [profile?.user_type]
-  );
-
   const [form, setForm] = useState({
     fullName: "",
     email: "",
@@ -97,7 +91,15 @@ export default function ProfilePage() {
     companyWebsite: "",
     companyDescription: "",
     publicPortfolioEnabled: false,
+    userType: "client" as "pro" | "client",
   });
+
+  const isPro = form.userType === "pro";
+  const roleLabel = useMemo(
+    () => (form.userType === "pro" ? "Professionnel" : "Particulier"),
+    [form.userType]
+  );
+
   const [preferences, setPreferences] = useState<ProfilePreferences>(DEFAULT_PREFERENCES);
   const [saving, setSaving] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
@@ -119,6 +121,7 @@ export default function ProfilePage() {
       companyWebsite: profile.company_website ?? "",
       companyDescription: profile.company_description ?? "",
       publicPortfolioEnabled: Boolean(profile.public_portfolio_enabled),
+      userType: profile.user_type,
     });
     setPreferences({ ...DEFAULT_PREFERENCES, ...(profile.preferences ?? {}) });
   }, [profile, user?.email]);
@@ -199,6 +202,7 @@ export default function ProfilePage() {
       address: normalizeText(form.address),
       city: normalizeText(form.city),
       postal_code: normalizeText(form.postalCode),
+      user_type: form.userType,
       preferences,
     };
 
@@ -289,7 +293,7 @@ export default function ProfilePage() {
           <h1 className="text-2xl font-bold text-neutral-900">{form.fullName || "Mon profil"}</h1>
           <div className="flex items-center gap-2 mt-1">
             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-700">
-              {roleLabel}
+              {form.userType === "pro" ? "Professionnel" : "Particulier"}
             </span>
             {form.email && (
               <span className="text-sm text-neutral-500">{form.email}</span>
@@ -354,14 +358,16 @@ export default function ProfilePage() {
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-neutral-500 uppercase tracking-wide flex items-center gap-1.5">
-                <Shield className="w-3 h-3" /> Rôle
+                <Shield className="w-3 h-3" /> Type de compte
               </label>
-              <input
-                type="text"
-                value={roleLabel}
-                disabled
-                className="w-full px-3 py-2.5 text-sm border border-neutral-200 rounded-lg bg-neutral-50 text-neutral-500 cursor-not-allowed"
-              />
+              <select
+                value={form.userType}
+                onChange={(e) => setForm((p) => ({ ...p, userType: e.target.value as "pro" | "client" }))}
+                className="w-full px-3 py-2.5 text-sm border border-neutral-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition-all"
+              >
+                <option value="client">Particulier (Projet personnel)</option>
+                <option value="pro">Professionnel (Entreprise BTP)</option>
+              </select>
             </div>
             {!isPro && (
               <>

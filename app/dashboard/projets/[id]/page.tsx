@@ -7,6 +7,7 @@ import { PlanningTab } from "@/components/project/tabs/PlanningTab";
 import { AssistantTab } from "@/components/project/tabs/AssistantTab";
 import { GuideTab } from "@/components/project/tabs/GuideTab";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useBreadcrumb } from "@/contexts/BreadcrumbContext";
 import { Card, CardHeader, CardContent } from "@/components/ui/Card";
@@ -433,7 +434,9 @@ export default function ProjectDetailPage() {
   const [editInfoModalOpen, setEditInfoModalOpen] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [editInfoSubmitting, setEditInfoSubmitting] = useState(false);
-  const [editInfoForm, setEditInfoForm] = useState({ name: "", project_type: "", address: "", city: "", description: "" });
+  const [editInfoForm, setEditInfoForm] = useState({ name: "", description: "", project_type: "", address: "", city: "" });
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const [publishForm, setPublishForm] = useState({
     title: "",
     summary: "",
@@ -540,6 +543,20 @@ export default function ProjectDetailPage() {
   const canEditPlanning = canManageInterventions;
   const canEditQuotes = canManageProject;
   const canUseAssistantPlanning = canManageInterventions;
+
+  useEffect(() => {
+    if (project && user) {
+      console.log("Project permissions check:", {
+        projectId: project.id,
+        isOwnerByProject,
+        canManageProject,
+        userId: user.id,
+        projectCreatorId: project.created_by,
+        memberRole: effectiveRole,
+        memberStatus: memberStatus
+      });
+    }
+  }, [project, user, isOwnerByProject, canManageProject]);
 
   const openCreateInterventionModal = () => {
     if (!canManageInterventions) return;
@@ -1004,29 +1021,70 @@ export default function ProjectDetailPage() {
     setEditInfoModalOpen(true);
   };
 
+  const [editInfoPortalReady, setEditInfoPortalReady] = useState(false);
+  useEffect(() => setEditInfoPortalReady(true), []);
+
+  useEffect(() => {
+    if (!editInfoModalOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setEditInfoModalOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [editInfoModalOpen]);
+
   const handleSaveProjectInfo = async () => {
     if (!canManageProject || !projectId) return;
+    if (!editInfoForm.name.trim()) return;
     setEditInfoSubmitting(true);
-    const { data, error: updateError } = await supabase
-      .from("projects")
-      .update({
-        name: editInfoForm.name.trim() || project?.name,
-        project_type: editInfoForm.project_type.trim() || null,
-        address: editInfoForm.address.trim() || null,
-        city: editInfoForm.city.trim() || null,
-        description: editInfoForm.description.trim() || null,
-      })
-      .eq("id", projectId)
-      .select()
-      .single();
-    setEditInfoSubmitting(false);
-    if (updateError) { setError(updateError.message); return; }
-    if (data) setProject(data as Project);
-    setEditInfoModalOpen(false);
+    try {
+      const { error: updErr } = await supabase
+        .from("projects")
+        .update({
+          name: editInfoForm.name.trim(),
+          description: editInfoForm.description.trim() || null,
+          project_type: editInfoForm.project_type.trim() || null,
+          address: editInfoForm.address.trim() || null,
+          city: editInfoForm.city.trim() || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", projectId);
+      if (updErr) throw updErr;
+      await loadProject();
+      setEditInfoModalOpen(false);
+    } catch (err: any) {
+      console.error("handleSaveProjectInfo error:", err);
+      setError(err.message || "Erreur lors de la mise à jour");
+    } finally {
+      setEditInfoSubmitting(false);
+    }
+  };
+
+  const handleDeleteProject = async () => {
+    if (!canManageProject || !projectId) return;
+    setDeleteSubmitting(true);
+    try {
+      await deleteProjectCascade(projectId);
+      router.replace(`/dashboard/projets?role=${role}`);
+    } catch (err: any) {
+      console.error("handleDeleteProject error:", err);
+      setError(err.message || "Erreur lors de la suppression du projet");
+      setDeleteConfirmOpen(false);
+    } finally {
+      setDeleteSubmitting(false);
+    }
   };
 
 
-  const handleDeleteProject = async () => {
+  const handleDeleteProjectOld = async () => {
     if (!canManageProject || !projectId) return;
     const confirmed =
       typeof window !== "undefined" &&
@@ -1221,7 +1279,7 @@ export default function ProjectDetailPage() {
               size="sm"
               variant="primary"
               className="bg-gradient-to-r from-primary-400 to-primary-600 shadow-md hover:shadow-lg hover:brightness-105"
-              onClick={() => setEditInfoModalOpen(true)}
+              onClick={openEditInfoModal}
             >
               Modifier le projet
             </Button>
@@ -1309,7 +1367,6 @@ export default function ProjectDetailPage() {
             setActiveTab(tab as TabKey);
             updateQuery({ tab });
           }}
-          openEditInfoModal={openEditInfoModal}
           openCreateInterventionModal={openCreateInterventionModal}
           loadProject={loadProject}
           setError={setError}
@@ -1317,218 +1374,43 @@ export default function ProjectDetailPage() {
       )}
 
       {!loading && activeTab === "interventions" && (
-        <section className="space-y-6">
-          <div className="rounded-2xl bg-white border border-neutral-100 shadow-sm px-6 py-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Interventions ({interventions.length})</h2>
-              <p className="text-sm text-gray-500">Sous-traitants ou équipe interne — chaque intervention génère des tâches sur le chantier.</p>
-            </div>
-            {canManageProject && (
-              <Button size="sm" onClick={openCreateInterventionModal}>
-                + Nouvelle intervention
-              </Button>
-            )}
-          </div>
-
-          {interventionsLoading ? (
-            <div className="text-sm text-gray-500">Chargement des interventions...</div>
-          ) : interventions.length === 0 ? (
-            <Card>
-              <CardContent className="p-6 text-center">
-                <div className="text-sm text-gray-600 mb-3">
-                  Aucune intervention pour le moment.
-                </div>
-                {canManageProject && (
-                  <Button size="sm" onClick={openCreateInterventionModal}>
-                    + Creer une intervention
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-              {interventions.map((intervention) => {
-                const lotStatus =
-                  intervention.status === "en_cours"
-                    ? "en_cours"
-                    : intervention.status === "termine" || intervention.status === "valide"
-                      ? "termine"
-                      : "planifie";
-                const labelColorKey = lotLabelColors[intervention.id] ?? null;
-                const labelColor = labelColorKey ? lotLabelColorByKey[labelColorKey] : null;
-                return (
-                  <Card
-                    key={intervention.id}
-                    className={cn(
-                      "cursor-pointer transition-all duration-200",
-                      "border border-neutral-200",
-                      "hover:shadow-lg hover:-translate-y-[1px]",
-                      "border-l-4",
-                      "bg-white"
-                    )}
-                    style={{
-                      borderLeftColor: labelColor?.accentHex ?? "#cbd5e1",
-                      backgroundImage: labelColor?.accentHex
-                        ? `linear-gradient(135deg, ${labelColor.accentHex}1f 0%, rgba(255,255,255,1) 70%)`
-                        : undefined,
-                    }}
-                    onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${intervention.id}?role=${role}`)}
-                  >
-                    <CardHeader className="pb-2">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="font-semibold text-gray-900 truncate">{intervention.name}</div>
-                          {intervention.description && (
-                            <div className="text-sm text-gray-500 mt-0.5 line-clamp-2">{intervention.description}</div>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <Badge type="lot" status={lotStatus} size="sm" className={cn("shrink-0", labelColor?.badgeClass ?? "")}>
-                            {intervention.status === "en_cours" ? "En cours" : intervention.status === "termine" || intervention.status === "valide" ? "Terminé" : intervention.status?.replace(/_/g, " ") ?? "Planifié"}
-                          </Badge>
-                          {canManageProject && (
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 hover:text-primary-700 transition-colors"
-                                title="Modifier l'intervention"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  openEditInterventionModal(intervention);
-                                }}
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </button>
-                              <button
-                                type="button"
-                                className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-600 hover:bg-rose-50 hover:text-rose-700 transition-colors"
-                                title="Supprimer l'intervention"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void handleDeleteIntervention(intervention);
-                                }}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="text-sm text-gray-700 pt-0">
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                        <div>
-                          <div className="text-xs uppercase tracking-wide text-gray-400">Tâches</div>
-                          <div className="font-medium">{intervention.tasksDone}/{intervention.tasksTotal}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs uppercase tracking-wide text-gray-400">Budget</div>
-                          <div className="font-medium">{formatCurrency(intervention.budgetEstimated)}</div>
-                        </div>
-                        <div className="col-span-2">
-                          <div className="text-xs uppercase tracking-wide text-gray-400">Période</div>
-                          <div>
-                            {(intervention.startDate ?? intervention.tasksStartDate) ? formatDate((intervention.startDate ?? intervention.tasksStartDate) as string) : "-"} → {(intervention.endDate ?? intervention.tasksEndDate) ? formatDate((intervention.endDate ?? intervention.tasksEndDate) as string) : "-"}
-                          </div>
-                        </div>
-                        {intervention.companyName && (
-                          <div className="col-span-2">
-                            <div className="text-xs uppercase tracking-wide text-gray-400">Entreprise / responsable</div>
-                            <div>{intervention.companyName}</div>
-                          </div>
-                        )}
-                      </div>
-                      <div className="mt-3">
-                        <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                          <span>Avancement</span>
-                          <span className="font-semibold text-gray-700">{intervention.progressPercentage}%</span>
-                        </div>
-                        <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-                          <div className="h-full rounded-full bg-primary-600 transition-all" style={{ width: `${intervention.progressPercentage}%` }} />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
-        </section>
+        <InterventionsTab
+          interventions={interventions}
+          loading={interventionsLoading}
+          projectId={projectId}
+          canManage={canManageInterventions}
+          onEditIntervention={openEditInterventionModal}
+          onDeleteIntervention={handleDeleteIntervention}
+          onCreateIntervention={openCreateInterventionModal}
+        />
       )}
 
       {!loading && activeTab === "budget" && (
-        <section>
-          <ProjectBudgetPanel
-            projectId={projectId}
-            projectName={project?.name ?? null}
-            interventions={interventions}
-            role={role}
-          />
-        </section>
+        <ProjectBudgetPanel
+          projectId={projectId}
+          projectName={project?.name || null}
+          interventions={interventions}
+          role={role || "client"}
+        />
       )}
 
       {!loading && activeTab === "chat" && (
-        <section className="grid gap-6 lg:grid-cols-[2fr_1fr] items-start">
-          <div className="space-y-3">
-            {!canInviteMembers && (
-              <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
-                Seuls les professionnels peuvent inviter des membres.
-              </div>
-            )}
-            <ChatBox context={{ projectId }} title="Discussion projet" />
-          </div>
-
-          <Card>
-            <CardHeader>
-              <div className="font-semibold text-gray-900">Participants</div>
-              <div className="text-sm text-gray-500">Membres du projet</div>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {members.map((member) => {
-                const roleInfo = formatMemberRole(member.role);
-                const statusInfo = formatMemberStatus(member.status);
-                return (
-                  <div key={member.id} className="flex items-center gap-2 text-sm">
-                    {member.user?.avatar_url ? (
-                      <img
-                        src={member.user.avatar_url}
-                        alt={`Avatar de ${member.user?.full_name || member.user?.email || "membre"}`}
-                        className="h-7 w-7 rounded-full object-cover shrink-0 border border-white/40 shadow-sm"
-                      />
-                    ) : (
-                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-100 text-xs font-semibold text-primary-700">
-                        {(member.user?.full_name || member.user?.email || "?").charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium text-gray-900 truncate">
-                        {member.user?.full_name || member.user?.email || member.invited_email || "Invité"}
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${roleInfo.color}`}>
-                          {roleInfo.label}
-                        </span>
-                        <span className={`text-[10px] ${statusInfo.color}`}>{statusInfo.label}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-        </section>
+        <ChatBox
+          context={{ projectId }}
+          title={project?.name || "Chat du projet"}
+        />
       )}
 
       {!loading && activeTab === "devis" && (
         <DevisTab
           projectId={projectId}
-          user={user}
+          user={user as any}
           role={role}
           canManageProject={canManageProject}
           canEditQuotes={canEditQuotes}
           quotes={quotes}
           loadProject={loadProject}
-          onError={setError}
+          onError={(msg) => setError(msg)}
           setQuotes={setQuotes}
         />
       )}
@@ -1549,488 +1431,442 @@ export default function ProjectDetailPage() {
           members={members}
           project={project as any}
           initialView={initialMembersView}
-          onViewChange={(next) => updateQuery({ membersView: next === "list" ? null : next })}
+          onViewChange={(v) => updateQuery({ membersView: v })}
           canInviteMembers={canInviteMembers}
           currentUserId={user?.id}
-          onInvite={async (email, role) => {
-            if (!user?.id || !projectId) return;
-            await inviteProjectMemberByEmail(user.id, projectId, email, role);
+          onInvite={async (email, r) => { 
+            if (user?.id) await inviteProjectMemberByEmail(user.id, projectId, email, r); 
+          }}
+          onUpdateMetadata={async (m) => {
+            await updateProjectMetadata(projectId, m);
             await loadProject();
           }}
-          onUpdateMetadata={async (metadata) => {
-            if (!projectId) return;
-            await updateProjectMetadata(projectId, metadata);
+          onUpdateMemberRole={async (uId, r) => {
+            await updateMemberRole(projectId, uId, r);
             await loadProject();
           }}
-          onUpdateMemberRole={async (userId, role) => {
-            if (!projectId) return;
-            await updateMemberRole(projectId, userId, role);
+          onRemoveMember={async (uId) => {
+            await removeProjectMember(projectId, uId);
             await loadProject();
           }}
-          onRemoveMember={async (userId) => {
-            if (!projectId) return;
-            await removeProjectMember(projectId, userId);
-            await loadProject();
-          }}
-        />
-      )}
-      {!loading && activeTab === "guide" && (
-        <GuideTab
-          guideSectionParam={guideSectionParam}
-          guideQueryParam={guideQueryParam}
-          guideTermParam={guideTermParam}
-          openGuide={openGuide}
-          openAssistantTab={openAssistantTab}
-          totalBudget={totalBudget}
-          hasBudget={hasBudget}
-          quotes={quotes}
-          projectType={project?.project_type ?? null}
         />
       )}
 
       {!loading && activeTab === "assistant" && (
         <AssistantTab
           projectId={projectId}
-          user={user}
+          user={user as any}
           userRole={userRole}
-          project={project}
+          project={project as any}
           totalBudget={totalBudget}
           quotes={quotes}
           canUseAssistantPlanning={canUseAssistantPlanning}
           loadProject={loadProject}
-          contextPhaseId={contextPhaseId}
-          contextLotId={contextLotId}
           openGuide={openGuide}
         />
       )}
-    
-      {taskDetailOpen && selectedTask && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-lg w-full p-6">
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-neutral-900">Détails de la tâche</h3>
-                <p className="text-sm text-neutral-600">Consultez ou mettez à jour la tâche.</p>
+
+      {!loading && activeTab === "guide" && (
+        <ProjectGuidePanel
+          section={guideSectionParam}
+          query={guideQueryParam}
+          term={guideTermParam}
+          onOpenGuide={openGuide}
+          onOpenAssistant={openAssistantTab}
+          projectType={project?.project_type || undefined}
+          totalBudget={totalBudget}
+          hasBudget={Boolean(totalBudget)}
+          quotes={quotes}
+        />
+      )}
+    </div>
+
+    {/* Modals */}
+    {interventionModalOpen && (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl overflow-hidden">
+          <div className="px-6 py-4 border-b border-neutral-100 flex items-center justify-between bg-neutral-50/50">
+            <h3 className="text-lg font-semibold text-neutral-900">
+              {editingInterventionId ? "Modifier l'intervention" : "Nouvelle intervention"}
+            </h3>
+            <Button variant="ghost" size="sm" onClick={() => setInterventionModalOpen(false)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <form onSubmit={handleCreateIntervention} className="p-6 space-y-4">
+            <Input
+              label="Nom de l'intervention"
+              required
+              value={interventionForm.name}
+              onChange={(e) => setInterventionForm(prev => ({ ...prev, name: e.target.value }))}
+            />
+            <Input
+              label="Entreprise / Intervenant"
+              value={interventionForm.companyName}
+              onChange={(e) => setInterventionForm(prev => ({ ...prev, companyName: e.target.value }))}
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Début"
+                type="date"
+                value={interventionForm.startDate}
+                onChange={(e) => setInterventionForm(prev => ({ ...prev, startDate: e.target.value }))}
+              />
+              <Input
+                label="Fin estimée"
+                type="date"
+                value={interventionForm.endDate}
+                onChange={(e) => setInterventionForm(prev => ({ ...prev, endDate: e.target.value }))}
+              />
+            </div>
+            <Input
+              label="Budget estimé (€ h.t.)"
+              type="number"
+              value={interventionForm.budgetEstimated}
+              onChange={(e) => setInterventionForm(prev => ({ ...prev, budgetEstimated: e.target.value }))}
+            />
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-neutral-800">Couleur du badge</label>
+              <div className="flex flex-wrap gap-2">
+                {LOT_LABEL_COLORS.map((c) => (
+                  <button
+                    key={c.key}
+                    type="button"
+                    onClick={() => setInterventionForm(p => ({ ...p, labelColor: c.key }))}
+                    className={cn(
+                      "w-8 h-8 rounded-full border-2 transition",
+                      c.swatchClass,
+                      interventionForm.labelColor === c.key ? "border-neutral-900 scale-110 shadow-sm" : "border-transparent hover:scale-105"
+                    )}
+                  />
+                ))}
               </div>
-              <Button variant="ghost" onClick={closeTaskDetails}>
-                Fermer
+            </div>
+            {formError && <p className="text-sm text-red-600 font-medium">{formError}</p>}
+            <div className="pt-2 flex justify-end gap-3">
+              <Button variant="ghost" type="button" onClick={() => setInterventionModalOpen(false)}>Annuler</Button>
+              <Button type="submit" disabled={interventionSubmitting}>
+                {interventionSubmitting ? "Enregistrement..." : editingInterventionId ? "Enregistrer" : "Créer"}
               </Button>
             </div>
+          </form>
+        </div>
+      </div>
+    )}
+
+    {taskDetailOpen && selectedTask && (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl">
+          <div className="px-6 py-4 border-b border-neutral-100 flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-neutral-900">{selectedTask.name}</h3>
+            <Button variant="ghost" size="sm" onClick={closeTaskDetails}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="p-6 space-y-6">
             <div className="space-y-4">
-              <div>
-                <div className="text-lg font-semibold text-neutral-900">{selectedTask.name}</div>
-                <div className="text-sm text-neutral-600">
-                  {selectedTask.start_date ? formatDate(selectedTask.start_date) : "Sans date"}
-                  {selectedTask.end_date && selectedTask.end_date !== selectedTask.start_date
-                    ? ` -> ${formatDate(selectedTask.end_date)}`
-                    : ""}
-                  {selectedTaskInfo.time ? ` | ${selectedTaskInfo.time}` : ""}
-                </div>
+              <div className="flex items-center gap-3 text-sm text-neutral-600">
+                <Calendar className="h-4 w-4" />
+                <span>
+                  {selectedTask.start_date ? formatDate(selectedTask.start_date) : "Pas de début"}
+                  {selectedTask.end_date && selectedTask.end_date !== selectedTask.start_date && (
+                    <> — {formatDate(selectedTask.end_date)}</>
+                  )}
+                </span>
               </div>
+              {selectedTaskInfo.time && (
+                <div className="flex items-center gap-3 text-sm text-neutral-600">
+                  <Clock className="h-4 w-4" />
+                  <span>{selectedTaskInfo.time}</span>
+                </div>
+              )}
               {selectedTaskInfo.text && (
-                <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                <div className="text-sm text-neutral-700 bg-neutral-50 p-4 rounded-xl border border-neutral-100">
                   {selectedTaskInfo.text}
                 </div>
               )}
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-800">Statut</label>
-                <select
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
-                  value={normalizeTaskStatus(selectedTask.status)}
-                  disabled={!canEditTasks}
-                  onChange={(event) => handleUpdateTaskStatus(selectedTask, event.target.value as TaskStatusValue)}
-                >
-                  {TASK_STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div
-                className={`flex items-center justify-end gap-2 ${canEditTasks ? "" : "hidden"}`}
-              >
-                <Button
-                  variant="outline"
-                  className="border-red-200 text-red-600"
-                  onClick={() => handleDeleteTask(selectedTask)}
-                >
-                  Supprimer la tâche
-                </Button>
-              </div>
             </div>
-          </div>
-        </div>
-      )}
-      {interventionModalOpen && (
-        <div
-          className="fixed inset-0 bg-gradient-to-b from-black/15 via-black/35 to-black/35 backdrop-blur-md flex items-center justify-center z-[100] px-4"
-          onClick={(e) => { if (e.target === e.currentTarget) { setInterventionModalOpen(false); setFormError(null); } }}
-        >
-          <div className="bg-white rounded-2xl shadow-2xl border border-neutral-200 max-w-lg w-full p-6">
-              <div className="flex items-start justify-between gap-3 mb-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-neutral-900">
-                    {editingInterventionId ? "Modifier l'intervention" : "Nouvelle intervention"}
-                  </h3>
-                  <p className="text-sm text-neutral-600">
-                    {editingInterventionId ? "Mettez à jour l'intervention du projet." : "Ajoutez une intervention au projet."}
-                  </p>
-                </div>
-                <Button variant="ghost" onClick={() => { setInterventionModalOpen(false); setFormError(null); }}>
-                  Fermer
-                </Button>
-              </div>
-            {formError && (
-              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                {formError}
-              </div>
-            )}
-            <form className="space-y-4" onSubmit={handleCreateIntervention}>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Nom *</label>
-                <Input
-                  value={interventionForm.name}
-                  onChange={(event) => setInterventionForm({ ...interventionForm, name: event.target.value })}
-                  placeholder="Demolition, Electricite, Plomberie..."
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Description</label>
-                <Input
-                  value={interventionForm.description}
-                  onChange={(event) => setInterventionForm({ ...interventionForm, description: event.target.value })}
-                  placeholder="Details de l'intervention"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Entreprise</label>
-                <Input
-                  value={interventionForm.companyName}
-                  onChange={(event) => setInterventionForm({ ...interventionForm, companyName: event.target.value })}
-                  placeholder="Nom de l'entreprise (optionnel)"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Couleur</label>
-                <div className="flex flex-wrap gap-2">
-                  {LOT_LABEL_COLORS.map((c) => {
-                    const selected = interventionForm.labelColor === c.key;
-                    return (
-                      <button
-                        key={c.key}
-                        type="button"
-                        onClick={() => setInterventionForm({ ...interventionForm, labelColor: c.key })}
-                        className={cn(
-                          "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-medium transition-all",
-                          "hover:-translate-y-[1px] hover:shadow-sm",
-                          selected ? "border-neutral-900 ring-2 ring-neutral-900/15 bg-neutral-50" : "border-neutral-200 bg-white hover:bg-neutral-50"
-                        )}
-                        aria-pressed={selected}
-                      >
-                        <span
-                          className="h-2.5 w-2.5 rounded-full ring-1 ring-black/10"
-                          style={{ backgroundColor: c.accentHex }}
-                        />
-                        <span className="text-neutral-800">{c.name}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Budget estime</label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={interventionForm.budgetEstimated}
-                    onChange={(event) => setInterventionForm({ ...interventionForm, budgetEstimated: event.target.value })}
-                    placeholder="0"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Debut</label>
-                  <Input
-                    type="date"
-                    value={interventionForm.startDate}
-                    onChange={(event) => setInterventionForm({ ...interventionForm, startDate: normalizeDateValue(event.target.value) || event.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Fin</label>
-                  <Input
-                    type="date"
-                    value={interventionForm.endDate}
-                    onChange={(event) => setInterventionForm({ ...interventionForm, endDate: normalizeDateValue(event.target.value) || event.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="flex items-center justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => { setInterventionModalOpen(false); setFormError(null); }}>
-                  Annuler
-                </Button>
-                <Button type="submit" disabled={interventionSubmitting || !canManageProject}>
-                  {interventionSubmitting
-                    ? "Enregistrement..."
-                    : editingInterventionId
-                      ? "Enregistrer"
-                      : "Créer l'intervention"}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-      {isTaskModalOpen && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-lg w-full p-6">
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-neutral-900">Ajouter une tâche</h3>
-                {selectedDay && (
-                  <p className="text-sm text-neutral-600">Jour: {formatDate(selectedDay)}</p>
-                )}
-              </div>
-              <Button variant="ghost" onClick={() => { setIsTaskModalOpen(false); setFormError(null); }}>
-                Fermer
-              </Button>
-            </div>
-            {formError && (
-              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                {formError}
-              </div>
-            )}
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Nom *</label>
-                <Input
-                  value={taskName}
-                  onChange={(event) => setTaskName(event.target.value)}
-                  placeholder="Demolition / Electricite"
-                />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Date debut</label>
-                  <Input
-                    type="date"
-                    value={taskDates.start}
-                    onChange={(event) => setTaskDates({ ...taskDates, start: normalizeDateValue(event.target.value) || event.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Heure debut</label>
-                  <Input
-                    type="time"
-                    value={taskTime.start}
-                    onChange={(event) => setTaskTime({ ...taskTime, start: event.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Date fin</label>
-                  <Input
-                    type="date"
-                    value={taskDates.end}
-                    onChange={(event) => setTaskDates({ ...taskDates, end: normalizeDateValue(event.target.value) || event.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Heure fin</label>
-                  <Input
-                    type="time"
-                    value={taskTime.end}
-                    onChange={(event) => setTaskTime({ ...taskTime, end: event.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Description</label>
-                <textarea
-                  value={taskDescription}
-                  onChange={(event) => setTaskDescription(event.target.value)}
-                  className="w-full min-h-[120px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 selection:bg-primary-200 selection:text-neutral-900"
-                  placeholder="Précisions sur la tâche"
-                />
-              </div>
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <Button variant="ghost" onClick={() => setIsTaskModalOpen(false)}>
-                  Annuler
-                </Button>
-                <Button onClick={handleAddTask} disabled={!canEditTasks || !taskName.trim()}>
-                  Ajouter
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* ── Edit project info modal ── */}
-      {editInfoModalOpen && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-2xl shadow-xl border border-neutral-200 max-w-lg w-full p-6">
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h2 className="text-base font-semibold text-neutral-900">Modifier les informations</h2>
-                <p className="text-sm text-neutral-500">Mettez à jour les détails du projet</p>
-              </div>
-              <button onClick={() => setEditInfoModalOpen(false)} className="h-8 w-8 rounded-lg bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center transition-colors">
-                <X className="h-4 w-4 text-neutral-600" />
-              </button>
-            </div>
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Nom du projet</label>
-                <input
-                  className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition"
-                  value={editInfoForm.name}
-                  onChange={(e) => setEditInfoForm((f) => ({ ...f, name: e.target.value }))}
-                  placeholder="Ex : Rénovation cuisine"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Type de travaux</label>
-                <input
-                  className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition"
-                  value={editInfoForm.project_type}
-                  onChange={(e) => setEditInfoForm((f) => ({ ...f, project_type: e.target.value }))}
-                  placeholder="Ex : Extension, Rénovation…"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Adresse</label>
-                  <input
-                    className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition"
-                    value={editInfoForm.address}
-                    onChange={(e) => setEditInfoForm((f) => ({ ...f, address: e.target.value }))}
-                    placeholder="8 Rue du Parc"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Ville</label>
-                  <input
-                    className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition"
-                    value={editInfoForm.city}
-                    onChange={(e) => setEditInfoForm((f) => ({ ...f, city: e.target.value }))}
-                    placeholder="Versailles"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-neutral-600 uppercase tracking-wide">Description</label>
-                <textarea
-                  rows={3}
-                  className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition resize-none"
-                  value={editInfoForm.description}
-                  onChange={(e) => setEditInfoForm((f) => ({ ...f, description: e.target.value }))}
-                  placeholder="Description du chantier…"
-                />
+            <div className="space-y-3">
+              <label className="text-xs font-bold uppercase tracking-wider text-neutral-400">Statut de la tâche</label>
+              <div className="grid grid-cols-3 gap-2">
+                {TASK_STATUS_OPTIONS.map((opt) => {
+                  const isActive = normalizeTaskStatus(selectedTask.status) === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      onClick={() => handleUpdateTaskStatus(selectedTask, opt.value)}
+                      className={cn(
+                        "px-3 py-2 text-xs font-medium rounded-lg border transition-all",
+                        isActive 
+                          ? "bg-primary-50 border-primary-200 text-primary-700 shadow-sm" 
+                          : "bg-white border-neutral-200 text-neutral-600 hover:border-neutral-300 hover:bg-neutral-50"
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                onClick={() => setEditInfoModalOpen(false)}
-                className="rounded-xl border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 transition-colors"
+
+            <div className="pt-4 border-t border-neutral-100 flex items-center justify-between">
+              <Button
+                variant="ghost"
+                className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                onClick={() => handleDeleteTask(selectedTask)}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Supprimer
+              </Button>
+              <Button onClick={closeTaskDetails}>Fermer</Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {isTaskModalOpen && (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl">
+          <div className="px-6 py-4 border-b border-neutral-100 flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-neutral-900">Ajouter une tâche</h3>
+            <Button variant="ghost" size="sm" onClick={() => setIsTaskModalOpen(false)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="p-6 space-y-4">
+            <Input
+              label="Nom de la tâche"
+              required
+              autoFocus
+              value={taskName}
+              onChange={(e) => setTaskName(e.target.value)}
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Début"
+                type="date"
+                value={taskDates.start}
+                onChange={(e) => setTaskDates(p => ({ ...p, start: e.target.value }))}
+              />
+              <Input
+                label="Fin"
+                type="date"
+                value={taskDates.end}
+                onChange={(e) => setTaskDates(p => ({ ...p, end: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Heure début"
+                type="time"
+                value={taskTime.start}
+                onChange={(e) => setTaskTime(p => ({ ...p, start: e.target.value }))}
+              />
+              <Input
+                label="Heure fin"
+                type="time"
+                value={taskTime.end}
+                onChange={(e) => setTaskTime(p => ({ ...p, end: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-neutral-800">Notes (optionnel)</label>
+              <textarea
+                className="w-full px-4 py-2 text-sm border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 min-h-[80px]"
+                value={taskDescription}
+                onChange={(e) => setTaskDescription(e.target.value)}
+              />
+            </div>
+            {formError && <p className="text-sm text-red-600 font-medium">{formError}</p>}
+            <div className="pt-2 flex justify-end gap-3">
+              <Button variant="ghost" onClick={() => setIsTaskModalOpen(false)}>Annuler</Button>
+              <Button onClick={handleAddTask}>Ajouter</Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {editInfoModalOpen && (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+          <div className="px-6 py-4 border-b border-neutral-100 flex items-center justify-between bg-neutral-50/50">
+            <h3 className="text-lg font-semibold text-neutral-900">Modifier les informations</h3>
+            <Button variant="ghost" size="sm" onClick={() => setEditInfoModalOpen(false)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="p-6 space-y-4">
+            <Input
+              label="Nom du projet"
+              value={editInfoForm.name}
+              onChange={(e) => setEditInfoForm(p => ({ ...p, name: e.target.value }))}
+            />
+            <Input
+              label="Type de projet"
+              value={editInfoForm.project_type}
+              onChange={(e) => setEditInfoForm(p => ({ ...p, project_type: e.target.value }))}
+            />
+            <Input
+              label="Adresse"
+              value={editInfoForm.address}
+              onChange={(e) => setEditInfoForm(p => ({ ...p, address: e.target.value }))}
+            />
+            <Input
+              label="Ville"
+              value={editInfoForm.city}
+              onChange={(e) => setEditInfoForm(p => ({ ...p, city: e.target.value }))}
+            />
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-neutral-800">Description</label>
+              <textarea
+                className="w-full px-4 py-2 text-sm border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 min-h-[100px]"
+                value={editInfoForm.description}
+                onChange={(e) => setEditInfoForm(p => ({ ...p, description: e.target.value }))}
+              />
+            </div>
+            {(canManageProject || isOwnerByProject) && (
+              <div className="pt-4 border-t border-neutral-100">
+                <div className="flex flex-col gap-2">
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                    onClick={() => {
+                      console.log("Opening delete confirmation. ProjectID:", projectId);
+                      setEditInfoModalOpen(false);
+                      setDeleteConfirmOpen(true);
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Supprimer le projet
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="px-6 py-4 bg-neutral-50 border-t border-neutral-100 flex justify-end gap-3">
+            <Button variant="ghost" onClick={() => setEditInfoModalOpen(false)}>Annuler</Button>
+            <Button onClick={handleSaveProjectInfo} disabled={editInfoSubmitting}>
+              {editInfoSubmitting ? "Enregistrement..." : "Enregistrer"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {deleteConfirmOpen && (
+      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+        <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-red-100 animate-in fade-in zoom-in duration-200">
+          <div className="p-8 text-center space-y-6">
+            <div className="mx-auto w-20 h-20 bg-red-50 rounded-full flex items-center justify-center shadow-inner">
+              <Trash2 className="h-10 w-10 text-red-500" />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-2xl font-bold text-neutral-900">Supprimer le projet ?</h3>
+              <p className="text-neutral-500 leading-relaxed text-balance">
+                Cette action est <span className="text-red-600 font-semibold underline decoration-2">irréversible</span>.
+                Toutes les interventions, tâches, documents et messages associés seront définitivement supprimés.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 pt-2">
+              <Button
+                variant="primary"
+                className="w-full py-6 bg-red-600 hover:bg-red-700 shadow-lg shadow-red-200"
+                onClick={handleDeleteProject}
+                disabled={deleteSubmitting}
+              >
+                {deleteSubmitting ? "Suppression en cours..." : "Oui, supprimer définitivement"}
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full py-6 text-neutral-600 hover:bg-neutral-100 rounded-2xl"
+                onClick={() => setDeleteConfirmOpen(false)}
               >
                 Annuler
-              </button>
-              <button
-                onClick={handleSaveProjectInfo}
-                disabled={editInfoSubmitting}
-                className="rounded-xl bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 transition-colors"
-              >
-                {editInfoSubmitting ? "Enregistrement…" : "Enregistrer"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {publishModalOpen && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-lg shadow-xl border border-neutral-200 max-w-lg w-full p-6">
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-neutral-900">Publier ce projet</h3>
-                <p className="text-sm text-neutral-600">
-                  Ce projet sera visible sur votre profil pro si votre portfolio public est actif.
-                </p>
-              </div>
-              <Button variant="ghost" onClick={() => setPublishModalOpen(false)}>
-                Fermer
               </Button>
             </div>
-            <div className="space-y-4">
-              <Input
-                label="Titre"
-                value={publishForm.title}
-                onChange={(event) => setPublishForm((prev) => ({ ...prev, title: event.target.value }))}
+          </div>
+        </div>
+      </div>
+    )}
+
+    {publishModalOpen && (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl overflow-hidden">
+          <div className="px-6 py-4 border-b border-neutral-100 flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-neutral-900">Publier dans le portfolio</h3>
+            <Button variant="ghost" size="sm" onClick={() => setPublishModalOpen(false)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex gap-3">
+              <div className="h-5 w-5 mt-0.5 text-blue-600 flex-shrink-0">
+                <TrendingUp className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-blue-900">Mettez en valeur votre travail</p>
+                <p className="text-sm text-blue-700">Le projet sera visible dans votre catalogue public mais vos budgets exacts restent confidentiels.</p>
+              </div>
+            </div>
+            <Input
+              label="Titre public"
+              value={publishForm.title}
+              onChange={(e) => setPublishForm(p => ({ ...p, title: e.target.value }))}
+            />
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-neutral-800">Résumé du projet</label>
+              <textarea
+                className="w-full px-4 py-2 text-sm border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 min-h-[100px]"
+                value={publishForm.summary}
+                onChange={(e) => setPublishForm(p => ({ ...p, summary: e.target.value }))}
+                placeholder="Décrivez les points forts du chantier..."
               />
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-neutral-800">Résumé</label>
-                <textarea
-                  value={publishForm.summary}
-                  onChange={(event) => setPublishForm((prev) => ({ ...prev, summary: event.target.value }))}
-                  className="w-full min-h-[120px] px-4 py-2 border border-neutral-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400 selection:bg-primary-200 selection:text-neutral-900"
-                  placeholder="Décrivez le projet terminé."
-                />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Input
-                  label="Budget total"
-                  type="number"
-                  inputMode="decimal"
-                  value={publishForm.budgetTotal}
-                  onChange={(event) => setPublishForm((prev) => ({ ...prev, budgetTotal: event.target.value }))}
-                />
-                <Input
-                  label="Duree (jours)"
-                  type="number"
-                  inputMode="numeric"
-                  value={publishForm.durationDays}
-                  onChange={(event) =>
-                    setPublishForm((prev) => ({ ...prev, durationDays: event.target.value }))
-                  }
-                />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Input
-                  label="Ville"
-                  value={publishForm.city}
-                  onChange={(event) => setPublishForm((prev) => ({ ...prev, city: event.target.value }))}
-                />
-                <Input
-                  label="Code postal"
-                  value={publishForm.postalCode}
-                  onChange={(event) =>
-                    setPublishForm((prev) => ({ ...prev, postalCode: event.target.value }))
-                  }
-                />
-              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <Input
-                label="Image (URL ou chemin)"
-                value={publishForm.imagePath}
-                onChange={(event) => setPublishForm((prev) => ({ ...prev, imagePath: event.target.value }))}
+                label="Budget total (€)"
+                type="number"
+                value={publishForm.budgetTotal}
+                onChange={(e) => setPublishForm(p => ({ ...p, budgetTotal: e.target.value }))}
               />
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <Button variant="ghost" onClick={() => setPublishModalOpen(false)}>
-                  Annuler
-                </Button>
-                <Button onClick={handlePublishProject} disabled={publishSubmitting}>
-                  {publishSubmitting ? "Publication..." : "Publier"}
-                </Button>
-              </div>
+              <Input
+                label="Durée (jours)"
+                type="number"
+                value={publishForm.durationDays}
+                onChange={(e) => setPublishForm(p => ({ ...p, durationDays: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Ville"
+                value={publishForm.city}
+                onChange={(e) => setPublishForm(p => ({ ...p, city: e.target.value }))}
+              />
+              <Input
+                label="Code postal"
+                value={publishForm.postalCode}
+                onChange={(e) => setPublishForm(p => ({ ...p, postalCode: e.target.value }))}
+              />
+            </div>
+            <Input
+              label="Image de couverture (URL)"
+              value={publishForm.imagePath}
+              onChange={(e) => setPublishForm(p => ({ ...p, imagePath: e.target.value }))}
+              placeholder="https://images.unsplash.com/..."
+            />
+            <div className="pt-2 flex justify-end gap-3">
+              <Button variant="ghost" onClick={() => setPublishModalOpen(false)}>Annuler</Button>
+              <Button onClick={handlePublishProject} disabled={publishSubmitting}>
+                {publishSubmitting ? "Publication..." : "Publier"}
+              </Button>
             </div>
           </div>
         </div>
-      )}
-    </div>
+      </div>
+    )}
 
     {exportModalOpen && project && (
       <ExportProjectModal
@@ -2049,11 +1885,117 @@ export default function ProjectDetailPage() {
   );
 }
 
+function InterventionsTab({
+  interventions,
+  loading,
+  projectId,
+  canManage,
+  onEditIntervention,
+  onDeleteIntervention,
+  onCreateIntervention,
+}: {
+  interventions: LotSummary[];
+  loading: boolean;
+  projectId: string;
+  canManage: boolean;
+  onEditIntervention: (intervention: LotSummary) => void;
+  onDeleteIntervention: (intervention: LotSummary) => Promise<void>;
+  onCreateIntervention: () => void;
+}) {
+  const router = useRouter();
+  return (
+    <section className="space-y-6">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-xl font-semibold text-neutral-900">Suivi des interventions</h2>
+          <p className="text-sm text-neutral-500">Gérez les différents corps de métier du chantier.</p>
+        </div>
+        {canManage && (
+          <Button onClick={onCreateIntervention} className="rounded-xl shadow-sm">
+            <Plus className="h-4 w-4 mr-2" />
+            Nouvelle intervention
+          </Button>
+        )}
+      </div>
 
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {loading ? (
+          <div className="sm:col-span-2 lg:col-span-3 py-12 flex flex-col items-center justify-center bg-white rounded-2xl border border-dashed border-neutral-300">
+            <div className="h-8 w-8 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mb-4" />
+            <p className="text-neutral-500">Chargement des interventions...</p>
+          </div>
+        ) : interventions.length === 0 ? (
+          <div className="sm:col-span-2 lg:col-span-3 py-16 flex flex-col items-center justify-center bg-white rounded-2xl border border-dashed border-neutral-300">
+            <div className="h-12 w-12 rounded-full bg-neutral-50 flex items-center justify-center mb-4 text-neutral-400">
+              <Wrench className="h-6 w-6" />
+            </div>
+            <p className="text-neutral-600 font-medium">Aucune intervention</p>
+            <p className="text-sm text-neutral-500 mb-6">Commencez par ajouter une intervention pour structurer votre projet.</p>
+            {canManage && (
+              <Button variant="outline" onClick={onCreateIntervention}>
+                Ajouter maintenant
+              </Button>
+            )}
+          </div>
+        ) : (
+          interventions.map((intervention) => (
+            <div
+              key={intervention.id}
+              className="group relative bg-white rounded-2xl border border-neutral-200 p-5 hover:border-primary-300 hover:shadow-lg transition-all duration-200 cursor-pointer overflow-hidden"
+              onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${intervention.id}`)}
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-semibold text-neutral-900 group-hover:text-primary-700 transition-colors truncate">
+                    {intervention.name}
+                  </h3>
+                  <p className="text-xs text-neutral-500 mt-0.5 truncate">
+                    {intervention.companyName || "Non assigné"}
+                  </p>
+                </div>
+                {canManage && (
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onEditIntervention(intervention); }}
+                      className="p-1.5 rounded-lg text-neutral-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onDeleteIntervention(intervention); }}
+                      className="p-1.5 rounded-lg text-neutral-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
 
-
-
-
-
-
-
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-neutral-500">Avancement</span>
+                  <span className="font-semibold text-neutral-900">{intervention.progressPercentage}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-neutral-100 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-primary-400 to-primary-600 rounded-full transition-all duration-500"
+                    style={{ width: `${intervention.progressPercentage}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between pt-2 text-[11px] text-neutral-500 border-t border-neutral-50">
+                  <div className="flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    <span>{intervention.startDate ? formatDate(intervention.startDate) : "—"}</span>
+                  </div>
+                  <div className="font-medium text-neutral-900">
+                    {intervention.tasksDone}/{intervention.tasksTotal} tâches
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}

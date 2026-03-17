@@ -88,7 +88,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = async (userId: string, email?: string | null) => {
+  const fetchProfile = async (authUser: any) => {
+    const userId = authUser.id;
+    const email = authUser.email;
     const { data, error } = await supabase
       .from("profiles")
       .select(PROFILE_FIELDS)
@@ -103,10 +105,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return { profile: data as Profile, error: null };
     }
 
+    // fallback using auth user metadata
+    const metadata = authUser.user_metadata || {};
     const fallback = {
       id: userId,
       email: email ?? null,
-      user_type: "client" as const,
+      full_name: metadata.full_name || null,
+      user_type: metadata.user_type || "client",
     };
 
     const { data: inserted, error: insertError } = await supabase
@@ -159,7 +164,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             }
             return;
           }
-          const result = await fetchProfile(user.id, user.email);
+          const result = await fetchProfile(user);
           if (!active) return;
           setProfile(result.profile);
           if (result.profile && user.email) {
@@ -242,8 +247,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       user,
       loading,
       refreshProfile: async () => {
-        if (!session?.user?.id) return;
-        const result = await fetchProfile(session.user.id, session.user.email);
+        if (!session?.user) return;
+        const result = await fetchProfile(session.user);
         setProfile(result.profile);
       },
     }),
