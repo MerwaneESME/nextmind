@@ -17,6 +17,7 @@ import {
   Building2,
   Briefcase,
   X,
+  FileText,
 } from "lucide-react";
 
 type ProProfile = {
@@ -155,9 +156,6 @@ export default function ProProfilePage() {
             </div>
             <div className="min-w-0">
               <h1 className="text-2xl sm:text-3xl font-bold font-heading text-neutral-900">{displayName}</h1>
-              {profile?.company_description && (
-                <p className="text-neutral-500 mt-1 text-sm line-clamp-2">{profile.company_description}</p>
-              )}
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-600">
                 {profile?.city && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-3 py-1">
@@ -193,11 +191,19 @@ export default function ProProfilePage() {
       {/* Contact info card */}
       {!loading && profile && (
         <div className="mb-8 rounded-2xl border border-neutral-200 bg-white shadow-sm p-6 space-y-4">
-          {/* Description */}
+          {/* Description / Présentation */}
           {profile.company_description && (
-            <p className="text-neutral-600 italic leading-relaxed">
-              {profile.company_description}
-            </p>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-neutral-900">
+                <FileText className="h-4 w-4 text-primary-600" />
+                <h3 className="text-sm font-bold uppercase tracking-wider">Présentation</h3>
+              </div>
+              <div 
+                className="prose prose-sm sm:prose-base max-w-none text-neutral-600 leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: profile.company_description }}
+              />
+              <div className="h-px w-full bg-neutral-100 my-4" />
+            </div>
           )}
 
           {/* Contact chips */}

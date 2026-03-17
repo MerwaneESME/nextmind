@@ -20,6 +20,7 @@ import {
   Save,
   Shield,
 } from "lucide-react";
+import { RichTextEditor } from "@/components/ui/RichTextEditor";
 
 type ProfilePreferences = {
   email_notifications: boolean;
@@ -494,13 +495,14 @@ export default function ProfilePage() {
               <label className="text-xs font-medium text-neutral-500 uppercase tracking-wide">
                 Présentation
               </label>
-              <textarea
+              <RichTextEditor
                 value={form.companyDescription}
-                onChange={(e) => setForm((p) => ({ ...p, companyDescription: e.target.value }))}
-                rows={4}
-                placeholder="Résumé de votre activité et expertise..."
-                className="w-full px-3 py-2.5 text-sm border border-neutral-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent transition-all resize-none"
+                onChange={(content) => setForm((p) => ({ ...p, companyDescription: content }))}
+                placeholder="Décrivez votre activité, votre expertise et vos valeurs..."
               />
+              <p className="text-[10px] text-neutral-400 mt-1 italic">
+                Astuce : Utilisez les outils de formatage pour structurer votre présentation (Gras, Listes, etc.).
+              </p>
             </div>
 
             {/* Portfolio toggle */}

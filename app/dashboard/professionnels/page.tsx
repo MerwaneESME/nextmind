@@ -61,6 +61,11 @@ const normalizeSearchText = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const stripHtml = (html: string | null) => {
+  if (!html) return "";
+  return html.replace(/<[^>]*>?/gm, "").trim();
+};
+
 const toTagKey = (value: string) => normalizeSearchText(value);
 
 const TAG_LABEL_OVERRIDES: Record<string, string> = {
@@ -935,7 +940,7 @@ export default function ProfessionnelsPage() {
                             </div>
 
                             {p.company_description && (
-                              <p className="mt-3 text-sm text-neutral-700 line-clamp-2">{p.company_description}</p>
+                              <p className="mt-3 text-sm text-neutral-700 line-clamp-2">{stripHtml(p.company_description)}</p>
                             )}
 
                             {p.specialties.length > 0 && (

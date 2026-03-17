@@ -148,6 +148,21 @@ export default function PortfolioPage() {
     });
   };
 
+  const openNewEditor = () => {
+    setSelectedProject({ id: "new" } as PortfolioProject);
+    setError(null);
+    setForm({
+      title: "",
+      summary: "",
+      budgetTotal: "",
+      durationDays: "",
+      city: "",
+      postalCode: "",
+      imagePath: "",
+      isPublic: true,
+    });
+  };
+
   const closeEditor = () => {
     setSelectedProject(null);
     setError(null);
@@ -181,7 +196,9 @@ export default function PortfolioPage() {
     setError(null);
     const budgetValue = form.budgetTotal ? Number(form.budgetTotal) : null;
     const durationValue = form.durationDays ? Number(form.durationDays) : null;
-    const payload = {
+    const isNew = selectedProject.id === "new";
+
+    const payload: any = {
       title: normalizeText(form.title),
       summary: normalizeText(form.summary),
       budget_total: Number.isFinite(budgetValue) ? budgetValue : null,
@@ -192,19 +209,32 @@ export default function PortfolioPage() {
       is_public: form.isPublic,
     };
 
-    const { error: updateError } = await supabase
-      .from("pro_portfolio_projects")
-      .update(payload)
-      .eq("id", selectedProject.id)
-      .eq("pro_id", user.id);
-    if (updateError) {
-      setError(updateError.message);
-      setSaving(false);
-      return;
+    if (isNew) {
+      payload.pro_id = user.id;
     }
-    await loadProjects();
-    setSaving(false);
-    closeEditor();
+
+    try {
+      if (isNew) {
+        const { error: insertError } = await supabase
+          .from("pro_portfolio_projects")
+          .insert(payload);
+        if (insertError) throw insertError;
+      } else {
+        const { error: updateError } = await supabase
+          .from("pro_portfolio_projects")
+          .update(payload)
+          .eq("id", selectedProject.id)
+          .eq("pro_id", user.id);
+        if (updateError) throw updateError;
+      }
+
+      await loadProjects();
+      setSaving(false);
+      closeEditor();
+    } catch (err: any) {
+      setError(err?.message ?? "Erreur lors de la sauvegarde.");
+      setSaving(false);
+    }
   };
 
   const publicStatusLabel = useMemo(() => {
@@ -266,11 +296,20 @@ export default function PortfolioPage() {
               </div>
             </div>
           </div>
-          <img
-            src="/images/portfolio.png"
-            alt="Portfolio"
-            className="hidden sm:block h-20 w-20 object-contain opacity-90 logo-blend"
-          />
+          <div className="flex flex-col items-end gap-3">
+            <Button
+              className="rounded-xl shadow-sm"
+              onClick={openNewEditor}
+            >
+              <Pen className="mr-2 h-4 w-4" />
+              Ajouter un article
+            </Button>
+            <img
+              src="/images/portfolio.png"
+              alt="Portfolio"
+              className="hidden sm:block h-20 w-20 object-contain opacity-90 logo-blend"
+            />
+          </div>
         </div>
       </header>
 
@@ -477,7 +516,7 @@ export default function PortfolioPage() {
               <div className="flex items-center gap-2">
                 <FileText className="h-5 w-5 text-primary-600" />
                 <h2 className="text-lg font-bold font-heading text-neutral-900">
-                  Modifier l&apos;article
+                  {selectedProject.id === "new" ? "Nouvel article" : "Modifier l'article"}
                 </h2>
               </div>
               <button
@@ -649,8 +688,8 @@ export default function PortfolioPage() {
               <Button variant="ghost" onClick={closeEditor}>
                 Annuler
               </Button>
-              <Button variant="primary" onClick={handleSave} disabled={saving || uploading}>
-                {saving ? "Sauvegarde..." : "Sauvegarder"}
+               <Button variant="primary" onClick={handleSave} disabled={saving || uploading}>
+                {saving ? "Sauvegarde..." : selectedProject.id === "new" ? "Créer l'article" : "Sauvegarder"}
               </Button>
             </div>
           </div>
