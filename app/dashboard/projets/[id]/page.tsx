@@ -15,18 +15,18 @@ import { Input } from "@/components/ui/Input";
 import StatCard from "@/components/ui/StatCard";
 import { ArrowLeft, Bot, Calendar, CheckCircle2, Clock, Euro, FileText, MapPin, Paperclip, Pencil, Plus, Send, Trash2, TrendingUp, Users, Wrench, X } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
-import { formatMemberRole, formatMemberStatus } from "@/lib/memberHelpers";
+import { formatMemberRole, formatMemberStatus, hasPermission, type CustomRole } from "@/lib/memberHelpers";
+import { normalizeProjectStatus } from "@/lib/statusHelpers";
 import { mapUserTypeToRole, useAuth } from "@/hooks/useAuth";
 import { cn, formatCurrency, formatDate, isValidDateRange, normalizeDateValue } from "@/lib/utils";
 import { deleteDevisWithItems, mapDevisRowToSummary } from "@/lib/devisDb";
 import { downloadQuotePdf } from "@/lib/quotePdf";
-import { deleteProjectCascade, inviteProjectMemberByEmail } from "@/lib/projectsDb";
+import { deleteProjectCascade, inviteProjectMemberByEmail, updateProjectMetadata, updateMemberRole, removeProjectMember } from "@/lib/projectsDb";
 import { fetchLotsForProject, createLotForProject, createLot, deleteLot, getOrCreateDefaultPhase, updateLot, type LotSummary } from "@/lib/lotsDb";
 import { getLotLabelColorMap, LOT_LABEL_COLORS, lotLabelColorByKey, removeLotLabelColor, setLotLabelColor, type LotLabelColorKey } from "@/lib/lotLabelColors";
 import type { QuoteSummary } from "@/lib/quotesStore";
 import { ChatMessageMarkdown } from "@/components/chat/ChatMessageMarkdown";
 import ChatBox from "@/components/chat/ChatBox";
-import ProjectDocumentsPanel from "@/components/documents/ProjectDocumentsPanel";
 import type { AssistantActionButton } from "@/components/assistant/ActionButton";
 import { ActionMenu } from "@/components/assistant/ActionMenu";
 import { formatAssistantReply, type AssistantUiMode } from "@/lib/assistantResponses";
@@ -56,6 +56,7 @@ type Project = {
   created_by?: string | null;
   created_at: string | null;
   updated_at: string | null;
+  metadata?: any;
 };
 
 type Member = {
@@ -288,33 +289,9 @@ const getTaskCardStyle = (task: Task) => {
     return "border-l-4 border-l-emerald-300 bg-emerald-50/30";
   }
   if (status === "in_progress") {
-    return "border-l-4 border-l-blue-300 bg-blue-50/30";
+  return "border-l-4 border-l-blue-300 bg-blue-50/30";
   }
   return "border-l-4 border-l-slate-200 bg-slate-50/30";
-};
-
-const PROJECT_STATUS_OPTIONS = [
-  { value: "draft", label: "À faire" },
-  { value: "en_cours", label: "En cours" },
-  { value: "en_attente", label: "En attente" },
-  { value: "termine", label: "Terminé" },
-] as const;
-
-type ProjectStatusValue = (typeof PROJECT_STATUS_OPTIONS)[number]["value"];
-
-const PROJECT_STATUS_DB_MAP: Record<ProjectStatusValue, string[]> = {
-  draft: ["draft", "a_faire"],
-  en_cours: ["en_cours", "in_progress", "active"],
-  en_attente: ["en_attente", "pending", "paused", "quoted", "cancelled"],
-  termine: ["termine", "completed", "done"],
-};
-const normalizeProjectStatus = (status: string | null): ProjectStatusValue => {
-  if (!status) return "draft";
-  const normalized = status.toLowerCase();
-  if (["en_cours", "in_progress", "active"].includes(normalized)) return "en_cours";
-  if (["termine", "completed", "done"].includes(normalized)) return "termine";
-  if (["en_attente", "pending", "paused", "quoted", "cancelled"].includes(normalized)) return "en_attente";
-  return "draft";
 };
 
 const normalizeText = (value: string) => {
@@ -491,6 +468,12 @@ export default function ProjectDetailPage() {
     updateQuery({ tab: "assistant", section: null, q: null, term: null });
   };
 
+  const membersViewParam = searchParams.get("membersView");
+  const initialMembersView =
+    membersViewParam === "roles" || membersViewParam === "invite" || membersViewParam === "list"
+      ? (membersViewParam as "list" | "roles" | "invite")
+      : "list";
+
   const animateScrollTop = (
     element: { scrollTop: number },
     to: number,
@@ -547,15 +530,19 @@ export default function ProjectDetailPage() {
     memberStatus === "accepted" || memberStatus === "active" || isOwnerByProject;
   const isManagerRole =
     ["owner", "collaborator", "pro", "professionnel"].includes(memberRole) || isOwnerByProject;
-  const canManageProject = isAcceptedMember && isManagerRole;
-  const canInviteMembers = canManageProject;
-  const canEditTasks = canManageProject;
-  const canEditPlanning = canManageProject;
+  const customRoles = project?.metadata?.roles || [];
+  const effectiveRole = isOwnerByProject ? "owner" : memberRole;
+  const canManageProject = isAcceptedMember && hasPermission(effectiveRole, "admin", customRoles);
+  const canManageInterventions = isAcceptedMember && hasPermission(effectiveRole, "interventions", customRoles);
+  const canManageMembers = isAcceptedMember && hasPermission(effectiveRole, "members", customRoles);
+  const canInviteMembers = canManageMembers;
+  const canEditTasks = canManageInterventions;
+  const canEditPlanning = canManageInterventions;
   const canEditQuotes = canManageProject;
-  const canUseAssistantPlanning = canManageProject;
+  const canUseAssistantPlanning = canManageInterventions;
 
   const openCreateInterventionModal = () => {
-    if (!canManageProject) return;
+    if (!canManageInterventions) return;
     setEditingInterventionId(null);
     setInterventionForm({
       name: "",
@@ -571,7 +558,7 @@ export default function ProjectDetailPage() {
   };
 
   const openEditInterventionModal = (intervention: LotSummary) => {
-    if (!canManageProject) return;
+    if (!canManageInterventions) return;
     setEditingInterventionId(intervention.id);
     const storedColor = lotLabelColors[intervention.id] ?? null;
     setInterventionForm({
@@ -589,7 +576,7 @@ export default function ProjectDetailPage() {
   };
 
   const handleDeleteIntervention = async (intervention: LotSummary) => {
-    if (!canManageProject) return;
+    if (!canManageInterventions) return;
     const confirmed =
       typeof window !== "undefined" &&
       window.confirm(
@@ -651,6 +638,20 @@ export default function ProjectDetailPage() {
         user: _firstOrNull(row.user) as any,
       }));
       setMembers(normalizedMembers);
+
+      // Auto-fix for project creator
+      const creatorId = (projectRes.data as Project)?.created_by;
+      if (creatorId && user.id === creatorId) {
+        const myMember = normalizedMembers.find(m => m.user?.id === user.id);
+        if (myMember && myMember.role !== "owner") {
+          try {
+            await supabase.from("project_members").update({ role: "owner" }).eq("project_id", projectId).eq("user_id", user.id);
+            setMembers(prev => prev.map(m => m.user?.id === user.id ? { ...m, role: "owner" } : m));
+          } catch (e) {
+            console.error("Auto-fix role failed:", e);
+          }
+        }
+      }
 
       // Fetch intervention (lot) tasks and merge with project tasks
       let allTasks: Task[] = (tasksRes.data as Task[]) ?? [];
@@ -729,7 +730,7 @@ export default function ProjectDetailPage() {
   }, [projectId, user?.id]);
 
   useEffect(() => {
-    if (activeTab !== "interventions" && activeTab !== "overview" && activeTab !== "budget") return;
+    if (activeTab !== "interventions" && activeTab !== "overview" && activeTab !== "budget" && activeTab !== "planning") return;
     void loadInterventions();
   }, [activeTab, projectId]);
 
@@ -738,7 +739,7 @@ export default function ProjectDetailPage() {
 
   const handleCreateIntervention = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canManageProject) {
+    if (!canManageInterventions) {
       setError("Acces refuse: vous ne pouvez pas creer une intervention.");
       return;
     }
@@ -1312,7 +1313,6 @@ export default function ProjectDetailPage() {
           openCreateInterventionModal={openCreateInterventionModal}
           loadProject={loadProject}
           setError={setError}
-          PROJECT_STATUS_OPTIONS={PROJECT_STATUS_OPTIONS}
         />
       )}
 
@@ -1348,7 +1348,12 @@ export default function ProjectDetailPage() {
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
               {interventions.map((intervention) => {
-                const lotStatus = intervention.status === "en_cours" ? "en_cours" : intervention.status === "termine" || intervention.status === "valide" ? "termine" : intervention.status === "devis_en_cours" || intervention.status === "devis_valide" ? intervention.status : "planifie";
+                const lotStatus =
+                  intervention.status === "en_cours"
+                    ? "en_cours"
+                    : intervention.status === "termine" || intervention.status === "valide"
+                      ? "termine"
+                      : "planifie";
                 const labelColorKey = lotLabelColors[intervention.id] ?? null;
                 const labelColor = labelColorKey ? lotLabelColorByKey[labelColorKey] : null;
                 return (
@@ -1528,13 +1533,43 @@ export default function ProjectDetailPage() {
         />
       )}
 
+      {!loading && activeTab === "planning" && (
+        <PlanningTab
+          canEditPlanning={canEditPlanning}
+          interventions={interventions}
+          tasks={tasks}
+          lotLabelColors={lotLabelColors}
+          openTaskModal={openTaskModal}
+          openTaskDetails={openTaskDetails}
+        />
+      )}
+
       {!loading && activeTab === "membres" && (
         <MembersTab
           members={members}
+          project={project as any}
+          initialView={initialMembersView}
+          onViewChange={(next) => updateQuery({ membersView: next === "list" ? null : next })}
           canInviteMembers={canInviteMembers}
+          currentUserId={user?.id}
           onInvite={async (email, role) => {
             if (!user?.id || !projectId) return;
             await inviteProjectMemberByEmail(user.id, projectId, email, role);
+            await loadProject();
+          }}
+          onUpdateMetadata={async (metadata) => {
+            if (!projectId) return;
+            await updateProjectMetadata(projectId, metadata);
+            await loadProject();
+          }}
+          onUpdateMemberRole={async (userId, role) => {
+            if (!projectId) return;
+            await updateMemberRole(projectId, userId, role);
+            await loadProject();
+          }}
+          onRemoveMember={async (userId) => {
+            if (!projectId) return;
+            await removeProjectMember(projectId, userId);
             await loadProject();
           }}
         />

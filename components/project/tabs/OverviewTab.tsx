@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { formatMemberRole, formatMemberStatus } from "@/lib/memberHelpers";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  normalizeProjectStatus,
+  PROJECT_STATUS_OPTIONS,
+  type ProjectStatusValue,
+} from "@/lib/statusHelpers";
 
 type OverviewTabProps = {
   projectId: string;
@@ -27,7 +32,6 @@ type OverviewTabProps = {
   openCreateInterventionModal: () => void;
   loadProject: () => Promise<void>;
   setError: (msg: string | null) => void;
-  PROJECT_STATUS_OPTIONS: readonly { value: string; label: string }[];
 };
 
 export function OverviewTab({
@@ -50,25 +54,19 @@ export function OverviewTab({
   openCreateInterventionModal,
   loadProject,
   setError,
-  PROJECT_STATUS_OPTIONS,
 }: OverviewTabProps) {
   const router = useRouter();
   const [rendezVousModalOpen, setRendezVousModalOpen] = useState(false);
 
-  // Internal states handling project status
-  const normalizeProjectStatus = (v: string | null) => {
-    if (!v) return "a_faire";
-    const allowed = ["a_faire", "en_attente", "en_cours", "termine"];
-    if (allowed.includes(v)) return v;
-    return "a_faire";
-  };
-  const [projectStatusValue, setProjectStatusValue] = useState(normalizeProjectStatus(project?.status ?? null));
+  const [projectStatusValue, setProjectStatusValue] = useState<ProjectStatusValue>(
+    normalizeProjectStatus(project?.status ?? null)
+  );
 
   React.useEffect(() => {
     setProjectStatusValue(normalizeProjectStatus(project?.status ?? null));
   }, [project]);
 
-  const handleUpdateProjectStatus = async (nextStatus: string) => {
+  const handleUpdateProjectStatus = async (nextStatus: ProjectStatusValue) => {
     if (!canManageProject) return;
     setProjectStatusValue(nextStatus);
     try {
@@ -78,14 +76,14 @@ export function OverviewTab({
         .eq("id", projectId);
       if (error) throw error;
       await loadProject();
-    } catch {
-      setError("Impossible de mettre à jour le statut du projet.");
+    } catch (err: any) {
+      setError(err?.message || "Impossible de mettre à jour le statut du projet.");
     }
   };
 
   const statusCardColorClass = useMemo(() => {
     switch (projectStatusValue) {
-      case "termine":
+      case "completed":
         return {
           leftBorderColor: "#10b981",
           bg: "bg-emerald-50",
@@ -93,7 +91,7 @@ export function OverviewTab({
           iconColor: "text-emerald-700",
           selectClass: "border-emerald-200 text-emerald-700 hover:border-emerald-300",
         };
-      case "en_cours":
+      case "in_progress":
         return {
           leftBorderColor: "#38b6ff",
           bg: "bg-sky-50",
@@ -101,13 +99,21 @@ export function OverviewTab({
           iconColor: "text-sky-600",
           selectClass: "border-sky-200 text-sky-700 hover:border-sky-300",
         };
-      case "en_attente":
+      case "paused":
         return {
           leftBorderColor: "#fbbf24",
           bg: "bg-amber-50",
           iconBg: "bg-gradient-to-br from-amber-100 to-amber-50",
           iconColor: "text-amber-700",
           selectClass: "border-amber-200 text-amber-700 hover:border-amber-300",
+        };
+      case "cancelled":
+        return {
+          leftBorderColor: "#94a3b8",
+          bg: "bg-slate-50",
+          iconBg: "bg-gradient-to-br from-slate-100 to-slate-50",
+          iconColor: "text-slate-600",
+          selectClass: "border-slate-200 text-slate-700 hover:border-slate-300",
         };
       default:
         return {
@@ -236,7 +242,7 @@ export function OverviewTab({
                   statusCardColorClass.selectClass
                 )}
                 value={projectStatusValue}
-                onChange={(e) => void handleUpdateProjectStatus(e.target.value)}
+                onChange={(e) => void handleUpdateProjectStatus(e.target.value as ProjectStatusValue)}
                 onClick={(e) => e.stopPropagation()}
               >
                 {PROJECT_STATUS_OPTIONS.map((opt) => (
@@ -391,7 +397,7 @@ export function OverviewTab({
                 interventions.map((intervention) => {
                   const isDone = intervention.status === "termine" || intervention.status === "valide";
                   const isInProgress = intervention.status === "en_cours";
-                  const isDevis = intervention.status === "devis_en_cours" || intervention.status === "devis_valide";
+                  const isDevis = false;
                   const statusLabel = isDone
                     ? "Terminé"
                     : isInProgress

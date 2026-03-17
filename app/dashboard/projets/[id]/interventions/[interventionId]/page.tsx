@@ -2,14 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Pencil, Send, Trash2 } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, Pencil, Send, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import ChatBox from "@/components/chat/ChatBox";
 import { ChatWindow } from "@/components/chat/ChatWindow";
-import DocumentsList from "@/components/documents/DocumentsList";
+import ProjectDocumentsPanel from "@/components/documents/ProjectDocumentsPanel";
 import LotInvoicePanel from "@/components/lot/LotInvoicePanel";
+import LotMembersPanel from "@/components/lot/LotMembersPanel";
 import ProgressBar from "@/components/ui/ProgressBar";
 import { useBreadcrumb } from "@/contexts/BreadcrumbContext";
 import { useAuth, mapUserTypeToRole } from "@/hooks/useAuth";
@@ -22,6 +23,7 @@ import { ChatMessageMarkdown } from "@/components/chat/ChatMessageMarkdown";
 import type { AssistantActionButton } from "@/components/assistant/ActionButton";
 import { ActionMenu } from "@/components/assistant/ActionMenu";
 import { formatAssistantReply, type AssistantUiMode } from "@/lib/assistantResponses";
+import { formatMemberRole, formatMemberStatus, hasPermission, type CustomRole } from "@/lib/memberHelpers";
 
 type ProjectLite = { id: string; created_by: string | null; name: string | null; project_type: string | null };
 
@@ -32,7 +34,7 @@ type ProjectMember = {
   role: string;
 };
 
-type TabKey = "overview" | "taches" | "chat" | "factures" | "documents" | "planning" | "assistant";
+type TabKey = "overview" | "taches" | "chat" | "factures" | "documents" | "membres" | "planning" | "assistant";
 
 const tabItems: Array<{ key: TabKey; label: string; iconSrc: string }> = [
   { key: "overview", label: "Apercu", iconSrc: "/images/grey/eye.png" },
@@ -41,17 +43,23 @@ const tabItems: Array<{ key: TabKey; label: string; iconSrc: string }> = [
   { key: "chat", label: "Chat", iconSrc: "/images/grey/chat-teardrop-dots.png" },
   { key: "factures", label: "Factures", iconSrc: "/images/grey/files.png" },
   { key: "documents", label: "Documents", iconSrc: "/images/grey/files.png" },
+  { key: "membres", label: "Membres", iconSrc: "/images/grey/users-three%20(1).png" },
   { key: "assistant", label: "Assistant IA", iconSrc: "/images/grey/robot.png" },
 ];
 
 const LOT_STATUS_OPTIONS = [
   { value: "planifie", label: "Planifie" },
-  { value: "devis_en_cours", label: "Devis en cours" },
-  { value: "devis_valide", label: "Devis valide" },
   { value: "en_cours", label: "En cours" },
   { value: "termine", label: "Termine" },
   { value: "valide", label: "Valide" },
 ] as const;
+
+const normalizeInterventionStatus = (raw: string | null | undefined) => {
+  const v = String(raw ?? "").trim().toLowerCase();
+  if (!v) return "planifie";
+  if (v === "devis_en_cours" || v === "devis_valide") return "planifie";
+  return v;
+};
 
 const startOfWeek = (date: Date) => {
   const copy = new Date(date);
@@ -168,7 +176,7 @@ export default function InterventionPage() {
   const projectId = typeof params.id === "string" ? params.id : "";
   const interventionId = typeof params.interventionId === "string" ? params.interventionId : "";
 
-  const [project, setProject] = useState<ProjectLite | null>(null);
+  const [project, setProject] = useState<ProjectLite & { metadata?: any } | null>(null);
   const [lot, setLot] = useState<LotRow | null>(null);
   const [tasks, setTasks] = useState<LotTask[]>([]);
   const [loading, setLoading] = useState(false);
@@ -217,6 +225,7 @@ export default function InterventionPage() {
   const [assistantNotice, setAssistantNotice] = useState<string | null>(null);
   const [pendingProposal, setPendingProposal] = useState<AssistantProposal | null>(null);
   const [applyLoading, setApplyLoading] = useState(false);
+  const [statusUpdating, setStatusUpdating] = useState(false);
   const assistantMessagesContainerRef = useRef<HTMLDivElement | null>(null);
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date()));
 
@@ -225,8 +234,13 @@ export default function InterventionPage() {
   const isAcceptedMember = true;
   const isManagerRole =
     ["owner", "collaborator", "pro", "professionnel"].includes((projectMemberRole ?? "").toLowerCase()) || isOwnerByProject;
-  const canManageProject = isAcceptedMember && isManagerRole;
-  const canEditThisLot = canManageProject;
+  const customRoles = project?.metadata?.roles || [];
+  const effectiveRole = isOwnerByProject ? "owner" : projectMemberRole;
+  const canManageProject = isAcceptedMember && hasPermission(effectiveRole, "admin", customRoles);
+  const canManageInterventions = isAcceptedMember && hasPermission(effectiveRole, "interventions", customRoles);
+
+  const canEditThisLot = canManageInterventions;
+  const canDeleteThisLot = canManageProject;
 
   const isTabKey = (value: string | null): value is TabKey =>
     !!value && tabItems.some((tab) => tab.key === value);
@@ -256,11 +270,45 @@ export default function InterventionPage() {
     return { total, done, pct: total ? Math.round((done / total) * 100) : 0 };
   }, [tasks]);
 
+  const estimatedDates = useMemo(() => {
+    const dates = tasks
+      .map((t) => (typeof t?.dueDate === "string" ? t.dueDate.substring(0, 10) : null))
+      .filter(Boolean) as string[];
+    if (dates.length === 0) return { start: null as string | null, end: null as string | null };
+    const sorted = [...dates].sort();
+    return { start: sorted[0] ?? null, end: sorted[sorted.length - 1] ?? null };
+  }, [tasks]);
+
+  const displayStartDate = (lot?.start_date as string | null | undefined) ?? estimatedDates.start;
+  const displayEndDate = (lot?.end_date as string | null | undefined) ?? estimatedDates.end;
+
+  const handleQuickUpdateInterventionStatus = async (nextStatus: string) => {
+    if (!canEditThisLot) return;
+    if (!interventionId) return;
+    setStatusUpdating(true);
+    setError(null);
+    try {
+      await updateLot(interventionId, { status: nextStatus as any });
+      await load();
+    } catch (err: any) {
+      setError(err?.message ?? "Impossible de mettre a jour le statut de l'intervention.");
+    } finally {
+      setStatusUpdating(false);
+    }
+  };
+
   const weekDays = useMemo(() => {
     return Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(weekStart), i));
   }, [weekStart]);
 
   const todayKey = toDateKey(new Date());
+  const upcomingRdvTasks = useMemo(() => {
+    const open = tasks.filter((t) => t.status !== "done" && Boolean(t.dueDate));
+    if (open.length === 0) return [];
+    const sorted = [...open].sort((a, b) => String(a.dueDate ?? "").localeCompare(String(b.dueDate ?? "")));
+    const future = sorted.filter((t) => String(t.dueDate ?? "").substring(0, 10) >= todayKey);
+    return (future.length > 0 ? future : sorted).slice(0, 3);
+  }, [tasks, todayKey]);
 
   const parseTaskTime = (task: LotTask): { dateKey: string | null; startHour: number | null; endHour: number | null; timeLabel: string | null; cleanDesc: string | null } => {
     if (!task.dueDate) return { dateKey: null, startHour: null, endHour: null, timeLabel: null, cleanDesc: task.description };
@@ -341,7 +389,7 @@ export default function InterventionPage() {
     setError(null);
     try {
       const [projectRes, memberRes, allMembersRes, lotRow, taskRows] = await Promise.all([
-        supabase.from("projects").select("id,created_by,name,project_type").eq("id", projectId).maybeSingle(),
+        supabase.from("projects").select("id,created_by,name,project_type,metadata").eq("id", projectId).maybeSingle(),
         supabase
           .from("project_members")
           .select("role,status")
@@ -383,6 +431,15 @@ export default function InterventionPage() {
           }))
           .filter((m: ProjectMember) => m.userId);
         setMembers(parsed);
+        const creatorId = (projectRes.data as any)?.created_by;
+        if (creatorId && user.id === creatorId) {
+          const myMember = parsed.find(m => m.userId === user.id);
+          if (myMember && myMember.role !== "owner") {
+            try {
+              supabase.from("project_members").update({ role: "owner" }).eq("project_id", projectId).eq("user_id", user.id).then(() => setProjectMemberRole("owner"));
+            } catch (e) {}
+          }
+        }
       }
     } catch (err: any) {
       setError(err?.message ?? "Impossible de charger l'intervention.");
@@ -419,7 +476,7 @@ export default function InterventionPage() {
         lot.budget_estimated === null || lot.budget_estimated === undefined ? "" : String(lot.budget_estimated),
       startDate: normalizeDateValue(lot.start_date ?? "") || (lot.start_date ?? ""),
       endDate: normalizeDateValue(lot.end_date ?? "") || (lot.end_date ?? ""),
-      status: String(lot.status ?? "planifie"),
+      status: normalizeInterventionStatus(lot.status ?? "planifie"),
       labelColor: storedColor ?? "slate",
     });
     setInterventionModalOpen(true);
@@ -951,12 +1008,20 @@ export default function InterventionPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="text-lg font-semibold text-gray-900">
-                      {lot?.start_date ? formatDate(lot.start_date) : "Non defini"}
+                      {displayStartDate ? (
+                        displayEndDate && displayEndDate !== displayStartDate ? (
+                          <>
+                            Du {formatDate(displayStartDate)} au {formatDate(displayEndDate)}
+                          </>
+                        ) : (
+                          formatDate(displayStartDate)
+                        )
+                      ) : (
+                        "Non defini"
+                      )}
                     </div>
-                    {lot?.end_date && (
-                      <div className="text-xs text-gray-500 mt-1">
-                        Fin: {formatDate(lot.end_date)}
-                      </div>
+                    {!lot?.start_date && estimatedDates.start && (
+                      <div className="text-xs text-gray-500 mt-1">Estime depuis les taches</div>
                     )}
                   </CardContent>
                 </Card>
@@ -966,8 +1031,24 @@ export default function InterventionPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="text-lg font-semibold text-gray-900 capitalize">
-                      {lot?.status?.replace(/_/g, " ") ?? "Planifie"}
+                      {LOT_STATUS_OPTIONS.find((o) => o.value === lot?.status)?.label ??
+                        lot?.status?.replace(/_/g, " ") ??
+                        "Planifie"}
                     </div>
+                    {canEditThisLot && (
+                      <select
+                        className="mt-2 w-full max-w-[220px] text-xs rounded-lg border border-amber-200 bg-white px-2 py-1 cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-amber-200"
+                        value={normalizeInterventionStatus(lot?.status ?? "planifie")}
+                        disabled={statusUpdating}
+                        onChange={(e) => void handleQuickUpdateInterventionStatus(e.target.value)}
+                      >
+                        {LOT_STATUS_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     {lot?.company_name && (
                       <div className="text-xs text-gray-500 mt-1">{lot.company_name}</div>
                     )}
@@ -1046,27 +1127,63 @@ export default function InterventionPage() {
                 <div className="space-y-4">
                   <Card>
                     <CardHeader>
-                      <div className="font-semibold text-gray-900">Documents</div>
-                      <div className="text-sm text-gray-500">Fichiers rattaches.</div>
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-semibold text-gray-900">Prochains rendez-vous</div>
+                          <div className="text-sm text-gray-500">Tâches planifiées à venir.</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => updateQuery({ tab: "planning" })}
+                          className="text-sm font-medium text-primary-700 hover:text-primary-800"
+                        >
+                          Voir tout
+                        </button>
+                      </div>
                     </CardHeader>
-                    <CardContent className="max-h-[300px] overflow-auto">
-                      <DocumentsList context={{ lotId: interventionId }} title="Documents" showUpload={canEditThisLot} />
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader>
-                      <div className="font-semibold text-gray-900">Actions</div>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                      <Button variant="outline" size="sm" className="w-full justify-start" onClick={() => updateQuery({ tab: "chat" })}>
-                        Ouvrir le chat
-                      </Button>
-                      <Button variant="outline" size="sm" className="w-full justify-start" onClick={() => updateQuery({ tab: "factures" })}>
-                        Factures
-                      </Button>
-                      <Button variant="outline" size="sm" className="w-full justify-start" onClick={() => updateQuery({ tab: "assistant" })}>
-                        Assistant IA
-                      </Button>
+                    <CardContent className="space-y-3">
+                      {upcomingRdvTasks.length === 0 ? (
+                        <div className="text-sm text-gray-500">Aucun rendez-vous planifié pour le moment.</div>
+                      ) : (
+                        upcomingRdvTasks.map((t) => {
+                          const parsed = parseTaskTime(t);
+                          const isLate = Boolean(t.dueDate && t.dueDate.substring(0, 10) < todayKey);
+                          return (
+                            <div key={t.id} className="rounded-2xl bg-neutral-50 p-3 border border-neutral-100">
+                              <div className="flex items-start gap-3">
+                                <div className="h-10 w-10 rounded-xl bg-primary-50 flex items-center justify-center flex-shrink-0">
+                                  <Calendar className="h-5 w-5 text-primary-700" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <div className="font-semibold text-neutral-900 truncate">{t.title}</div>
+                                      <div className="mt-1 flex items-center gap-2 text-xs text-neutral-500">
+                                        <Clock className="h-3.5 w-3.5" />
+                                        <span>
+                                          {t.dueDate ? formatDate(t.dueDate) : "Sans date"}
+                                          {parsed.timeLabel ? ` • ${parsed.timeLabel}` : ""}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                      {isLate && (
+                                        <span className="text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
+                                          En retard
+                                        </span>
+                                      )}
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700">
+                                        <span className="h-1.5 w-1.5 rounded-full bg-primary-500" />
+                                        Tâche
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
                     </CardContent>
                   </Card>
                 </div>
@@ -1413,8 +1530,22 @@ export default function InterventionPage() {
           )}
 
           {activeTab === "documents" && (
-            <section className="h-[60vh]">
-              <DocumentsList context={{ lotId: interventionId }} title="Documents" showUpload={canEditThisLot} />
+            <section className="min-h-[60vh]">
+              <ProjectDocumentsPanel
+                context={{ kind: "lot", lotId: interventionId, projectIdForMembers: projectId }}
+                canUpload={canEditThisLot}
+              />
+            </section>
+          )}
+
+          {activeTab === "membres" && (
+            <section>
+              <LotMembersPanel
+                projectId={projectId}
+                phaseId={lot?.phase_id ?? ""}
+                lotId={interventionId}
+                canEdit={canEditThisLot}
+              />
             </section>
           )}
 

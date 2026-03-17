@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabaseClient";
 
-export type PhaseMemberRole = "entreprise" | "sous_traitant" | "observateur" | "phase_manager";
+export type PhaseMemberRole = string;
 
 export type PhaseMemberRow = {
   id: string;

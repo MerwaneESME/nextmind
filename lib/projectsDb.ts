@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabaseClient";
+import { mergeWithDefaultProjectRoles } from "@/lib/defaultProjectRoles";
 
 export type ProjectSummary = {
   id: string;
@@ -15,6 +16,7 @@ export type ProjectSummary = {
   updatedAt: string | null;
   memberStatus?: string | null;
   memberRole?: string | null;
+  metadata?: any;
 };
 
 export type CreateProjectInput = {
@@ -53,13 +55,14 @@ type ProjectRow = {
   address: string | null;
   created_at: string | null;
   updated_at: string | null;
+  metadata: any;
 };
 
 export const fetchProjectsForUser = async (userId: string, limit?: number) => {
   let query = supabase
     .from("project_members")
     .select(
-      "status,role,project:projects(id,name,description,status,project_type,budget_total,city,address,created_at,updated_at)"
+      "status,role,project:projects(id,name,description,status,project_type,budget_total,city,address,created_at,updated_at,metadata)"
     )
     .eq("user_id", userId)
     .in("status", ["accepted", "active"]);
@@ -103,6 +106,7 @@ export const fetchProjectsForUser = async (userId: string, limit?: number) => {
         updatedAt: project.updated_at,
         memberStatus: row.status ?? null,
         memberRole: row.role ?? null,
+        metadata: project.metadata ?? {},
       } as ProjectSummary;
     })
     .filter((p): p is ProjectSummary => Boolean(p));
@@ -137,7 +141,7 @@ export const fetchProjectsForUser = async (userId: string, limit?: number) => {
 export const fetchProjectsByCreator = async (userId: string): Promise<ProjectSummary[]> => {
   const { data, error } = await supabase
     .from("projects")
-    .select("id,name,description,status,project_type,budget_total,city,address,created_at,updated_at")
+    .select("id,name,description,status,project_type,budget_total,city,address,created_at,updated_at,metadata")
     .eq("created_by", userId)
     .order("updated_at", { ascending: false });
 
@@ -156,6 +160,7 @@ export const fetchProjectsByCreator = async (userId: string): Promise<ProjectSum
     updatedAt: p.updated_at,
     memberStatus: "accepted",
     memberRole: "owner",
+    metadata: p.metadata ?? {},
   }));
 };
 
@@ -219,17 +224,29 @@ export const createProject = async (userId: string, input: CreateProjectInput) =
     city: input.city?.trim() || null,
     created_by: userId,
     status: "draft",
+    metadata: { roles: mergeWithDefaultProjectRoles([]) },
   };
 
-  const { data, error } = await supabase.from("projects").insert(payload).select("id").single();
+  let data: any = null;
+  let error: any = null;
+  {
+    const res = await supabase.from("projects").insert(payload).select("id").single();
+    data = res.data;
+    error = res.error;
+  }
   if (error || !data) {
-    throw error ?? new Error("Failed to create project");
+    const res2 = await supabase
+      .from("projects")
+      .insert({ ...payload, metadata: undefined as any })
+      .select("id")
+      .single();
+    if (res2.error || !res2.data) {
+      throw res2.error ?? error ?? new Error("Failed to create project");
+    }
+    data = res2.data;
   }
 
   // Ajouter le créateur comme owner dans project_members.
-  // Si ça échoue (ex: vieille contrainte UNIQUE), on ne bloque pas
-  // car is_project_manager() a un fallback via projects.created_by.
-  // On retry une fois en cas de conflit.
   const memberPayload = {
     project_id: data.id,
     user_id: userId,
@@ -242,25 +259,29 @@ export const createProject = async (userId: string, input: CreateProjectInput) =
     .from("project_members")
     .upsert(memberPayload, { onConflict: "project_id,user_id" });
   if (memberError) {
-    // Fallback: tenter un simple insert si upsert échoue
     const { error: memberError2 } = await supabase
       .from("project_members")
       .insert(memberPayload);
-    // Ne pas throw - le projet est créé, is_project_manager fonctionne via created_by
     if (memberError2) {
       console.warn("project_members insert failed (non-blocking):", memberError2.message);
     }
   }
 
+  // Ensure default roles exist even if metadata wasn't set at insert time.
+  try {
+    const { data: projectRow } = await supabase.from("projects").select("metadata").eq("id", data.id).maybeSingle();
+    const nextMetadata = {
+      ...(projectRow?.metadata ?? {}),
+      roles: mergeWithDefaultProjectRoles(projectRow?.metadata?.roles ?? []),
+    };
+    await supabase.from("projects").update({ metadata: nextMetadata }).eq("id", data.id);
+  } catch {
+    // Non-blocking
+  }
+
   return data.id as string;
 };
 
-/**
- * Création de projet par un particulier via RPC (contourne RLS).
- * À utiliser pour éviter l'erreur "new row violates row-level security policy".
- * Les données du formulaire sont structurées pour être réutilisées telles quelles
- * lors de l'envoi de la demande aux artisans.
- */
 export const createProjectAsParticulier = async (
   _userId: string,
   input: CreateProjectParticulierInput
@@ -289,19 +310,40 @@ export const createProjectAsParticulier = async (
     const { data: data2, error: error2 } = await supabase.rpc("rpc_create_project", baseParams);
     if (error2) throw error2;
     if (data2 == null) throw new Error("Création du projet échouée");
+    try {
+      const projectId = data2 as string;
+      const { data: projectRow } = await supabase.from("projects").select("metadata").eq("id", projectId).maybeSingle();
+      const nextMetadata = {
+        ...(projectRow?.metadata ?? {}),
+        roles: mergeWithDefaultProjectRoles(projectRow?.metadata?.roles ?? []),
+      };
+      await supabase.from("projects").update({ metadata: nextMetadata }).eq("id", projectId);
+    } catch {
+      // Non-blocking
+    }
     return data2 as string;
   } else if (error) {
     throw error;
   }
 
   if (data == null) throw new Error("Création du projet échouée");
+
+  // Ensure default roles exist for all projects (custom roles live in projects.metadata.roles).
+  try {
+    const projectId = data as string;
+    const { data: projectRow } = await supabase.from("projects").select("metadata").eq("id", projectId).maybeSingle();
+    const nextMetadata = {
+      ...(projectRow?.metadata ?? {}),
+      roles: mergeWithDefaultProjectRoles(projectRow?.metadata?.roles ?? []),
+    };
+    await supabase.from("projects").update({ metadata: nextMetadata }).eq("id", projectId);
+  } catch {
+    // Non-blocking
+  }
+
   return data as string;
 };
 
-/**
- * Résumé structuré d'une demande de projet pour envoi aux artisans.
- * Même format pour tous les artisans, basé sur le formulaire rempli par le particulier.
- */
 export type DemandeProjetSummary = {
   projectId: string;
   titre: string;
@@ -321,7 +363,7 @@ export async function getProjectDemandeSummary(
   projectId: string
 ): Promise<{ recap: DemandeProjetSummary | null; error?: string }> {
   const minCols = "id,name,description,project_type,address,city";
-  const fullCols = `${minCols},total_budget,postal_code,budget_min,desired_start_date,surface_sqm,questionnaire_data`;
+  const fullCols = `${minCols},total_budget,postal_code,budget_min,desired_start_date,surface_sqm,questionnaire_data,metadata`;
   let { data, error } = await supabase
     .from("projects")
     .select(fullCols)
@@ -330,37 +372,16 @@ export async function getProjectDemandeSummary(
   if (error) {
     const withExtras = `${minCols},total_budget,postal_code,budget_min,desired_start_date,surface_sqm`;
     let fallback = await supabase
-      .from("projects")
-      .select(`${withExtras},questionnaire_data`)
-      .eq("id", projectId)
-      .maybeSingle();
-    if (fallback.error) {
-      fallback = await supabase
         .from("projects")
-        .select(withExtras)
+        .select(`${withExtras},questionnaire_data,metadata`)
         .eq("id", projectId)
         .maybeSingle();
-    }
     if (fallback.error) {
-      fallback = await supabase
-        .from("projects")
-        .select(`${minCols},total_budget`)
-        .eq("id", projectId)
-        .maybeSingle();
-    }
-    if (fallback.error) {
-      fallback = await supabase
-        .from("projects")
-        .select(`${minCols},budget_total`)
-        .eq("id", projectId)
-        .maybeSingle();
-    }
-    if (fallback.error) {
-      fallback = await supabase
-        .from("projects")
-        .select(minCols)
-        .eq("id", projectId)
-        .maybeSingle();
+        fallback = await supabase
+            .from("projects")
+            .select(`${withExtras},metadata`)
+            .eq("id", projectId)
+            .maybeSingle();
     }
     if (fallback.error || !fallback.data)
       return { recap: null, error: fallback.error?.message ?? "Projet introuvable" };
@@ -455,7 +476,7 @@ export const inviteProjectMemberByEmail = async (
     .select("id,project_id,role,status,invited_email,user_id")
     .single();
   if (error || !data) {
-    throw error ?? new Error("Invitation non cr\u00e9\u00e9e");
+    throw error ?? new Error("Invitation non créée");
   }
   return data as ProjectInvite;
 };
@@ -493,54 +514,16 @@ export const deleteProjectCascade = async (projectId: string) => {
     try {
       await supabase.from("task_learning_events").delete().in("task_id", taskIds);
     } catch {
-      // Ignore if table doesn't exist or is not accessible.
+      // Ignore
     }
   }
 
-  const { error: detachError } = await supabase
-    .from("devis")
-    .update({ project_id: null })
-    .eq("project_id", projectId);
-  if (detachError) {
-    throw detachError;
-  }
-
-  const { error: messagesError } = await supabase
-    .from("project_messages")
-    .delete()
-    .eq("project_id", projectId);
-  if (messagesError) {
-    throw messagesError;
-  }
-
-  const { error: tagsError } = await supabase
-    .from("project_tags")
-    .delete()
-    .eq("project_id", projectId);
-  if (tagsError) {
-    throw tagsError;
-  }
-
-  const { error: tasksDeleteError } = await supabase
-    .from("project_tasks")
-    .delete()
-    .eq("project_id", projectId);
-  if (tasksDeleteError) {
-    throw tasksDeleteError;
-  }
-
-  const { error: membersError } = await supabase
-    .from("project_members")
-    .delete()
-    .eq("project_id", projectId);
-  if (membersError) {
-    throw membersError;
-  }
-
-  const { error: projectError } = await supabase.from("projects").delete().eq("id", projectId);
-  if (projectError) {
-    throw projectError;
-  }
+  await supabase.from("devis").update({ project_id: null }).eq("project_id", projectId);
+  await supabase.from("project_messages").delete().eq("project_id", projectId);
+  await supabase.from("project_tags").delete().eq("project_id", projectId);
+  await supabase.from("project_tasks").delete().eq("project_id", projectId);
+  await supabase.from("project_members").delete().eq("project_id", projectId);
+  await supabase.from("projects").delete().eq("id", projectId);
 };
 
 export type ProjectMemberPreview = {
@@ -551,7 +534,6 @@ export type ProjectMemberPreview = {
   avatarUrl: string | null;
 };
 
-/** Batch-fetch accepted members for multiple projects at once. */
 export const fetchMembersForProjects = async (
   projectIds: string[]
 ): Promise<Map<string, ProjectMemberPreview[]>> => {
@@ -578,4 +560,30 @@ export const fetchMembersForProjects = async (
     });
   }
   return map;
+};
+
+export const updateProjectMetadata = async (projectId: string, metadata: any) => {
+  const { error } = await supabase
+    .from("projects")
+    .update({ metadata })
+    .eq("id", projectId);
+  if (error) throw error;
+};
+
+export const updateMemberRole = async (projectId: string, memberId: string, role: string) => {
+  const { error } = await supabase
+    .from("project_members")
+    .update({ role })
+    .eq("project_id", projectId)
+    .eq("id", memberId);
+  if (error) throw error;
+};
+
+export const removeProjectMember = async (projectId: string, memberId: string) => {
+  const { error } = await supabase
+    .from("project_members")
+    .delete()
+    .eq("project_id", projectId)
+    .eq("id", memberId);
+  if (error) throw error;
 };

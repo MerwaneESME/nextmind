@@ -94,7 +94,7 @@ export default function DevisPreviewPage() {
     findDevisByPreviewId(user.id, previewId)
       .then((row) => setSaved(Boolean(row)))
       .catch(() => setSaved(false));
-  }, [payload, user?.id]);
+  }, [payload, user?.id, resolvePreviewId]);
 
   if (!payload) {
     return (

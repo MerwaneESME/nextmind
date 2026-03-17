@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Document, Page, pdfjs } from "react-pdf";
+import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { ArrowLeft, Download, Minus, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, Trash2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { deleteDevisWithItems, fetchDevisById } from "@/lib/devisDb";
 import { QuoteSummary } from "@/lib/quotesStore";
@@ -13,7 +13,12 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { downloadQuotePdf } from "@/lib/quotePdf";
 import { supabase } from "@/lib/supabaseClient";
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+// Création du composant dynamique qui pointe vers le nouveau fichier
+const DynamicPdfViewer = dynamic(() => import("@/components/devis/PdfViewer"), {
+  ssr: false,
+  loading: () => <div className="text-sm text-gray-600 p-4">Chargement du visualiseur PDF...</div>,
+});
+
 
 export default function DevisViewerPage() {
   const router = useRouter();
@@ -261,48 +266,18 @@ export default function DevisViewerPage() {
       </div>
 
       {hasPdfMeta ? (
-        <Card className="p-4 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => changePage(-1)} disabled={pageNumber <= 1}>
-                Precedent
-              </Button>
-              <span className="text-sm text-gray-600">
-                Page {pageNumber} / {numPages || 1}
-              </span>
-              <Button variant="outline" size="sm" onClick={() => changePage(1)} disabled={pageNumber >= numPages}>
-                Suivant
-              </Button>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setScale((prev) => Math.max(prev - 0.1, 0.6))}>
-                <Minus className="w-4 h-4" />
-              </Button>
-              <span className="text-sm text-gray-600">{Math.round(scale * 100)}%</span>
-              <Button variant="outline" size="sm" onClick={() => setScale((prev) => Math.min(prev + 0.1, 1.6))}>
-                <Plus className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-          <div className="flex justify-center overflow-auto bg-gray-50 rounded-lg p-4 min-h-[300px]">
-            {fileLoading ? (
-              <div className="text-sm text-gray-600">Chargement du PDF...</div>
-            ) : documentFile ? (
-              <Document
-                file={documentFile}
-                onLoadSuccess={onDocumentLoad}
-                onLoadError={() => setFileError("Impossible de charger le PDF.")}
-                loading="Chargement..."
-                error={<div className="text-sm text-red-600">Impossible de charger le PDF.</div>}
-              >
-                <Page pageNumber={pageNumber} scale={scale} renderTextLayer={false} renderAnnotationLayer={false} />
-              </Document>
-            ) : (
-              <div className="text-sm text-red-600">{fileError ?? "Impossible de charger le PDF."}</div>
-            )}
-          </div>
-          {fileError && !fileLoading && <div className="text-sm text-red-600">{fileError}</div>}
-        </Card>
+        <DynamicPdfViewer
+          documentFile={documentFile}
+          fileError={fileError}
+          fileLoading={fileLoading}
+          onDocumentLoad={onDocumentLoad}
+          pageNumber={pageNumber}
+          numPages={numPages}
+          scale={scale}
+          changePage={changePage}
+          setScale={setScale}
+          onLoadError={() => setFileError("Impossible de charger le PDF.")}
+        />
       ) : (
         <Card className="p-6 space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-4 border-b border-gray-200 pb-4">

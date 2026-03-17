@@ -353,10 +353,10 @@ function ProfessionalDashboard() {
   };
 
   const projectsEnCours = projects.filter(
-    (project) => resolveProjectStatus(project.status) === "en_cours"
+    (project) => resolveProjectStatus(project.status) === "in_progress"
   ).length;
   const projectsTermines = projects.filter(
-    (project) => resolveProjectStatus(project.status) === "termine"
+    (project) => resolveProjectStatus(project.status) === "completed"
   ).length;
 
   const handleViewQuote = (quote: QuoteSummary) => {
@@ -418,9 +418,9 @@ function ProfessionalDashboard() {
                 <span className="rounded-full border border-neutral-200 bg-white px-3 py-1">
                   {quotes.length} devis
                 </span>
-                {projects.filter((p) => resolveProjectStatus(p.status) === "en_cours").length > 0 && (
+                {projects.filter((p) => resolveProjectStatus(p.status) === "in_progress").length > 0 && (
                   <span className="rounded-full border border-primary-200 bg-primary-50 text-primary-700 px-3 py-1">
-                    {projects.filter((p) => resolveProjectStatus(p.status) === "en_cours").length} en cours
+                    {projects.filter((p) => resolveProjectStatus(p.status) === "in_progress").length} en cours
                   </span>
                 )}
               </div>
@@ -1052,10 +1052,10 @@ function ParticulierDashboard() {
   }, [user?.id]);
 
   const projectsEnCours = projects.filter(
-    (project) => resolveProjectStatus(project.status) === "en_cours"
+    (project) => resolveProjectStatus(project.status) === "in_progress"
   ).length;
   const projectsTermines = projects.filter(
-    (project) => resolveProjectStatus(project.status) === "termine"
+    (project) => resolveProjectStatus(project.status) === "completed"
   ).length;
   const devisRecus = 0;
 

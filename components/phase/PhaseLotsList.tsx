@@ -53,7 +53,7 @@ export default function PhaseLotsList({
     if (["en_cours", "in_progress", "active"].includes(normalized)) return { key: "en_cours", label: "En cours" };
     if (["termine", "done", "completed"].includes(normalized)) return { key: "termine", label: "Terminé" };
     if (["valide", "validee"].includes(normalized)) return { key: "valide", label: "Validé" };
-    if (normalized.includes("devis")) return { key: "devis_en_cours", label: "Devis" };
+    if (normalized.includes("devis")) return { key: "planifie", label: "Planifie" };
     return { key: "planifie", label: normalized };
   };
 

@@ -75,7 +75,31 @@ const DragCtx = createContext<{
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const lsKey = (projectId: string, suffix: string) => `nm_proj_${projectId}_${suffix}`;
+export type DocumentsPanelContext =
+  | { kind: "project"; projectId: string }
+  | { kind: "phase"; phaseId: string; projectIdForMembers: string }
+  | { kind: "lot"; lotId: string; projectIdForMembers: string };
+
+const lsKey = (scopeKey: string, suffix: string) => `nm_docs_${scopeKey}_${suffix}`;
+
+const resolveDocsDbContext = (
+  context: DocumentsPanelContext
+): { projectId?: string; phaseId?: string; lotId?: string } => {
+  if (context.kind === "project") return { projectId: context.projectId };
+  if (context.kind === "phase") return { phaseId: context.phaseId };
+  return { lotId: context.lotId };
+};
+
+const resolveScopeKey = (context: DocumentsPanelContext) => {
+  if (context.kind === "project") return `project_${context.projectId}`;
+  if (context.kind === "phase") return `phase_${context.phaseId}`;
+  return `lot_${context.lotId}`;
+};
+
+const resolveMembersProjectId = (context: DocumentsPanelContext): string | null => {
+  if (context.kind === "project") return context.projectId;
+  return context.projectIdForMembers ?? null;
+};
 
 const isImageFile = (name: string, type?: string) => {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
@@ -658,14 +682,14 @@ function DevisDisponiblesSection({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export interface ProjectDocumentsPanelProps {
-  projectId: string;
+  context: DocumentsPanelContext;
   canUpload?: boolean;
-  quotes: QuoteSummary[];
+  quotes?: QuoteSummary[];
   canEditQuotes?: boolean;
-  availableQuotes: QuoteSummary[];
-  selectedQuoteId: string;
-  onSetSelectedQuoteId: (id: string) => void;
-  onAttachQuote: (quoteId?: string) => void | Promise<void>;
+  availableQuotes?: QuoteSummary[];
+  selectedQuoteId?: string;
+  onSetSelectedQuoteId?: (id: string) => void;
+  onAttachQuote?: (quoteId?: string) => void | Promise<void>;
   quoteStatusUpdatingId?: string | null;
   quoteDeletingId?: string | null;
   onUpdateWorkflow?: (q: QuoteSummary, status: "valide" | "refuse") => void;
@@ -675,13 +699,24 @@ export interface ProjectDocumentsPanelProps {
 }
 
 export default function ProjectDocumentsPanel({
-  projectId, canUpload = true,
-  quotes, canEditQuotes = false, availableQuotes,
-  selectedQuoteId, onSetSelectedQuoteId, onAttachQuote,
+  context,
+  canUpload = true,
+  quotes = [],
+  canEditQuotes = false,
+  availableQuotes = [],
+  selectedQuoteId = "",
+  onSetSelectedQuoteId = () => {},
+  onAttachQuote = async () => {},
   quoteStatusUpdatingId = null, quoteDeletingId = null,
   onUpdateWorkflow, onDeleteQuote, onDownloadQuote,
 }: ProjectDocumentsPanelProps) {
   const uploadInputRef = useRef<HTMLInputElement>(null);
+
+  const scopeKey = useMemo(() => resolveScopeKey(context), [context]);
+  const docsDbContext = useMemo(() => resolveDocsDbContext(context), [context]);
+  const membersProjectId = useMemo(() => resolveMembersProjectId(context), [context]);
+  const showQuotesUi = context.kind === "project";
+  const projectIdForQuotes = context.kind === "project" ? context.projectId : null;
 
   const [docs, setDocs] = useState<DocumentRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -707,11 +742,11 @@ export default function ProjectDocumentsPanel({
 
   useEffect(() => {
     try {
-      const f = localStorage.getItem(lsKey(projectId, "folders")); if (f) setCustomFolders(JSON.parse(f));
-      const m = localStorage.getItem(lsKey(projectId, "map")); if (m) setDocFolderMap(JSON.parse(m));
-      const n = localStorage.getItem(lsKey(projectId, "names")); if (n) setFileDisplayNames(JSON.parse(n));
+      const f = localStorage.getItem(lsKey(scopeKey, "folders")); if (f) setCustomFolders(JSON.parse(f));
+      const m = localStorage.getItem(lsKey(scopeKey, "map")); if (m) setDocFolderMap(JSON.parse(m));
+      const n = localStorage.getItem(lsKey(scopeKey, "names")); if (n) setFileDisplayNames(JSON.parse(n));
     } catch { /* ignore */ }
-  }, [projectId]);
+  }, [scopeKey]);
 
   useEffect(() => { if (creatingFolder) setTimeout(() => newFolderInputRef.current?.focus(), 50); }, [creatingFolder]);
 
@@ -721,27 +756,31 @@ export default function ProjectDocumentsPanel({
     return () => document.removeEventListener("dragend", clear);
   }, []);
 
-  const saveFolders = useCallback((f: CustomFolder[]) => { setCustomFolders(f); localStorage.setItem(lsKey(projectId, "folders"), JSON.stringify(f)); }, [projectId]);
-  const saveFolderMap = useCallback((m: Record<string, string>) => { setDocFolderMap(m); localStorage.setItem(lsKey(projectId, "map"), JSON.stringify(m)); }, [projectId]);
-  const saveFileNames = useCallback((n: Record<string, string>) => { setFileDisplayNames(n); localStorage.setItem(lsKey(projectId, "names"), JSON.stringify(n)); }, [projectId]);
+  const saveFolders = useCallback((f: CustomFolder[]) => { setCustomFolders(f); localStorage.setItem(lsKey(scopeKey, "folders"), JSON.stringify(f)); }, [scopeKey]);
+  const saveFolderMap = useCallback((m: Record<string, string>) => { setDocFolderMap(m); localStorage.setItem(lsKey(scopeKey, "map"), JSON.stringify(m)); }, [scopeKey]);
+  const saveFileNames = useCallback((n: Record<string, string>) => { setFileDisplayNames(n); localStorage.setItem(lsKey(scopeKey, "names"), JSON.stringify(n)); }, [scopeKey]);
 
   const loadDocs = useCallback(async () => {
     setLoading(true); setError(null);
-    try { setDocs(await getDocuments({ projectId })); }
+    try { setDocs(await getDocuments(docsDbContext)); }
     catch (e: any) { setError(e?.message ?? "Impossible de charger les documents."); }
     finally { setLoading(false); }
-  }, [projectId]);
+  }, [docsDbContext]);
 
   useEffect(() => { void loadDocs(); }, [loadDocs]);
 
   useEffect(() => {
     let active = true;
     const loadMemberRoles = async () => {
+      if (!membersProjectId) {
+        if (active) setMemberRoleByUserId({});
+        return;
+      }
       try {
         const { data, error } = await supabase
           .from("project_members")
           .select("user_id,role,status")
-          .eq("project_id", projectId)
+          .eq("project_id", membersProjectId)
           .in("status", ["accepted", "active"]);
         if (!active) return;
         if (error) {
@@ -763,7 +802,7 @@ export default function ProjectDocumentsPanel({
     return () => {
       active = false;
     };
-  }, [projectId]);
+  }, [membersProjectId]);
 
   const createFolder = () => {
     const name = newFolderName.trim(); if (!name) return;
@@ -779,16 +818,16 @@ export default function ProjectDocumentsPanel({
   const moveDocToFolder = useCallback((docId: string, folderId: string | null) => {
     setDocFolderMap((prev) => {
       const m = { ...prev }; if (folderId === null) delete m[docId]; else m[docId] = folderId;
-      localStorage.setItem(lsKey(projectId, "map"), JSON.stringify(m)); return m;
+      localStorage.setItem(lsKey(scopeKey, "map"), JSON.stringify(m)); return m;
     });
     setDropTarget(null); setDraggingId(null); setDraggingType(null);
-  }, [projectId]);
+  }, [scopeKey]);
   const renameFile = (id: string, name: string) => { saveFileNames({ ...fileDisplayNames, [id]: name }); setEditingFileId(null); };
   const openCtxMenu = (e: React.MouseEvent, target: CtxTarget) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, target }); };
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
-    try { await uploadDocument(file, { projectId, fileType: inferTypeFromFile(file) }); await loadDocs(); }
+    try { await uploadDocument(file, { ...docsDbContext, fileType: inferTypeFromFile(file) }); await loadDocs(); }
     catch (e: any) { setError(e?.message ?? "Erreur upload."); }
     finally { event.target.value = ""; }
   };
@@ -818,6 +857,10 @@ export default function ProjectDocumentsPanel({
   }, [onAttachQuote, availableQuotes, quotes]);
 
   const handleAttachDocumentById = useCallback(async (docId: string) => {
+    if (!showQuotesUi || !projectIdForQuotes) {
+      setError("Liaison de devis indisponible dans ce contexte.");
+      return;
+    }
     if (!canEditQuotes) {
       setError("Seuls les professionnels peuvent lier un devis.");
       return;
@@ -844,7 +887,7 @@ export default function ProjectDocumentsPanel({
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ projectId, documentId: docId }),
+      body: JSON.stringify({ projectId: projectIdForQuotes, documentId: docId }),
     });
     const json = (await res.json().catch(() => null)) as { devisId?: string; error?: string } | null;
     if (!res.ok || !json?.devisId) {
@@ -852,7 +895,7 @@ export default function ProjectDocumentsPanel({
       return;
     }
     void onAttachQuote(json.devisId);
-  }, [canEditQuotes, docs, onAttachQuote, projectId]);
+  }, [canEditQuotes, docs, onAttachQuote, projectIdForQuotes, showQuotesUi]);
 
   const docsInFolder = useMemo(() => {
     const map: Record<string, DocumentRow[]> = {};
@@ -939,23 +982,27 @@ export default function ProjectDocumentsPanel({
                   fileDisplayNames={fileDisplayNames}
                   memberRoleByUserId={memberRoleByUserId} />
 
-                <DevisLiesSection
-                  quotes={quotes} availableQuotes={availableQuotes}
-                  selectedId={selectedFile?.id ?? null} onSelectQuote={handleQuoteSelect}
-                  canEdit={canEditQuotes}
-                  onAttachQuoteById={handleAttachQuoteById}
-                  onAttachDocumentById={handleAttachDocumentById} />
+                {showQuotesUi && (
+                  <DevisLiesSection
+                    quotes={quotes} availableQuotes={availableQuotes}
+                    selectedId={selectedFile?.id ?? null} onSelectQuote={handleQuoteSelect}
+                    canEdit={canEditQuotes}
+                    onAttachQuoteById={handleAttachQuoteById}
+                    onAttachDocumentById={handleAttachDocumentById} />
+                )}
 
-                {canEditQuotes && (
+                {showQuotesUi && canEditQuotes && (
                   <DevisDisponiblesSection availableQuotes={availableQuotes} />
                 )}
 
-                {docs.length === 0 && quotes.length === 0 && !creatingFolder && (
+                {docs.length === 0 && (!showQuotesUi || quotes.length === 0) && !creatingFolder && (
                   <li className="flex flex-col items-center justify-center py-12 gap-3 text-center">
                     <FolderOpen className="w-10 h-10 text-neutral-200" />
                     <div>
                       <p className="text-sm font-medium text-neutral-600">Aucun document</p>
-                      <p className="text-xs text-neutral-400 mt-0.5">Importez un document ou liez un devis</p>
+                      <p className="text-xs text-neutral-400 mt-0.5">
+                        {showQuotesUi ? "Importez un document ou liez un devis" : "Importez un document pour le retrouver ici"}
+                      </p>
                     </div>
                   </li>
                 )}

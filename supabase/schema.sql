@@ -1,7 +1,7 @@
 -- ============================================================================
 -- NextMind Supabase schema (single file)
 -- This file is intended to be run in Supabase SQL Editor (admin role).
--- Generated from former supabase/migrations/*.sql on 2026-02-09 11:52:02
+-- Consolidated / updated on 2026-03-17
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -43,6 +43,10 @@ commit;
 -- Apply in Supabase SQL editor with an admin role.
 
 begin;
+
+-- Needed by custom roles / permissions logic (used by `public.is_project_manager`).
+alter table if exists public.projects
+  add column if not exists metadata jsonb default '{}'::jsonb;
 
 create or replace function public.current_email()
 returns text
@@ -87,26 +91,47 @@ language sql
 security definer
 set search_path = public
 as $$
-  select exists (
-    select 1
-    from public.project_members pm
-    where pm.project_id = p_project_id
-      and pm.user_id = auth.uid()
-      and lower(btrim(coalesce(pm.role, ''))) in ('owner', 'collaborator', 'pro', 'professionnel')
-      and lower(btrim(coalesce(pm.status, ''))) in ('accepted', 'active')
-  )
-  or exists (
-    select 1
-    from public.projects p
-    where p.id = p_project_id
-      and p.created_by = auth.uid()
-  )
-  or exists (
-    select 1
-    from public.projects p2
-    where p2.id = p_project_id
-      and p2.project_manager_id = auth.uid()
-  );
+  select
+    -- Project creator or assigned project manager always has management rights.
+    exists (
+      select 1
+      from public.projects p
+      where p.id = p_project_id
+        and (p.created_by = auth.uid() or p.project_manager_id = auth.uid())
+    )
+    or exists (
+      select 1
+      from public.project_members pm
+      join public.projects prj on prj.id = pm.project_id
+      where pm.project_id = p_project_id
+        and pm.user_id = auth.uid()
+        and lower(btrim(coalesce(pm.status, ''))) in ('accepted', 'active')
+        and (
+          -- System roles with management rights.
+          lower(btrim(coalesce(pm.role, ''))) in (
+            'owner',
+            'collaborator',
+            'collaborateur',
+            'pro',
+            'professionnel',
+            'chef de projet',
+            'chef_de_projet',
+            'project manager',
+            'project_manager'
+          )
+          -- Custom role id/name that includes "admin" permission.
+          or exists (
+            select 1
+            from jsonb_array_elements(coalesce(prj.metadata->'roles', '[]'::jsonb)) r
+            where (r->>'id') = pm.role or (r->>'name') = pm.role
+              and exists (
+                select 1
+                from jsonb_array_elements_text(coalesce(r->'permissions', '[]'::jsonb)) perm
+                where lower(perm) = 'admin'
+              )
+          )
+        )
+    );
 $$;
 
 create or replace function public.is_pro()
@@ -417,8 +442,7 @@ create table if not exists public.lots (
   delay_days integer not null default 0,
   budget_estimated numeric not null default 0,
   budget_actual numeric not null default 0,
-  status text not null default 'planifie'
-    check (status = any (array['planifie','devis_en_cours','devis_valide','en_cours','termine','valide'])),
+  status text not null default 'planifie',
   progress_percentage integer not null default 0 check (progress_percentage >= 0 and progress_percentage <= 100),
   created_at timestamp with time zone not null default now(),
   updated_at timestamp with time zone not null default now()
@@ -493,7 +517,7 @@ create table if not exists public.phase_members (
   id uuid primary key default gen_random_uuid(),
   phase_id uuid not null references public.phases(id) on delete cascade,
   user_id uuid not null references public.profiles(id) on delete cascade,
-  role text not null check (role = any (array['entreprise','sous_traitant','observateur','phase_manager'])),
+  role text not null,
   can_edit boolean not null default false,
   can_view_other_lots boolean not null default false,
   assigned_lots uuid[] not null default '{}'::uuid[],
@@ -505,6 +529,470 @@ create index if not exists phase_members_phase_idx on public.phase_members(phase
 create index if not exists phase_members_user_idx on public.phase_members(user_id);
 
 commit;
+
+-- ---------------------------------------------------------------------------
+-- Source: supabase/migrations/0010_pro_rating.sql
+-- ---------------------------------------------------------------------------
+-- Ajout des colonnes de note (1-5 étoiles) pour les profils pro
+
+begin;
+
+alter table if exists public.profiles
+  add column if not exists rating_avg numeric(3,2) check (rating_avg is null or (rating_avg >= 1 and rating_avg <= 5)),
+  add column if not exists rating_count integer default 0 check (rating_count is null or rating_count >= 0);
+
+comment on column public.profiles.rating_avg is 'Note moyenne du pro (1 à 5 étoiles)';
+comment on column public.profiles.rating_count is 'Nombre d''avis pour cette note';
+
+-- Mise à jour des pros sans note : attribuer une note aléatoire entre 3 et 5
+update public.profiles
+set
+  rating_avg = round((3 + random() * 2)::numeric, 2),
+  rating_count = greatest(0, floor(random() * 50)::integer + 5)
+where lower(coalesce(user_type, '')) = 'pro'
+  and (rating_avg is null or rating_count is null or rating_count = 0);
+
+commit;
+
+notify pgrst, 'reload schema';
+
+-- ---------------------------------------------------------------------------
+-- Source: supabase/migrations/0011_public_pro_profiles_view.sql
+-- ---------------------------------------------------------------------------
+-- Vue public_pro_profiles : profils pro publics avec rating
+
+begin;
+
+drop view if exists public.public_pro_profiles;
+
+create view public.public_pro_profiles as
+select
+  p.id as pro_id,
+  coalesce(p.display_name, p.company_name, p.full_name) as display_name,
+  p.company_name,
+  p.city,
+  p.postal_code,
+  p.company_description,
+  p.company_website,
+  p.email,
+  p.phone,
+  p.address,
+  p.latitude,
+  p.longitude,
+  p.rating_avg,
+  p.rating_count
+from public.profiles p
+where lower(coalesce(p.user_type, '')) = 'pro';
+
+grant select on public.public_pro_profiles to anon;
+grant select on public.public_pro_profiles to authenticated;
+
+commit;
+
+notify pgrst, 'reload schema';
+
+-- ---------------------------------------------------------------------------
+-- Source: supabase/migrations/0013_avatar_bucket.sql
+-- ---------------------------------------------------------------------------
+-- Avatar bucket + policies (client-side uploads)
+
+insert into storage.buckets (id, name, public)
+values ('avatar', 'avatar', true)
+on conflict (id) do update set public = excluded.public;
+
+alter table storage.objects enable row level security;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'Public can read avatars'
+  ) then
+    create policy "Public can read avatars"
+      on storage.objects
+      for select
+      using (bucket_id = 'avatar');
+  end if;
+
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'Users can upload their avatar'
+  ) then
+    create policy "Users can upload their avatar"
+      on storage.objects
+      for insert
+      to authenticated
+      with check (
+        bucket_id = 'avatar'
+        and name like ('users/' || auth.uid()::text || '/%')
+      );
+  end if;
+
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'Users can update their avatar'
+  ) then
+    create policy "Users can update their avatar"
+      on storage.objects
+      for update
+      to authenticated
+      using (
+        bucket_id = 'avatar'
+        and name like ('users/' || auth.uid()::text || '/%')
+      )
+      with check (
+        bucket_id = 'avatar'
+        and name like ('users/' || auth.uid()::text || '/%')
+      );
+  end if;
+
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'Users can delete their avatar'
+  ) then
+    create policy "Users can delete their avatar"
+      on storage.objects
+      for delete
+      to authenticated
+      using (
+        bucket_id = 'avatar'
+        and name like ('users/' || auth.uid()::text || '/%')
+      );
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Source: supabase/migrations/0014_rdv_and_metadata.sql
+-- ---------------------------------------------------------------------------
+-- Add metadata JSONB to projects (persists custom roles, config)
+alter table if exists public.projects
+  add column if not exists metadata jsonb default '{}';
+
+-- Add task_type and attendees to project_tasks (RDV support)
+alter table if exists public.project_tasks
+  add column if not exists task_type text default 'task',
+  add column if not exists attendees jsonb default '[]';
+
+-- ---------------------------------------------------------------------------
+-- Source: supabase/migrations/0015_fix_member_role_check.sql
+-- ---------------------------------------------------------------------------
+-- Drop the role CHECK constraint on project_members to allow custom role names
+alter table if exists public.project_members
+  drop constraint if exists project_members_role_check;
+
+-- ---------------------------------------------------------------------------
+-- Source: supabase/migrations/0016_notification_triggers.sql
+-- ---------------------------------------------------------------------------
+-- Notification triggers for project actions
+
+begin;
+
+alter table if exists public.notifications
+  add column if not exists metadata jsonb;
+
+create or replace function public.notify_document_upload()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  uploader_name text;
+  uploader_avatar text;
+  project_name text;
+  member_record record;
+begin
+  if NEW.project_id is null then return NEW; end if;
+
+  select full_name, avatar_url into uploader_name, uploader_avatar
+    from public.profiles where id = NEW.uploaded_by;
+
+  select name into project_name
+    from public.projects where id = NEW.project_id;
+
+  for member_record in
+    select distinct user_id from public.project_members
+    where project_id = NEW.project_id
+      and user_id != NEW.uploaded_by
+      and lower(btrim(coalesce(status, ''))) in ('accepted', 'active')
+  loop
+    insert into public.notifications (user_id, title, description, type, action_url, metadata)
+    values (
+      member_record.user_id,
+      coalesce(uploader_name, 'Quelqu''un') || ' a publié un document',
+      '"' || NEW.name || '" dans ' || coalesce(project_name, 'un projet'),
+      'document',
+      '/dashboard/projets/' || NEW.project_id::text || '?tab=documents',
+      jsonb_build_object(
+        'actor_name',    coalesce(uploader_name, 'Inconnu'),
+        'actor_avatar',  uploader_avatar,
+        'project_name',  coalesce(project_name, ''),
+        'project_id',    NEW.project_id::text,
+        'document_name', NEW.name
+      )
+    );
+  end loop;
+
+  return NEW;
+end;
+$$;
+
+drop trigger if exists trg_notify_document_upload on public.documents;
+create trigger trg_notify_document_upload
+  after insert on public.documents
+  for each row execute function public.notify_document_upload();
+
+create or replace function public.notify_member_added()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  new_member_name text;
+  new_member_avatar text;
+  project_name text;
+  member_record record;
+begin
+  if NEW.user_id is null then return NEW; end if;
+
+  select full_name, avatar_url into new_member_name, new_member_avatar
+    from public.profiles where id = NEW.user_id;
+
+  select name into project_name
+    from public.projects where id = NEW.project_id;
+
+  for member_record in
+    select distinct user_id from public.project_members
+    where project_id = NEW.project_id
+      and user_id != NEW.user_id
+      and lower(btrim(coalesce(status, ''))) in ('accepted', 'active')
+  loop
+    insert into public.notifications (user_id, title, description, type, action_url, metadata)
+    values (
+      member_record.user_id,
+      coalesce(new_member_name, 'Un nouveau membre') || ' a rejoint le projet',
+      coalesce(project_name, 'Votre projet'),
+      'member',
+      '/dashboard/projets/' || NEW.project_id::text || '?tab=membres',
+      jsonb_build_object(
+        'actor_name',   coalesce(new_member_name, 'Inconnu'),
+        'actor_avatar', new_member_avatar,
+        'project_name', coalesce(project_name, ''),
+        'project_id',   NEW.project_id::text
+      )
+    );
+  end loop;
+
+  return NEW;
+end;
+$$;
+
+drop trigger if exists trg_notify_member_added on public.project_members;
+create trigger trg_notify_member_added
+  after insert on public.project_members
+  for each row execute function public.notify_member_added();
+
+create or replace function public.notify_new_message()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  sender_name text;
+  sender_avatar text;
+  project_name text;
+  preview text;
+  member_record record;
+begin
+  if NEW.project_id is null then return NEW; end if;
+
+  select full_name, avatar_url into sender_name, sender_avatar
+    from public.profiles where id = NEW.author_id;
+
+  select name into project_name
+    from public.projects where id = NEW.project_id;
+
+  preview := left(NEW.content, 100);
+  if length(NEW.content) > 100 then preview := preview || '…'; end if;
+
+  for member_record in
+    select distinct user_id from public.project_members
+    where project_id = NEW.project_id
+      and user_id != NEW.author_id
+      and lower(btrim(coalesce(status, ''))) in ('accepted', 'active')
+  loop
+    insert into public.notifications (user_id, title, description, type, action_url, metadata)
+    values (
+      member_record.user_id,
+      coalesce(sender_name, 'Quelqu''un'),
+      preview,
+      'message',
+      '/dashboard/projets/' || NEW.project_id::text || '?tab=chat',
+      jsonb_build_object(
+        'actor_name',      coalesce(sender_name, 'Inconnu'),
+        'actor_avatar',    sender_avatar,
+        'project_name',    coalesce(project_name, ''),
+        'project_id',      NEW.project_id::text,
+        'message_preview', preview,
+        'is_group',        true
+      )
+    );
+  end loop;
+
+  return NEW;
+end;
+$$;
+
+drop trigger if exists trg_notify_new_message on public.messages;
+create trigger trg_notify_new_message
+  after insert on public.messages
+  for each row execute function public.notify_new_message();
+
+commit;
+
+-- ---------------------------------------------------------------------------
+-- Source: supabase/migrations/0019_fix_phase_member_role_check.sql
+-- ---------------------------------------------------------------------------
+alter table if exists public.phase_members
+  drop constraint if exists phase_members_role_check;
+
+-- ---------------------------------------------------------------------------
+-- Source: supabase/migrations/0020_backfill_default_project_roles.sql
+-- ---------------------------------------------------------------------------
+begin;
+
+do $$
+begin
+  update public.projects p
+  set metadata = jsonb_set(
+    coalesce(p.metadata, '{}'::jsonb),
+    '{roles}',
+    (
+      coalesce(p.metadata->'roles', '[]'::jsonb)
+      ||
+      case
+        when not exists (
+          select 1 from jsonb_array_elements(coalesce(p.metadata->'roles', '[]'::jsonb)) r
+          where r->>'id' = 'base_read'
+        )
+        then '[{"id":"base_read","name":"Lecture seule","color":"#94a3b8","permissions":["read"]}]'::jsonb
+        else '[]'::jsonb
+      end
+      ||
+      case
+        when not exists (
+          select 1 from jsonb_array_elements(coalesce(p.metadata->'roles', '[]'::jsonb)) r
+          where r->>'id' = 'base_interventions'
+        )
+        then '[{"id":"base_interventions","name":"Interventions","color":"#3b82f6","permissions":["read","interventions"]}]'::jsonb
+        else '[]'::jsonb
+      end
+      ||
+      case
+        when not exists (
+          select 1 from jsonb_array_elements(coalesce(p.metadata->'roles', '[]'::jsonb)) r
+          where r->>'id' = 'base_admin'
+        )
+        then '[{"id":"base_admin","name":"Administrateur","color":"#10b981","permissions":["read","interventions","admin"]}]'::jsonb
+        else '[]'::jsonb
+      end
+    ),
+    true
+  );
+exception
+  when undefined_column then
+    null;
+end $$;
+
+commit;
+
+-- ---------------------------------------------------------------------------
+-- Source: supabase/migrations/0021_migrate_legacy_phase_member_roles.sql
+-- ---------------------------------------------------------------------------
+begin;
+
+do $$
+begin
+  update public.phase_members
+  set role = 'base_interventions'
+  where lower(coalesce(role, '')) in ('entreprise', 'sous_traitant');
+
+  update public.phase_members
+  set role = 'base_read'
+  where lower(coalesce(role, '')) = 'observateur';
+exception
+  when undefined_table then
+    null;
+end $$;
+
+commit;
+
+-- ---------------------------------------------------------------------------
+-- Source: supabase/migrations/0022_remove_quoted_project_status.sql
+-- ---------------------------------------------------------------------------
+begin;
+
+do $$
+begin
+  update public.projects
+  set status = case
+    when status is null then 'draft'
+    when lower(btrim(status)) in ('quoted','devis','validee') then 'paused'
+    else status
+  end;
+exception
+  when undefined_column then
+    null;
+end $$;
+
+alter table if exists public.projects
+  drop constraint if exists projects_status_check;
+
+alter table if exists public.projects
+  add constraint projects_status_check
+  check (status = any (array['draft','in_progress','paused','completed','cancelled']));
+
+commit;
+
+-- ---------------------------------------------------------------------------
+-- Source: supabase/migrations/0023_remove_devis_lot_statuses.sql
+-- ---------------------------------------------------------------------------
+begin;
+
+do $$
+begin
+  update public.lots
+  set status = 'planifie'
+  where lower(btrim(status)) in ('devis_en_cours', 'devis_valide');
+exception
+  when undefined_column then
+    null;
+end $$;
+
+alter table if exists public.lots
+  drop constraint if exists lots_status_check;
+
+alter table if exists public.lots
+  add constraint lots_status_check
+  check (status = any (array['planifie','en_cours','termine','valide']));
+
+commit;
+
+notify pgrst, 'reload schema';
 
 -- PostgREST schema cache reload (utile dans l'Ã©diteur SQL Supabase)
 notify pgrst, 'reload schema';

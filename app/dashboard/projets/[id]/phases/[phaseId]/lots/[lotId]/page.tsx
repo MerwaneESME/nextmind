@@ -9,8 +9,10 @@ import { Input } from "@/components/ui/Input";
 import ChatBox from "@/components/chat/ChatBox";
 import { ChatWindow } from "@/components/chat/ChatWindow";
 import DocumentsList from "@/components/documents/DocumentsList";
+import ProjectDocumentsPanel from "@/components/documents/ProjectDocumentsPanel";
 import Breadcrumb from "@/components/ui/Breadcrumb";
 import LotBudgetPanel from "@/components/lot/LotBudgetPanel";
+import LotMembersPanel from "@/components/lot/LotMembersPanel";
 import StatCard from "@/components/ui/StatCard";
 import ProgressBar from "@/components/ui/ProgressBar";
 import { useAuth } from "@/hooks/useAuth";
@@ -24,7 +26,7 @@ import { supabase } from "@/lib/supabaseClient";
 
 type ProjectLite = { id: string; created_by: string | null; name: string | null };
 
-type TabKey = "overview" | "taches" | "chat" | "budget" | "documents" | "planning" | "assistant";
+type TabKey = "overview" | "taches" | "chat" | "budget" | "documents" | "membres" | "planning" | "assistant";
 
 const tabItems: Array<{ key: TabKey; label: string; iconSrc: string }> = [
   { key: "overview", label: "Aperçu", iconSrc: "/images/grey/eye.png" },
@@ -32,6 +34,7 @@ const tabItems: Array<{ key: TabKey; label: string; iconSrc: string }> = [
   { key: "chat", label: "Chat", iconSrc: "/images/grey/chat-teardrop-dots.png" },
   { key: "budget", label: "Budget", iconSrc: "/images/grey/files.png" },
   { key: "documents", label: "Documents", iconSrc: "/images/grey/files.png" },
+  { key: "membres", label: "Membres", iconSrc: "/images/grey/users-three%20(1).png" },
   { key: "planning", label: "Planning", iconSrc: "/images/grey/calendar%20(1).png" },
   { key: "assistant", label: "Assistant IA", iconSrc: "/images/grey/robot.png" },
 ];
@@ -463,8 +466,22 @@ export default function LotPage() {
           )}
 
           {activeTab === "documents" && (
-            <section className="h-[60vh]">
-              <DocumentsList context={{ lotId }} title="Documents (lot)" showUpload={canEditThisLot} />
+            <section className="min-h-[60vh]">
+              <ProjectDocumentsPanel
+                context={{ kind: "lot", lotId, projectIdForMembers: projectId }}
+                canUpload={canEditThisLot}
+              />
+            </section>
+          )}
+
+          {activeTab === "membres" && (
+            <section>
+              <LotMembersPanel
+                projectId={projectId}
+                phaseId={phaseId}
+                lotId={lotId}
+                canEdit={canEditThisLot}
+              />
             </section>
           )}
 

@@ -2,8 +2,6 @@ import { supabase } from "@/lib/supabaseClient";
 
 export type LotStatus =
   | "planifie"
-  | "devis_en_cours"
-  | "devis_valide"
   | "en_cours"
   | "termine"
   | "valide";

@@ -198,7 +198,7 @@ export function DevisTab({
 
   return (
     <ProjectDocumentsPanel
-      projectId={projectId}
+      context={{ kind: "project", projectId }}
       canUpload={canManageProject}
       quotes={quotes}
       canEditQuotes={canEditQuotes}

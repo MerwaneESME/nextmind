@@ -48,42 +48,46 @@ export const getWorkflowBadge = (status: WorkflowStatus) => {
 
 // ─── Project Status ───────────────────────────────────────────────────────────
 
-export type ProjectStatusKey = "draft" | "en_cours" | "termine" | "en_attente";
+export type ProjectStatusKey =
+  | "draft"
+  | "in_progress"
+  | "paused"
+  | "completed"
+  | "cancelled";
 
 export const resolveProjectStatus = (status: string | null): ProjectStatusKey => {
   if (!status) return "draft";
   const normalized = status.toLowerCase();
+  // "Devis" (quoted) is no longer a selectable project status.
+  // Legacy values are mapped to "paused" (En attente) for backward-compatibility.
   if (["draft", "a_faire"].includes(normalized)) return "draft";
-  if (["en_cours", "in_progress", "active"].includes(normalized)) return "en_cours";
-  if (["termine", "completed", "done"].includes(normalized)) return "termine";
-  if (["en_attente", "pending"].includes(normalized)) return "en_attente";
-  return "en_attente";
+  if (["en_cours", "in_progress", "active"].includes(normalized)) return "in_progress";
+  if (["termine", "completed", "done", "terminee"].includes(normalized)) return "completed";
+  if (["en_attente", "pending", "paused", "quoted", "devis", "validee"].includes(normalized)) return "paused";
+  if (["cancelled", "canceled", "archive", "archived"].includes(normalized)) return "cancelled";
+  return "draft";
 };
 
-export type ProjectStatusValue = "draft" | "en_cours" | "en_attente" | "termine";
+export type ProjectStatusValue = ProjectStatusKey;
 
 export const PROJECT_STATUS_OPTIONS = [
-  { value: "draft", label: "À faire" },
-  { value: "en_cours", label: "En cours" },
-  { value: "en_attente", label: "En attente" },
-  { value: "termine", label: "Terminé" },
+  { value: "draft", label: "En étude" },
+  { value: "in_progress", label: "En cours" },
+  { value: "paused", label: "En attente" },
+  { value: "completed", label: "Terminé" },
+  { value: "cancelled", label: "Annulé" },
 ] as const;
 
 export const PROJECT_STATUS_DB_MAP: Record<ProjectStatusValue, string[]> = {
   draft: ["draft", "a_faire"],
-  en_cours: ["en_cours", "in_progress", "active"],
-  en_attente: ["en_attente", "pending", "paused", "quoted", "cancelled"],
-  termine: ["termine", "completed", "done"],
+  in_progress: ["en_cours", "in_progress", "active"],
+  paused: ["en_attente", "pending", "paused", "quoted", "devis", "validee"],
+  completed: ["termine", "terminee", "completed", "done", "receptionnee"],
+  cancelled: ["cancelled", "canceled", "archive", "archived"],
 };
 
 export const normalizeProjectStatus = (status: string | null): ProjectStatusValue => {
-  if (!status) return "draft";
-  const normalized = status.toLowerCase();
-  if (["en_cours", "in_progress", "active"].includes(normalized)) return "en_cours";
-  if (["termine", "completed", "done"].includes(normalized)) return "termine";
-  if (["en_attente", "pending", "paused", "quoted", "cancelled"].includes(normalized))
-    return "en_attente";
-  return "draft";
+  return resolveProjectStatus(status);
 };
 
 // ─── Generic Status Display Helpers ───────────────────────────────────────────
@@ -91,6 +95,10 @@ export const normalizeProjectStatus = (status: string | null): ProjectStatusValu
 export const getStatusBadge = (status: string) => {
   const styles: Record<string, string> = {
     draft: "bg-neutral-100 text-neutral-700",
+    in_progress: "bg-primary-50 text-primary-700",
+    paused: "bg-amber-50 text-amber-700",
+    completed: "bg-emerald-50 text-emerald-700",
+    cancelled: "bg-slate-100 text-slate-700",
     en_cours: "bg-primary-50 text-primary-700",
     termine: "bg-emerald-50 text-emerald-700",
     en_attente: "bg-amber-50 text-amber-700",
@@ -105,6 +113,10 @@ export const getStatusBadge = (status: string) => {
 export const getStatusDotClass = (status: string) => {
   const dots: Record<string, string> = {
     draft: "bg-neutral-400",
+    in_progress: "bg-primary-400",
+    paused: "bg-amber-400",
+    completed: "bg-emerald-400",
+    cancelled: "bg-slate-400",
     en_cours: "bg-primary-400",
     termine: "bg-emerald-400",
     en_attente: "bg-amber-400",
@@ -119,6 +131,10 @@ export const getStatusDotClass = (status: string) => {
 export const getStatusLabel = (status: string) => {
   const labels: Record<string, string> = {
     draft: "En étude",
+    in_progress: "En cours",
+    paused: "En attente",
+    completed: "Terminé",
+    cancelled: "Annulé",
     en_cours: "En cours",
     termine: "Terminé",
     en_attente: "En attente",

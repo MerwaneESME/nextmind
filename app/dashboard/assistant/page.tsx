@@ -1,6 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
+import Image from "next/image";
 import { ChatWindow } from "@/components/chat/ChatWindow";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { useAuth } from "@/hooks/useAuth";
@@ -38,9 +39,11 @@ export default function AssistantPage() {
               </div>
             </div>
           </div>
-          <img
+          <Image
             src="/images/assistantia.png"
             alt="Assistant IA"
+            width={80}
+            height={80}
             className="hidden sm:block h-20 w-20 object-contain opacity-90 logo-blend flex-shrink-0"
           />
         </div>
