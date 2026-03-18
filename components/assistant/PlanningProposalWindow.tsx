@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, Plus, Trash2, X } from "lucide-react";
 import type {
   PlanningProposal,
@@ -165,8 +166,18 @@ export function PlanningProposalWindow({
   const dateCls =
     "text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-primary-300";
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+    // Optionnel: bloquer le scroll de l'arrière plan
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = "unset"; };
+  }, []);
+
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="relative flex flex-col w-full max-w-2xl max-h-[90vh] mx-4 rounded-2xl bg-white shadow-2xl">
 
         {/* Header */}
@@ -476,6 +487,7 @@ export function PlanningProposalWindow({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
