@@ -36,6 +36,8 @@ export function DevisTab({
   const [selectedQuoteId, setSelectedQuoteId] = useState("");
   const [quoteStatusUpdatingId, setQuoteStatusUpdatingId] = useState<string | null>(null);
   const [quoteDeletingId, setQuoteDeletingId] = useState<string | null>(null);
+  const [budgetSyncing, setBudgetSyncing] = useState(false);
+  const [budgetSyncStep, setBudgetSyncStep] = useState<string | null>(null);
 
   const loadAvailableQuotes = async () => {
     if (!user?.id) return;
@@ -84,26 +86,28 @@ export function DevisTab({
     // Extraction du total PDF en arrière-plan (le devis lié peut être un PDF sans montant)
     const apiUrl = process.env.NEXT_PUBLIC_AI_API_URL;
     if (apiUrl && user?.id) {
-      fetch(`${apiUrl}/project-refresh-budget`, {
+      fetch(`${apiUrl.replace(/\/+$/, "")}/project-refresh-budget`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ project_id: projectId, user_id: user.id }),
       })
-        .then((res) => res.json())
-        .then((result: { devis?: Array<{ id: string; total: number | null }> }) => {
-          if (result.devis) {
-            setQuotes((prev) =>
-              prev.map((q) => {
-                const updated = result.devis!.find((d) => d.id === q.id);
-                if (updated && updated.total != null && q.totalTtc == null) {
-                  return { ...q, totalTtc: updated.total };
-                }
-                return q;
-              })
-            );
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status} from /project-refresh-budget`);
+          return res.json();
+        })
+        .then(async (result: { devis?: Array<{ id: string; total: number | null }> }) => {
+          // Si au moins un devis a maintenant un total, recharger depuis Supabase
+          // pour que le budget estimé reflète les données persistées
+          const hasNewTotal = result.devis?.some((d) => d.total != null);
+          if (hasNewTotal) {
+            await loadProject();
           }
         })
-        .catch(() => {/* silencieux */});
+        .catch((err: unknown) => {
+          if (process.env.NODE_ENV === "development") {
+            console.warn("[DevisTab] refresh-budget (attach) error:", err);
+          }
+        });
     }
   };
 
@@ -131,6 +135,44 @@ export function DevisTab({
         .select("id");
       if (updateError || !data || data.length === 0) {
         throw updateError ?? new Error("Impossible de mettre à jour le devis.");
+      }
+      // Si le devis passe en "validé", on déclenche une synchronisation complète du budget
+      if (nextStatus === "valide" && user?.id) {
+        const apiUrl = process.env.NEXT_PUBLIC_AI_API_URL;
+        if (apiUrl) {
+          setBudgetSyncing(true);
+          setBudgetSyncStep("Analyse du devis en cours…");
+          try {
+            const res = await fetch(`${apiUrl.replace(/\/+$/, "")}/project-refresh-budget`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ project_id: projectId, user_id: user.id }),
+            });
+            const result = (await res.json().catch(() => null)) as
+              | { devis?: Array<{ id: string; total: number | null }> }
+              | null;
+            setBudgetSyncStep("Mise à jour du budget du projet…");
+            if (result?.devis) {
+              setQuotes((prev) =>
+                prev.map((q) => {
+                  const updated = result.devis!.find((d) => d.id === q.id);
+                  if (updated && updated.total != null) {
+                    return { ...q, totalTtc: updated.total };
+                  }
+                  return q;
+                })
+              );
+            }
+          } catch (err: unknown) {
+            // échec silencieux en prod, log en dev
+            if (process.env.NODE_ENV === "development") {
+              console.warn("[DevisTab] refresh-budget (update workflow) error:", err);
+            }
+          } finally {
+            setBudgetSyncStep(null);
+            setBudgetSyncing(false);
+          }
+        }
       }
       await loadProject();
     } catch (err: any) {
@@ -197,21 +239,44 @@ export function DevisTab({
   };
 
   return (
-    <ProjectDocumentsPanel
-      context={{ kind: "project", projectId }}
-      canUpload={canManageProject}
-      quotes={quotes}
-      canEditQuotes={canEditQuotes}
-      availableQuotes={availableQuotes}
-      selectedQuoteId={selectedQuoteId}
-      onSetSelectedQuoteId={setSelectedQuoteId}
-      onAttachQuote={handleAttachQuote}
-      quoteStatusUpdatingId={quoteStatusUpdatingId}
-      quoteDeletingId={quoteDeletingId}
-      onUpdateWorkflow={handleUpdateQuoteWorkflow}
-      onDeleteQuote={handleDeleteQuote}
-      onDownloadQuote={handleDownloadQuote}
-      onViewQuote={handleViewQuote}
-    />
+    <>
+      <ProjectDocumentsPanel
+        context={{ kind: "project", projectId }}
+        canUpload={canManageProject}
+        quotes={quotes}
+        canEditQuotes={canEditQuotes}
+        availableQuotes={availableQuotes}
+        selectedQuoteId={selectedQuoteId}
+        onSetSelectedQuoteId={setSelectedQuoteId}
+        onAttachQuote={handleAttachQuote}
+        quoteStatusUpdatingId={quoteStatusUpdatingId}
+        quoteDeletingId={quoteDeletingId}
+        onUpdateWorkflow={handleUpdateQuoteWorkflow}
+        onDeleteQuote={handleDeleteQuote}
+        onDownloadQuote={handleDownloadQuote}
+        onViewQuote={handleViewQuote}
+      />
+
+      {budgetSyncing && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-neutral-100 p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="relative h-12 w-12">
+                <div className="h-12 w-12 rounded-full border-4 border-primary-100" />
+                <div className="absolute inset-0 h-12 w-12 rounded-full border-4 border-primary-500 border-t-transparent animate-spin" />
+              </div>
+              <div>
+                <div className="text-base font-semibold text-neutral-900">
+                  L’agent met à jour le budget…
+                </div>
+                <div className="text-sm text-neutral-500">
+                  {budgetSyncStep ?? "Extraction des montants du devis et synchronisation avec le projet."}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

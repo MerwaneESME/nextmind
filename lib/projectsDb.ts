@@ -121,12 +121,19 @@ export const fetchProjectsForUser = async (userId: string, limit?: number) => {
   try {
     const ids = mapped.map((p) => p.id).filter(Boolean);
     if (ids.length) {
-      const counts = await fetchHierarchyCounts(ids);
+      const [counts, budgets] = await Promise.all([
+        fetchHierarchyCounts(ids),
+        fetchProjectsBudgets(ids)
+      ]);
       for (const p of mapped) {
         const c = counts[p.id];
         if (c) {
           p.phasesCount = c.phases;
           p.lotsCount = c.lots;
+        }
+        const b = budgets[p.id];
+        if (b !== undefined && b > 0) {
+          p.budgetTotal = b;
         }
       }
     }
@@ -147,7 +154,7 @@ export const fetchProjectsByCreator = async (userId: string): Promise<ProjectSum
 
   if (error) throw error;
   const rows = (data ?? []) as any[];
-  return rows.map((p) => ({
+  const mapped = rows.map((p) => ({
     id: p.id,
     name: p.name,
     description: p.description,
@@ -162,6 +169,23 @@ export const fetchProjectsByCreator = async (userId: string): Promise<ProjectSum
     memberRole: "owner",
     metadata: p.metadata ?? {},
   }));
+
+  try {
+    const ids = mapped.map((p) => p.id).filter(Boolean);
+    if (ids.length) {
+      const budgets = await fetchProjectsBudgets(ids);
+      for (const p of mapped) {
+        const b = budgets[p.id];
+        if (b !== undefined && b > 0) {
+          p.budgetTotal = b;
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return mapped;
 };
 
 export async function fetchHierarchyCounts(
@@ -212,6 +236,57 @@ export async function fetchHierarchyCounts(
   }
 
   for (const pid of ids) result[pid] = result[pid] ?? { phases: 0, lots: 0 };
+  return result;
+}
+
+export async function fetchProjectsBudgets(projectIds: string[]): Promise<Record<string, number>> {
+  const ids = projectIds.filter(Boolean);
+  if (!ids.length) return {};
+
+  const result: Record<string, number> = {};
+  for (const id of ids) result[id] = 0;
+
+  try {
+    const [phasesRes, devisRes] = await Promise.all([
+      supabase.from("phases").select("id,project_id").in("project_id", ids),
+      supabase.from("devis").select("project_id, total").in("project_id", ids)
+    ]);
+
+    if (phasesRes.data && phasesRes.data.length > 0) {
+      const phaseToProject: Record<string, string> = {};
+      for (const p of phasesRes.data) {
+        if (p.id && (p as any).project_id) phaseToProject[p.id] = (p as any).project_id;
+      }
+      const phaseIds = Object.keys(phaseToProject);
+      const { data: lots } = await supabase
+        .from("lots")
+        .select("phase_id, budget_estimated")
+        .in("phase_id", phaseIds);
+
+      if (lots) {
+        for (const l of lots) {
+          const pid = phaseToProject[(l as any).phase_id];
+          const amount = Number((l as any).budget_estimated);
+          if (pid && !isNaN(amount)) {
+            result[pid] += amount;
+          }
+        }
+      }
+    }
+
+    if (devisRes.data) {
+      for (const d of devisRes.data) {
+        const pid = (d as any).project_id;
+        const amount = Number((d as any).total);
+        if (pid && !isNaN(amount)) {
+          result[pid] += amount;
+        }
+      }
+    }
+  } catch (err) {
+    console.error("fetchProjectsBudgets error", err);
+  }
+
   return result;
 }
 

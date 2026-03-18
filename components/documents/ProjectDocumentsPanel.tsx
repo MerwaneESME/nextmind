@@ -1020,9 +1020,14 @@ export default function ProjectDocumentsPanel({
                   <div className="min-w-0">
                     <div className="font-semibold text-gray-900 truncate">{selectedFile.name}</div>
                     {selectedQuote && (
-                      <div className="text-xs text-gray-500 mt-0.5">
-                        {formatDate(selectedQuote.updatedAt)}
-                        {typeof selectedQuote.totalTtc === "number" && <> · {selectedQuote.totalTtc.toLocaleString("fr-FR")} €</>}
+                      <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-2 flex-wrap">
+                        <span>{formatDate(selectedQuote.updatedAt)}</span>
+                        <span>
+                          Montant TTC :{" "}
+                          {typeof selectedQuote.totalTtc === "number"
+                            ? `${selectedQuote.totalTtc.toLocaleString("fr-FR")} €`
+                            : "—"}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -1065,19 +1070,81 @@ export default function ProjectDocumentsPanel({
                     </button>
                   </div>
                 </div>
-                {selectedFile.isDevis && selectedQuote && canEditQuotes && onUpdateWorkflow && (
-                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-neutral-100">
-                    <span className="text-xs text-neutral-500">Statut :</span>
-                    {(["a_faire", "envoye", "valide", "refuse"] as WorkflowStatus[]).map((s) => {
-                      const current = resolveWorkflowStatus(selectedQuote);
-                      return (
-                        <button key={s} type="button" onClick={() => onUpdateWorkflow(selectedQuote, s as "valide" | "refuse")}
-                          disabled={quoteStatusUpdatingId === selectedQuote.id}
-                          className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all disabled:opacity-50 ${current === s ? getWorkflowBadge(s) + " ring-1 ring-current" : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200"}`}>
-                          {getWorkflowLabel(s)}
-                        </button>
-                      );
-                    })}
+                {selectedFile.isDevis && selectedQuote && canEditQuotes && (
+                  <div className="mt-2 pt-2 border-t border-neutral-100 space-y-2">
+                    {onUpdateWorkflow && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-neutral-500">Statut :</span>
+                        {(["a_faire", "envoye", "valide", "refuse"] as WorkflowStatus[]).map((s) => {
+                          const current = resolveWorkflowStatus(selectedQuote);
+                          return (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() => onUpdateWorkflow(selectedQuote, s as "valide" | "refuse")}
+                              disabled={quoteStatusUpdatingId === selectedQuote.id}
+                              className={`text-xs px-2.5 py-1 rounded-full font-medium transition-all disabled:opacity-50 ${
+                                current === s
+                                  ? getWorkflowBadge(s) + " ring-1 ring-current"
+                                  : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200"
+                              }`}
+                            >
+                              {getWorkflowLabel(s)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {typeof selectedQuote.totalTtc !== "number" && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-neutral-500">
+                          Montant TTC non détecté. Saisissez-le pour mettre à jour le budget :
+                        </span>
+                        <form
+                          className="flex items-center gap-1"
+                          onSubmit={async (event) => {
+                            event.preventDefault();
+                            const formData = new FormData(event.currentTarget);
+                            const raw = String(formData.get("manualTotal") ?? "").replace(",", ".").trim();
+                            const value = Number(raw);
+                            if (!raw || Number.isNaN(value) || value <= 0) {
+                              alert("Veuillez saisir un montant TTC valide.");
+                              return;
+                            }
+                            try {
+                              const { error } = await supabase
+                                .from("devis")
+                                .update({ total: value })
+                                .eq("id", selectedQuote.id);
+                              if (error) {
+                                // eslint-disable-next-line no-alert
+                                alert(error.message ?? "Impossible de mettre à jour le montant du devis.");
+                                return;
+                              }
+                              selectedQuote.totalTtc = value;
+                            } catch (e: any) {
+                              // eslint-disable-next-line no-alert
+                              alert(e?.message ?? "Erreur lors de la mise à jour du montant.");
+                            }
+                          }}
+                        >
+                          <input
+                            name="manualTotal"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="3888.50"
+                            className="h-7 w-24 rounded border border-neutral-300 px-1.5 text-xs"
+                          />
+                          <button
+                            type="submit"
+                            className="h-7 px-2 rounded bg-primary-600 text-xs text-white hover:bg-primary-700"
+                          >
+                            Enregistrer
+                          </button>
+                        </form>
+                      </div>
+                    )}
                   </div>
                 )}
               </CardHeader>

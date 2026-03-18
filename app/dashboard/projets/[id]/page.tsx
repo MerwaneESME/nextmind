@@ -1392,6 +1392,7 @@ export default function ProjectDetailPage() {
           projectName={project?.name || null}
           interventions={interventions}
           role={role || "client"}
+          totalBudgetEstimated={totalBudget}
         />
       )}
 

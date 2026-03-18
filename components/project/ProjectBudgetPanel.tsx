@@ -16,11 +16,19 @@ export default function ProjectBudgetPanel({
   projectName: string | null;
   interventions: LotSummary[];
   role: string;
+  /**
+   * Budget total estimé du projet (interventions + devis liés).
+   * Si non fourni, on retombe sur la somme des budgets d'interventions.
+   */
+  totalBudgetEstimated?: number;
 }) {
   const router = useRouter();
 
   const totals = {
-    budgetEstimated: interventions.reduce((sum, i) => sum + (Number(i.budgetEstimated) || 0), 0),
+    budgetEstimated:
+      typeof (arguments as any)[0]?.totalBudgetEstimated === "number"
+        ? (arguments as any)[0].totalBudgetEstimated
+        : interventions.reduce((sum, i) => sum + (Number(i.budgetEstimated) || 0), 0),
     budgetActual: interventions.reduce((sum, i) => sum + (Number(i.budgetActual) || 0), 0),
   };
 
