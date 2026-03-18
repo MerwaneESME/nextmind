@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { createMessage, getMessages, type Message } from "@/lib/db/messagesDb";
 import { formatDateTime } from "@/lib/utils";
+import { supabase } from "@/lib/supabaseClient";
 
 type ChatContext = { projectId?: string; phaseId?: string; lotId?: string };
 
@@ -44,6 +45,34 @@ export default function ChatBox({
 
   useEffect(() => {
     void loadMessages();
+
+    // Abonnement temps réel
+    if (!context.projectId && !context.phaseId && !context.lotId) return;
+
+    let filterStr = "";
+    if (context.projectId) filterStr = `project_id=eq.${context.projectId}`;
+    else if (context.lotId) filterStr = `lot_id=eq.${context.lotId}`;
+    else if (context.phaseId) filterStr = `phase_id=eq.${context.phaseId}`;
+
+    const channel = supabase
+      .channel(`chat_${contextKey}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "project_messages",
+          filter: filterStr || undefined,
+        },
+        () => {
+          void loadMessages();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contextKey]);
 

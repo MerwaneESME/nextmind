@@ -31,6 +31,7 @@ type Conversation = {
   counterpartId: string | null;
   counterpartName: string;
   counterpartInitial: string;
+  counterpartAvatar: string | null;
   counterpartEmail: string | null;
   lastMessage: string;
   updatedAt: string;
@@ -52,6 +53,7 @@ type MemberRow = {
     company_name: string | null;
     email: string | null;
     user_type: "pro" | "client" | null;
+    avatar_url?: string | null;
   } | null;
 };
 
@@ -644,7 +646,7 @@ export default function MessagesPage() {
         supabase
           .from("network_conversation_members")
           .select(
-            "conversation_id,user_id,profile:profiles!network_conversation_members_user_id_fkey(id,full_name,company_name,email,user_type)"
+            "conversation_id,user_id,profile:profiles!network_conversation_members_user_id_fkey(id,full_name,company_name,email,user_type,avatar_url)"
           )
           .in("conversation_id", conversationIds),
         supabase
@@ -699,6 +701,7 @@ export default function MessagesPage() {
             counterpartId: counterpart?.profile?.id ?? counterpart?.user_id ?? null,
             counterpartName,
             counterpartInitial: counterpartName.charAt(0).toUpperCase(),
+            counterpartAvatar: counterpart?.profile?.avatar_url ?? null,
             counterpartEmail: counterpart?.profile?.email ?? null,
             lastMessage,
             updatedAt,
@@ -1298,13 +1301,17 @@ export default function MessagesPage() {
                       }`}
                     >
                       <div className="flex items-start gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-semibold text-sm shadow-sm ${
-                          isActive
-                            ? "bg-gradient-to-br from-primary-400 to-primary-600 text-white"
-                            : "bg-gradient-to-br from-neutral-200 to-neutral-300 text-neutral-600"
-                        }`}>
-                          {conv.counterpartInitial}
-                        </div>
+                        {conv.counterpartAvatar ? (
+                          <img src={conv.counterpartAvatar} alt={conv.counterpartName} className={`w-10 h-10 rounded-full flex-shrink-0 object-cover shadow-sm ${isActive ? 'ring-2 ring-primary-500' : 'ring-1 ring-neutral-200'}`} />
+                        ) : (
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-semibold text-sm shadow-sm ${
+                            isActive
+                              ? "bg-gradient-to-br from-primary-400 to-primary-600 text-white"
+                              : "bg-gradient-to-br from-neutral-200 to-neutral-300 text-neutral-600"
+                          }`}>
+                            {conv.counterpartInitial}
+                          </div>
+                        )}
                         <div className="flex-1 min-w-0">
                           <p className={`font-semibold truncate text-sm ${isActive ? "text-primary-700" : "text-neutral-800"}`}>
                             {conv.counterpartName}
@@ -1333,9 +1340,13 @@ export default function MessagesPage() {
             <div className="px-5 py-3.5 border-b border-neutral-100 flex items-center justify-between gap-3 bg-white">
               <div className="flex items-center gap-3">
                 {selectedConversation && (
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-neutral-200 to-neutral-300 flex items-center justify-center flex-shrink-0 text-sm font-semibold text-neutral-600 shadow-sm">
-                    {selectedConversation.counterpartInitial}
-                  </div>
+                  selectedConversation.counterpartAvatar ? (
+                    <img src={selectedConversation.counterpartAvatar} alt={selectedConversation.counterpartName} className="w-9 h-9 rounded-full object-cover shadow-sm ring-1 ring-neutral-200 flex-shrink-0" />
+                  ) : (
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-neutral-200 to-neutral-300 flex items-center justify-center flex-shrink-0 text-sm font-semibold text-neutral-600 shadow-sm">
+                      {selectedConversation.counterpartInitial}
+                    </div>
+                  )
                 )}
                 <div>
                   <h3 className="font-semibold text-neutral-900 text-sm leading-tight">
@@ -1412,9 +1423,13 @@ export default function MessagesPage() {
                       className={`flex gap-2.5 ${isMine ? "justify-end" : "justify-start"}`}
                     >
                       {!isMine && (
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-neutral-200 to-neutral-300 flex items-center justify-center flex-shrink-0 text-neutral-600 text-xs font-semibold shadow-sm">
-                          {selectedConversation?.counterpartInitial ?? "C"}
-                        </div>
+                        selectedConversation?.counterpartAvatar ? (
+                          <img src={selectedConversation.counterpartAvatar} alt="" className="w-8 h-8 rounded-full object-cover shadow-sm ring-1 ring-neutral-200 flex-shrink-0" />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-neutral-200 to-neutral-300 flex items-center justify-center flex-shrink-0 text-neutral-600 text-xs font-semibold shadow-sm">
+                            {selectedConversation?.counterpartInitial ?? "C"}
+                          </div>
+                        )
                       )}
                       {invitePayload ? (
                         <div className="max-w-[75%] rounded-xl border border-neutral-200 bg-white px-4 py-3 shadow-sm">
@@ -1491,9 +1506,13 @@ export default function MessagesPage() {
                         </div>
                       )}
                       {isMine && (
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center flex-shrink-0 text-white text-xs font-semibold shadow-sm">
-                          {user?.name?.charAt(0).toUpperCase() ?? (userRole === "professionnel" ? "P" : "M")}
-                        </div>
+                        profile?.avatar_url ? (
+                          <img src={profile.avatar_url} alt="Vous" className="w-8 h-8 rounded-full object-cover shadow-sm ring-1 ring-primary-300 flex-shrink-0" />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center flex-shrink-0 text-white text-xs font-semibold shadow-sm">
+                            {user?.name?.charAt(0).toUpperCase() ?? (userRole === "professionnel" ? "P" : "M")}
+                          </div>
+                        )
                       )}
                     </div>
                   );
