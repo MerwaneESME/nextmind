@@ -95,7 +95,7 @@ export function splitTaskDescription(description: string | null) {
     /\[\[start:\d{4}-\d{2}-\d{2}\]\]\s*/g,
     ""
   );
-  const match = withoutStart.match(/^\[\[time:([^\]]+)\]\]\s*(.*)$/);
+  const match = withoutStart.match(/^\[\[time:([^\]]+)\]\]\s*([\s\S]*)$/);
   if (!match) return { time: null, text: withoutStart || null };
   return { time: match[1], text: match[2] || "" };
 }

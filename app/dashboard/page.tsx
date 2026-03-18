@@ -653,7 +653,7 @@ function ProfessionalDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-neutral-500">À venir</p>
-                <p className="text-lg font-semibold text-neutral-900">Prochaines tâches</p>
+                <p className="text-lg font-semibold text-neutral-900">Prochains RDV</p>
               </div>
               <div className="h-10 w-10 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
                 <Clock className="h-5 w-5 text-primary-600" />

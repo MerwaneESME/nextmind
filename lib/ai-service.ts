@@ -73,6 +73,7 @@ export type PlanningSuggestedIntervention = {
   name: string;
   lot_type: string;
   reason: string;
+  suggested_color?: import("@/lib/lotLabelColors").LotLabelColorKey;
   suggested_tasks: PlanningSuggestedTask[];
 };
 
@@ -594,63 +595,7 @@ function extractPlanningProposal(reply: string): PlanningProposal | null {
  * used as fallback display text alongside the structured data.
  */
 function formatPlanningMessage(proposal: PlanningProposal): string {
-  const lines: string[] = [];
-
-  lines.push(`## Planning de la semaine\n`);
-  lines.push(proposal.summary);
-  lines.push("");
-
-  if (proposal.existing_interventions.length > 0) {
-    lines.push(`### Interventions existantes\n`);
-    for (const intervention of proposal.existing_interventions) {
-      lines.push(`**${intervention.intervention_name}**`);
-
-      if (intervention.existing_tasks.length > 0) {
-        for (const task of intervention.existing_tasks) {
-          const statusLabel = task.status === "done" ? "Terminée" : task.status === "in_progress" ? "En cours" : "À faire";
-          const note = task.note ? ` — ${task.note}` : "";
-          lines.push(`- [${statusLabel}] ${task.title}${note}`);
-        }
-      }
-
-      if (intervention.suggested_tasks.length > 0) {
-        for (const task of intervention.suggested_tasks) {
-          lines.push(`- **Suggérée** : ${task.title} (${task.start_date} → ${task.end_date})`);
-          if (task.description) lines.push(`  _${task.description}_`);
-        }
-      }
-      lines.push("");
-    }
-  }
-
-  if (proposal.suggested_interventions.length > 0) {
-    lines.push(`### Nouvelles interventions suggérées\n`);
-    for (const intervention of proposal.suggested_interventions) {
-      lines.push(`**${intervention.name}** (${intervention.lot_type})`);
-      lines.push(`_Raison : ${intervention.reason}_`);
-      for (const task of intervention.suggested_tasks) {
-        lines.push(`- ${task.title} (${task.start_date} → ${task.end_date})`);
-      }
-      lines.push("");
-    }
-  }
-
-  if (proposal.warnings.length > 0) {
-    lines.push(`### Alertes\n`);
-    for (const w of proposal.warnings) {
-      lines.push(`- ${w}`);
-    }
-    lines.push("");
-  }
-
-  if (proposal.next_week_priorities.length > 0) {
-    lines.push(`### Priorités de la semaine\n`);
-    for (let i = 0; i < proposal.next_week_priorities.length; i++) {
-      lines.push(`${i + 1}. ${proposal.next_week_priorities[i]}`);
-    }
-  }
-
-  return lines.join("\n");
+  return "Voici votre proposition de planning. Vous pouvez la consulter et la modifier dans la fenêtre dédiée.";
 }
 
 /**
@@ -742,10 +687,11 @@ export async function sendPlanningMessageToAI(
   // 5. Try to extract structured proposal from the reply
   let proposal: PlanningProposal | null = null;
 
-  // First, check if the backend returned a structured proposal directly
+  // First, check if the backend returned a structured proposal in data.proposal
   if (data.proposal && typeof data.proposal === "object") {
     const p = data.proposal as any;
-    if ("summary" in p || "existing_interventions" in p || "suggested_interventions" in p) {
+    if ("existing_interventions" in p || "suggested_interventions" in p) {
+      // Enriched format — use directly
       proposal = {
         summary: p.summary ?? "",
         existing_interventions: Array.isArray(p.existing_interventions) ? p.existing_interventions : [],
@@ -753,12 +699,89 @@ export async function sendPlanningMessageToAI(
         warnings: Array.isArray(p.warnings) ? p.warnings : [],
         next_week_priorities: Array.isArray(p.next_week_priorities) ? p.next_week_priorities : [],
       };
+    } else if ("summary" in p && Array.isArray(p.tasks) && p.tasks.length > 0) {
+      // Legacy format {summary, tasks[]} — convert to enriched format
+      const legacyTasks = p.tasks as Array<{
+        name?: string; title?: string; description?: string;
+        start_date?: string; end_date?: string; time_range?: string;
+      }>;
+      proposal = {
+        summary: p.summary ?? "",
+        existing_interventions: [],
+        suggested_interventions: [{
+          name: "Planning proposé",
+          lot_type: "Général",
+          reason: "Tâches proposées par l'assistant IA basées sur l'analyse du projet",
+          suggested_tasks: legacyTasks.map((t) => ({
+            title: t.name ?? t.title ?? "",
+            description: t.description ?? "",
+            start_date: t.start_date ?? "",
+            end_date: t.end_date ?? t.start_date ?? "",
+          })),
+        }],
+        warnings: Array.isArray(p.warnings) ? p.warnings : [],
+        next_week_priorities: Array.isArray(p.next_week_priorities) ? p.next_week_priorities : [],
+      };
     }
   }
 
-  // Fallback: try to parse JSON from the reply text
+  // Second: check if enriched format keys are at the TOP LEVEL of the response
+  // (happens when the LLM returns the planning JSON directly instead of wrapping it in {reply, proposal})
+  if (!proposal) {
+    const d = data as any;
+    if (Array.isArray(d.existing_interventions) || Array.isArray(d.suggested_interventions)) {
+      proposal = {
+        summary: d.summary ?? "",
+        existing_interventions: Array.isArray(d.existing_interventions) ? d.existing_interventions : [],
+        suggested_interventions: Array.isArray(d.suggested_interventions) ? d.suggested_interventions : [],
+        warnings: Array.isArray(d.warnings) ? d.warnings : [],
+        next_week_priorities: Array.isArray(d.next_week_priorities) ? d.next_week_priorities : [],
+      };
+    }
+  }
+
+  // Third: try to parse JSON from the reply text
   if (!proposal) {
     proposal = extractPlanningProposal(rawReply);
+  }
+
+  // Fourth fallback: if the reply contains a fenced JSON with legacy tasks format
+  if (!proposal && rawReply) {
+    const fenceMatch = rawReply.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+    if (fenceMatch?.[1]) {
+      try {
+        const parsed = JSON.parse(fenceMatch[1].trim());
+        if (parsed && typeof parsed === "object") {
+          if (Array.isArray(parsed.existing_interventions) || Array.isArray(parsed.suggested_interventions)) {
+            proposal = {
+              summary: parsed.summary ?? "",
+              existing_interventions: Array.isArray(parsed.existing_interventions) ? parsed.existing_interventions : [],
+              suggested_interventions: Array.isArray(parsed.suggested_interventions) ? parsed.suggested_interventions : [],
+              warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
+              next_week_priorities: Array.isArray(parsed.next_week_priorities) ? parsed.next_week_priorities : [],
+            };
+          } else if (Array.isArray(parsed.tasks) && parsed.tasks.length > 0) {
+            proposal = {
+              summary: parsed.summary ?? "",
+              existing_interventions: [],
+              suggested_interventions: [{
+                name: "Planning proposé",
+                lot_type: "Général",
+                reason: "Tâches proposées par l'assistant IA",
+                suggested_tasks: parsed.tasks.map((t: any) => ({
+                  title: t.name ?? t.title ?? "",
+                  description: t.description ?? "",
+                  start_date: t.start_date ?? "",
+                  end_date: t.end_date ?? t.start_date ?? "",
+                })),
+              }],
+              warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
+              next_week_priorities: Array.isArray(parsed.next_week_priorities) ? parsed.next_week_priorities : [],
+            };
+          }
+        }
+      } catch { /* not valid JSON, nevermind */ }
+    }
   }
 
   if (proposal && planningWindow) {

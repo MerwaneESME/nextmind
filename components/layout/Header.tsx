@@ -374,19 +374,25 @@ export function Header({ user }: HeaderProps) {
     <header className="h-20 bg-white border-b border-neutral-200 shadow-sm flex items-center justify-end px-6 sticky top-0 z-50">
       {/* Breadcrumb — left side */}
       {breadcrumb.length > 0 ? (
-        <nav aria-label="Fil d'Ariane" className="absolute left-6 top-1/2 -translate-y-1/2 flex items-center gap-2 text-sm">
+        <nav
+          aria-label="Fil d'Ariane"
+          className="absolute left-6 top-1/2 -translate-y-1/2 flex items-center gap-2 text-sm max-w-[38%] overflow-hidden"
+        >
           {breadcrumb.map((item, i) => (
-            <span key={i} className="flex items-center gap-2">
-              {i > 0 && <span className="text-neutral-300 select-none">›</span>}
+            <span key={i} className="flex items-center gap-2 min-w-0 flex-shrink-0">
+              {i > 0 && <span className="text-neutral-300 select-none flex-shrink-0">›</span>}
               {item.href ? (
                 <button
                   onClick={() => router.push(item.href!)}
-                  className="text-neutral-500 hover:text-primary-600 transition-colors font-medium"
+                  className="text-neutral-500 hover:text-primary-600 transition-colors font-medium truncate max-w-[180px]"
+                  title={item.label}
                 >
                   {item.label}
                 </button>
               ) : (
-                <span className="text-neutral-800 font-semibold truncate max-w-[220px]">{item.label}</span>
+                <span className="text-neutral-800 font-semibold truncate max-w-[180px]" title={item.label}>
+                  {item.label}
+                </span>
               )}
             </span>
           ))}

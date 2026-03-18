@@ -313,7 +313,7 @@ function splitTaskDescription(description: string | null) {
   if (!description) return { time: null, text: null };
   // Strip [[start:YYYY-MM-DD]] metadata (stored for multi-day lot_tasks range recovery)
   const withoutStart = description.replace(/\[\[start:\d{4}-\d{2}-\d{2}\]\]\s*/g, "");
-  const match = withoutStart.match(/^\[\[time:([^\]]+)\]\]\s*(.*)$/);
+  const match = withoutStart.match(/^\[\[time:([^\]]+)\]\]\s*([\s\S]*)$/);
   if (!match) return { time: null, text: withoutStart || null };
   return { time: match[1], text: match[2] || "" };
 }
@@ -1382,6 +1382,7 @@ export default function ProjectDetailPage() {
           onEditIntervention={openEditInterventionModal}
           onDeleteIntervention={handleDeleteIntervention}
           onCreateIntervention={openCreateInterventionModal}
+          lotLabelColors={lotLabelColors}
         />
       )}
 
@@ -1893,6 +1894,7 @@ function InterventionsTab({
   onEditIntervention,
   onDeleteIntervention,
   onCreateIntervention,
+  lotLabelColors,
 }: {
   interventions: LotSummary[];
   loading: boolean;
@@ -1901,6 +1903,7 @@ function InterventionsTab({
   onEditIntervention: (intervention: LotSummary) => void;
   onDeleteIntervention: (intervention: LotSummary) => Promise<void>;
   onCreateIntervention: () => void;
+  lotLabelColors: Record<string, import("@/lib/lotLabelColors").LotLabelColorKey>;
 }) {
   const router = useRouter();
   return (
@@ -1938,10 +1941,14 @@ function InterventionsTab({
             )}
           </div>
         ) : (
-          interventions.map((intervention) => (
+          interventions.map((intervention) => {
+            const colorKey = lotLabelColors[intervention.id] ?? "slate";
+            const colorDef = lotLabelColorByKey[colorKey] ?? lotLabelColorByKey.slate;
+
+            return (
             <div
               key={intervention.id}
-              className="group relative bg-white rounded-2xl border border-neutral-200 p-5 hover:border-primary-300 hover:shadow-lg transition-all duration-200 cursor-pointer overflow-hidden"
+              className={`group relative rounded-2xl border border-neutral-200 p-5 hover:shadow-lg transition-all duration-200 cursor-pointer overflow-hidden border-l-4 ${colorDef.subtleBorderClass} ${colorDef.cardGradientClass}`}
               onClick={() => router.push(`/dashboard/projets/${projectId}/interventions/${intervention.id}`)}
             >
               <div className="flex items-start justify-between mb-4">
@@ -1976,9 +1983,9 @@ function InterventionsTab({
                   <span className="text-neutral-500">Avancement</span>
                   <span className="font-semibold text-neutral-900">{intervention.progressPercentage}%</span>
                 </div>
-                <div className="h-2 rounded-full bg-neutral-100 overflow-hidden">
+                <div className={`h-2 rounded-full overflow-hidden ${colorKey === "slate" ? "bg-neutral-100" : "bg-white/60"}`}>
                   <div
-                    className="h-full bg-gradient-to-r from-primary-400 to-primary-600 rounded-full transition-all duration-500"
+                    className={`h-full rounded-full transition-all duration-500 ${colorDef.swatchClass}`}
                     style={{ width: `${intervention.progressPercentage}%` }}
                   />
                 </div>
@@ -1993,7 +2000,8 @@ function InterventionsTab({
                 </div>
               </div>
             </div>
-          ))
+            );
+          })
         )}
       </div>
     </section>

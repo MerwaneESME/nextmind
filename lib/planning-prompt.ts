@@ -194,11 +194,11 @@ Tu DOIS répondre avec un JSON valide dans un bloc \`\`\`json ... \`\`\` contena
   "summary": "Synthèse en 2-3 phrases de l'état du projet et de la stratégie proposée",
   "existing_interventions": [
     {
-      "intervention_id": "uuid-existant",
+      "intervention_id": "<METTRE_L_ID_EXACT_DE_L_INTERVENTION>",
       "intervention_name": "Nom intervention",
       "existing_tasks": [
         {
-          "task_id": "uuid-tache",
+          "task_id": "<METTRE_L_ID_EXACT_DE_LA_TACHE>",
           "title": "Titre tâche existante",
           "status": "todo|in_progress|done",
           "due_date": "YYYY-MM-DD",
@@ -219,6 +219,7 @@ Tu DOIS répondre avec un JSON valide dans un bloc \`\`\`json ... \`\`\` contena
     {
       "name": "Nom de l'intervention proposée",
       "lot_type": "Type (Électricité, Plomberie, etc.)",
+      "suggested_color": "slate|sky|emerald|amber|rose|violet",
       "reason": "Pourquoi cette intervention est nécessaire pour ce projet",
       "suggested_tasks": [
         {
@@ -246,6 +247,10 @@ RÈGLES STRICTES
 6. Sois précis et actionnable, pas vague.
 7. Si le projet n'a aucune intervention, propose un plan complet.
 8. Si le projet a des retards, propose un plan de rattrapage.
+9. CRITIQUE : Les 'intervention_id' et 'task_id' DOIVENT être recopiés EXACTEMENT tels qu'ils aparaissent dans la section === INTERVENTIONS ET TÂCHES === (ex: 123e4567-e89b-12d3... ). Ne mets pas de texte descriptif à la place !
+10. OPTIMISATION : Ta réponse DOIT contenir UNIQUEMENT le bloc \`\`\`json et ABSOLUMENT AUCUN AUTRE TEXTE avant ou après. Ne dis pas "Voici le planning" ni "D'accord". Commence directement par \`\`\`json et termine par \`\`\`.
+11. DATES OBLIGATOIRES : Chaque tâche (existante ou suggérée) DOIT TOUJOURS avoir "start_date" ET "end_date" renseignés au format YYYY-MM-DD. Ne laisse JAMAIS ces champs vides ou null. Pour une tâche sur une seule journée, mets start_date == end_date (ex: "start_date": "2026-03-19", "end_date": "2026-03-19"). Pour une tâche multi-jours, mets la date de début ET la date de fin réalistes.
+12. TÂCHES MONO-JOURNÉE : Pour les tâches courtes (préparation, dépose, raccordement simple) qui tiennent en une journée, assigne TOUJOURS les deux mêmes dates start_date et end_date. Ne mets JAMAIS seulement due_date ou end_date sans start_date.
 `;
 }
 

@@ -370,7 +370,7 @@ export function serializePlanningContext(ctx: ProjectPlanningContext): string {
   if (ctx.interventions.length > 0) {
     lines.push(`=== INTERVENTIONS ET TÂCHES ===`);
     for (const intervention of ctx.interventions) {
-      lines.push(`--- Intervention : ${intervention.name} ---`);
+      lines.push(`--- Intervention : ${intervention.name} (ID: ${intervention.id}) ---`);
       if (intervention.lotType) lines.push(`  Type : ${intervention.lotType}`);
       if (intervention.description) lines.push(`  Description : ${intervention.description}`);
       lines.push(`  Statut : ${intervention.status}`);
@@ -385,7 +385,7 @@ export function serializePlanningContext(ctx: ProjectPlanningContext): string {
         for (const task of intervention.tasks) {
           const lateFlag = task.isLate ? ` [RETARD: ${task.delayDays}j]` : "";
           const dateInfo = task.dueDate ? ` (échéance: ${task.dueDate})` : "";
-          lines.push(`    - [${task.status.toUpperCase()}] ${task.title}${dateInfo}${lateFlag}`);
+          lines.push(`    - [${task.status.toUpperCase()}] ${task.title} (ID: ${task.id})${dateInfo}${lateFlag}`);
         }
       } else {
         lines.push(`  Tâches : aucune`);

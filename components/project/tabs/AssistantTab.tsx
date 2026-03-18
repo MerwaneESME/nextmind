@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Send, Paperclip, X } from "lucide-react";
+import { Send, Paperclip, X, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -8,7 +8,9 @@ import { ChatMessageMarkdown } from "@/components/chat/ChatMessageMarkdown";
 import { formatAssistantReply, type AssistantUiMode } from "@/lib/assistantResponses";
 import { detectPlanningIntent } from "@/lib/planning-prompt";
 import { sendPlanningMessageToAI, type PlanningProposal, type PlanningSuggestedTask } from "@/lib/ai-service";
-import { getOrCreateDefaultPhase, createLot, type LotSummary } from "@/lib/lotsDb";
+import { PlanningProposalWindow } from "@/components/assistant/PlanningProposalWindow";
+import { getOrCreateDefaultPhase, createLot, deleteLot, fetchLotsForProject, type LotSummary } from "@/lib/lotsDb";
+import { setLotLabelColor } from "@/lib/lotLabelColors";
 import { createLotTask, deleteAllLotTasks } from "@/lib/lotTasksDb";
 import { supabase } from "@/lib/supabaseClient";
 import { cn, isValidDateRange } from "@/lib/utils";
@@ -131,6 +133,7 @@ export function AssistantTab({
   const [pendingPlanningProposal, setPendingPlanningProposal] = useState<AssistantPlanningProposal | null>(null);
   const [assistantActiveAction, setAssistantActiveAction] = useState<AssistantActionButton["id"] | null>(null);
   const [applyLoading, setApplyLoading] = useState(false);
+  const [showPlanningWindow, setShowPlanningWindow] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const assistantSectionRef = useRef<HTMLDivElement | null>(null);
@@ -242,17 +245,15 @@ export function AssistantTab({
           history
         );
 
-        const finalProposal: PlanningProposal = planningResult.proposal ?? {
-          summary: "Proposition de planning générique.",
-          warnings: [],
-          existing_interventions: [],
-          suggested_interventions: [],
-          next_week_priorities: [],
-        };
+        const hasRealProposal = planningResult.proposal && (
+          (planningResult.proposal.existing_interventions?.length > 0) ||
+          (planningResult.proposal.suggested_interventions?.length > 0) ||
+          (planningResult.proposal.next_week_priorities?.length > 0)
+        );
 
-        const chatMessage = planningResult.proposal
+        const chatMessage = hasRealProposal
           ? planningResult.message
-          : `J'ai analysé votre projet **${project?.name ?? ""}** et préparé une proposition de planning.\n\n${finalProposal.summary}\n\n${finalProposal.warnings?.length > 0 ? `⚠️ ${finalProposal.warnings[0]}\n\n` : ""}📋 La fenêtre de planning s'ouvre — vous pouvez modifier les tâches et interventions avant de valider.`;
+          : `J'ai analysé votre projet **${project?.name ?? ""}** et préparé une proposition de planning.\n\n${planningResult.proposal?.summary ?? "Proposition de planning générique."}\n\n${planningResult.proposal?.warnings?.length ? `⚠️ ${planningResult.proposal.warnings[0]}\n\n` : ""}📋 La fenêtre de planning s'ouvre — vous pouvez modifier les tâches et interventions avant de valider.`;
 
         await streamText(chatMessage);
 
@@ -265,8 +266,11 @@ export function AssistantTab({
         };
         setAssistantMessages((prev) => [...prev, assistantMessage]);
 
-        setPendingPlanningProposal(finalProposal);
-        setPendingProposal(null);
+        if (hasRealProposal) {
+          setPendingPlanningProposal(planningResult.proposal);
+          setPendingProposal(null);
+          setShowPlanningWindow(true);
+        }
 
         return;
       }
@@ -404,6 +408,7 @@ export function AssistantTab({
       setAssistantMessages((prev) => [...prev, assistantMessage]);
       if (data.proposal) {
         setPendingProposal(data.proposal as AssistantProposal);
+        setShowPlanningWindow(true);
       }
     } catch (err: any) {
       setAssistantError(err?.message ?? "Impossible de contacter l'assistant IA.");
@@ -608,13 +613,19 @@ export function AssistantTab({
     return lastError;
   };
 
-  const DEFAULT_TIME_SLOTS = ["09:00-11:00", "11:00-13:00", "14:00-16:00", "16:00-18:00"] as const;
+  // Créneaux horaires pour les tâches sur une seule journée :
+  // le 1er slot couvre le matin (09:00-12:00), le 2e l'après-midi (13:00-19:00),
+  // les suivants sont en créneaux de 2h pour les jours très chargés.
+  const DEFAULT_TIME_SLOTS = ["09:00-12:00", "13:00-19:00", "09:00-11:00", "11:00-13:00", "14:00-16:00", "16:00-18:00"] as const;
 
-  const ensureTimePrefix = (description: string, timeRange: string) => {
+  const ensureTimePrefix = (description: string, startDate: string, timeRange: string) => {
     const base = (description ?? "").trim();
-    if (!base) return `[[time:${timeRange}]]`;
-    if (base.startsWith("[[time:")) return base;
-    const prefix = `[[time:${timeRange}]]`;
+    // Toujours inclure [[start:date]] pour éviter l'affichage "toute la journée" dans le planning
+    const startTag = startDate ? `[[start:${startDate}]]` : "";
+    const timeTag = `[[time:${timeRange}]]`;
+    const prefix = `${startTag}${timeTag}`;
+    if (!base) return prefix;
+    if (base.startsWith("[[time:") || base.startsWith("[[start:")) return base;
     return `${prefix} ${base}`;
   };
 
@@ -640,15 +651,19 @@ export function AssistantTab({
 
       const isMultiDay = startDate && endDate && startDate !== endDate;
       if (isMultiDay) {
+        // Tâche multi-jours : journée complète avec date de début explicite
         const desc = (t.description ?? "").trim();
-        return { ...t, description: desc ? `[[start:${startDate}]][[time:09:00-18:00]] ${desc}` : `[[start:${startDate}]][[time:09:00-18:00]]` };
+        const tag = `[[start:${startDate}]][[time:09:00-19:00]]`;
+        return { ...t, description: desc ? `${tag} ${desc}` : tag };
       }
 
+      // Tâche sur une seule journée : assigner un créneau horaire précis
+      // pour qu'elle apparaisse dans la grille horaire et non dans "toute la journée"
       const day = endDate || startDate;
       const idx = daySlots.get(day) ?? 0;
       daySlots.set(day, idx + 1);
       const slot = DEFAULT_TIME_SLOTS[idx % DEFAULT_TIME_SLOTS.length];
-      return { ...t, description: ensureTimePrefix(t.description, slot) };
+      return { ...t, description: ensureTimePrefix(t.description, startDate || day, slot) };
     });
   };
 
@@ -704,14 +719,14 @@ export function AssistantTab({
     await loadProject();
   };
 
-  const applyPlanningProposal = async () => {
+  const applyPlanningProposal = async (proposalToApply?: PlanningProposal) => {
     if (!canUseAssistantPlanning) {
       setAssistantNotice("Seuls les professionnels peuvent valider un planning.");
       return;
     }
-    if (!pendingPlanningProposal || !projectId || !user?.id) return;
+    const proposal = proposalToApply ?? pendingPlanningProposal;
+    if (!proposal || !projectId || !user?.id) return;
 
-    const proposal = pendingPlanningProposal;
     const hasSuggestedTasks = proposal.existing_interventions?.some((i: any) => i.suggested_tasks.length > 0);
     const hasNewInterventions = proposal.suggested_interventions?.length > 0;
 
@@ -741,8 +756,15 @@ export function AssistantTab({
       }
     }
 
+    const existingInterventionIds = new Set(
+      (proposal.existing_interventions ?? [])
+        .map((i: any) => i.intervention_id)
+        .filter(Boolean)
+    );
+
+    // Message de confirmation clair
     const confirmMsg = hasNewInterventions
-      ? `Ce planning va créer ${proposal.suggested_interventions.length} nouvelle(s) intervention(s) et remplacer les tâches des interventions concernées. Continuer ?`
+      ? `Ce planning va REMPLACER toutes les interventions existantes du projet (sans tâches terminées) et en créer ${proposal.suggested_interventions.length} nouvelle(s). Cette action est irréversible.\n\nContinuer ?`
       : "Ce planning va remplacer les tâches des interventions concernées. Continuer ?";
 
     if (!window.confirm(confirmMsg)) return;
@@ -756,22 +778,62 @@ export function AssistantTab({
       const globalDaySlots = new Map<string, number>();
 
       for (const intervention of proposal.existing_interventions ?? []) {
-        if (!intervention.intervention_id || intervention.intervention_id === "__project_tasks__") continue;
+        if (!intervention.intervention_id) continue;
         if (intervention.suggested_tasks.length === 0) continue;
 
-        await deleteAllLotTasks(intervention.intervention_id);
-        const tasksWithTimes = addDefaultTimesToPlanningTasks(intervention.suggested_tasks, globalDaySlots);
+        if (intervention.intervention_id === "__project_tasks__") {
+          const tasksWithTimes = addDefaultTimesToPlanningTasks(intervention.suggested_tasks, globalDaySlots);
+          for (let idx = 0; idx < tasksWithTimes.length; idx++) {
+            const task = tasksWithTimes[idx];
+            if (!task.title?.trim()) continue;
+            await insertTaskWithFallbackStatus({
+              project_id: projectId,
+              name: task.title.trim(),
+              start_date: task.start_date ?? null,
+              end_date: task.end_date ?? task.start_date ?? null,
+              description: task.description?.trim() || null,
+            });
+          }
+        } else {
+          // REMPLACER les tâches existantes — supprimer d'abord, puis créer les nouvelles
+          await deleteAllLotTasks(intervention.intervention_id);
 
-        for (let idx = 0; idx < tasksWithTimes.length; idx++) {
-          const task = tasksWithTimes[idx];
-          if (!task.title?.trim()) continue;
-          await createLotTask(intervention.intervention_id, {
-            title: task.title.trim(),
-            description: task.description?.trim() || null,
-            dueDate: task.end_date ?? task.start_date ?? null,
-            orderIndex: idx,
-            status: "todo",
-          });
+          const tasksWithTimes = addDefaultTimesToPlanningTasks(intervention.suggested_tasks, globalDaySlots);
+
+          for (let idx = 0; idx < tasksWithTimes.length; idx++) {
+            const task = tasksWithTimes[idx];
+            if (!task.title?.trim()) continue;
+            await createLotTask(intervention.intervention_id, {
+              title: task.title.trim(),
+              description: task.description?.trim() || null,
+              dueDate: task.end_date ?? task.start_date ?? null,
+              orderIndex: idx,
+              status: "todo",
+            });
+          }
+        }
+      }
+
+      // Si le planning propose de nouvelles interventions, supprimer d'abord
+      // tous les lots existants qui n'ont pas de tâches terminées
+      // (pour éviter les doublons à chaque validation)
+      if (hasNewInterventions) {
+        try {
+          const existingLots = await fetchLotsForProject(projectId);
+          for (const lot of existingLots) {
+            // Conserver les lots référencés dans existing_interventions (déjà gérés ci-dessus)
+            if (existingInterventionIds.has(lot.id)) continue;
+            // Conserver les lots avec des tâches terminées (travail réel accompli)
+            if (lot.tasksDone > 0) continue;
+            // Supprimer les autres (interventions vides ou sans tâche complétée)
+            try {
+              await deleteLot(lot.id);
+            } catch {
+              // Ignorer les erreurs de suppression individuelle, continuer
+            }
+          }
+        } catch {
+          // Non bloquant — on continue même si la récupération échoue
         }
       }
 
@@ -784,6 +846,10 @@ export function AssistantTab({
           description: newIntervention.reason?.trim() || null,
           status: "planifie",
         });
+
+        if (newIntervention.suggested_color) {
+          setLotLabelColor(user?.id, lotId, newIntervention.suggested_color);
+        }
 
         const tasksWithTimes = addDefaultTimesToPlanningTasks(newIntervention.suggested_tasks, globalDaySlots);
         for (let idx = 0; idx < tasksWithTimes.length; idx++) {
@@ -801,7 +867,7 @@ export function AssistantTab({
 
       setPendingPlanningProposal(null);
       setPendingProposal(null);
-      setAssistantNotice("Planning appliqué avec succès. Les tâches des interventions concernées ont été remplacées.");
+      setAssistantNotice("Planning appliqué avec succès. Les anciennes interventions ont été remplacées.");
       await loadProject();
     } catch (err: any) {
       setAssistantError(err?.message ?? "Impossible d'appliquer le planning.");
@@ -879,6 +945,7 @@ export function AssistantTab({
                 Vous pouvez poser vos questions, mais la modification du planning est réservée aux professionnels.
               </div>
             )}
+
             <div
               ref={assistantMessagesContainerRef}
               className="flex-1 min-h-0 space-y-3 overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 sm:p-6"
@@ -911,6 +978,22 @@ export function AssistantTab({
                       </div>
                     )}
                     <ChatMessageMarkdown content={msg.content} />
+                    {msg.role === "assistant" && msg.planningProposal && (
+                      <div className="mt-3 pt-2 border-t border-neutral-200">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPendingPlanningProposal(msg.planningProposal);
+                            setPendingProposal(null);
+                            setShowPlanningWindow(true);
+                          }}
+                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-primary-300 text-primary-700 bg-primary-50 hover:bg-primary-100 hover:border-primary-400 transition-colors shadow-sm"
+                        >
+                          <CalendarDays className="w-4 h-4" />
+                          Voir la proposition de planning
+                        </button>
+                      </div>
+                    )}
                     {msg.role === "assistant" && msg.suggestions && msg.suggestions.length > 0 && (
                       <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-neutral-200">
                         {msg.suggestions.map((q, i) => (
@@ -1046,149 +1129,30 @@ export function AssistantTab({
           </CardContent>
         </Card>
 
-        {userRole === "professionnel" && false && (
+        {userRole === "professionnel" && showPlanningWindow && pendingPlanningProposal && (
+          <PlanningProposalWindow
+            proposal={pendingPlanningProposal}
+            onValidate={applyPlanningProposal}
+            onCancel={() => {
+              setPendingPlanningProposal(null);
+              setPendingProposal(null);
+              setShowPlanningWindow(false);
+            }}
+          />
+        )}
+
+        {userRole === "professionnel" && showPlanningWindow && pendingProposal && !pendingPlanningProposal && (
           <Card>
-            <CardHeader>
-              <div className="font-semibold text-gray-900">Proposition de planning</div>
-              <div className="text-sm text-gray-500">À valider avant insertion des tâches et interventions.</div>
+            <CardHeader className="flex flex-row items-start justify-between">
+              <div>
+                <div className="font-semibold text-gray-900">Proposition de planning</div>
+                <div className="text-sm text-gray-500">À valider avant insertion des tâches et interventions.</div>
+              </div>
+              <Button variant="ghost" onClick={() => setShowPlanningWindow(false)} className="h-8 w-8 p-0 text-gray-500 hover:text-gray-900">
+                <X className="h-4 w-4" />
+              </Button>
             </CardHeader>
             <CardContent className="space-y-4">
-              {!pendingProposal && !pendingPlanningProposal && (
-                <div className="text-sm text-gray-500">
-                  Aucune proposition pour le moment. Demandez un planning à l'assistant.
-                </div>
-              )}
-
-              {pendingPlanningProposal && (
-                <div className="space-y-4">
-                  {pendingPlanningProposal?.summary && (
-                    <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
-                      {pendingPlanningProposal?.summary}
-                    </div>
-                  )}
-
-                  {(pendingPlanningProposal?.warnings?.length ?? 0) > 0 && (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 space-y-1">
-                      {(pendingPlanningProposal?.warnings ?? []).map((w: any, i: number) => (
-                        <div key={i}>{w}</div>
-                      ))}
-                    </div>
-                  )}
-
-                  {(pendingPlanningProposal?.existing_interventions?.length ?? 0) > 0 && (
-                    <div className="space-y-3">
-                      <div className="text-sm font-semibold text-gray-800">Interventions existantes</div>
-                      {(pendingPlanningProposal?.existing_interventions ?? []).map((intervention: any) => (
-                        <div key={intervention.intervention_id} className="rounded-lg border border-gray-200 p-3 bg-white space-y-2">
-                          <div className="font-medium text-gray-900">{intervention.intervention_name}</div>
-                          {intervention.existing_tasks.length > 0 && (
-                            <div className="space-y-1">
-                              {intervention.existing_tasks.map((task: any) => (
-                                <div key={task.task_id} className="text-xs text-gray-600 flex items-center gap-2">
-                                  <span className={cn(
-                                    "inline-block w-2 h-2 rounded-full",
-                                    task.status === "done" ? "bg-green-500" : task.status === "in_progress" ? "bg-blue-500" : "bg-gray-400"
-                                  )} />
-                                  {task.title}
-                                  {task.note && <span className="text-amber-600">({task.note})</span>}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {intervention.suggested_tasks.length > 0 && (
-                            <div className="space-y-1 border-t border-dashed border-gray-200 pt-2">
-                              <div className="text-xs font-medium text-indigo-700">Tâches suggérées :</div>
-                              {intervention.suggested_tasks.map((task: any, idx: number) => (
-                                <div key={idx} className="text-xs text-gray-700 pl-2 border-l-2 border-indigo-300">
-                                  <span className="font-medium">{task.title}</span>
-                                  {task.start_date && task.end_date && (
-                                    <span className="text-gray-500 ml-1">({task.start_date} → {task.end_date})</span>
-                                  )}
-                                  {task.description && <div className="text-gray-500 italic">{task.description}</div>}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {pendingSuggestedInterventions.length > 0 && (
-                    <div className="space-y-3">
-                      <div className="text-sm font-semibold text-emerald-800">Nouvelles interventions suggérées</div>
-                      {pendingSuggestedInterventions.map((intervention: any, iIdx: number) => (
-                        <div key={iIdx} className="rounded-lg border border-emerald-200 bg-emerald-50/30 p-3 space-y-2">
-                          <div className="font-medium text-gray-900">
-                            {intervention.name}
-                            {intervention.lot_type && (
-                              <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">{intervention.lot_type}</span>
-                            )}
-                          </div>
-                          {intervention.reason && (
-                            <div className="text-xs text-gray-600 italic">{intervention.reason}</div>
-                          )}
-                          {intervention.suggested_tasks.length > 0 && (
-                            <div className="space-y-1">
-                              {intervention.suggested_tasks.map((task: any, tIdx: number) => (
-                                <div key={tIdx} className="text-xs text-gray-700 pl-2 border-l-2 border-emerald-300">
-                                  <span className="font-medium">{task.title}</span>
-                                  {task.start_date && task.end_date && (
-                                    <span className="text-gray-500 ml-1">({task.start_date} → {task.end_date})</span>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {pendingNextWeekPriorities.length > 0 && (
-                    <div className="space-y-1">
-                      <div className="text-sm font-semibold text-gray-800">Priorités de la semaine</div>
-                      {pendingNextWeekPriorities.map((p: string, i: number) => (
-                        <div key={i} className="text-xs text-gray-700">{i + 1}. {p}</div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                    Valider ajoutera les interventions et tâches suggérées au projet.
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      onClick={applyPlanningProposal}
-                      disabled={applyLoading || !canUseAssistantPlanning}
-                    >
-                      {applyLoading ? "Application..." : "Valider le planning"}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setPendingPlanningProposal(null);
-                        setPendingProposal(null);
-                        sendAssistantMessage("Refais un autre planning, plus adapté.", { forcePlan: true });
-                      }}
-                      disabled={assistantLoading || !canUseAssistantPlanning}
-                    >
-                      Refaire
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        setPendingPlanningProposal(null);
-                        setPendingProposal(null);
-                      }}
-                    >
-                      Annuler
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {pendingProposal && !pendingPlanningProposal && (
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-gray-800">Résumé du planning</label>
@@ -1265,14 +1229,16 @@ export function AssistantTab({
                     </Button>
                     <Button
                       variant="outline"
-                      onClick={() => sendAssistantMessage("Refais un autre planning, plus adapté.", { forcePlan: true })}
+                      onClick={() => {
+                        setShowPlanningWindow(false);
+                        sendAssistantMessage("Refais un autre planning, plus adapté.", { forcePlan: true });
+                      }}
                       disabled={assistantLoading || !canUseAssistantPlanning}
                     >
                       Refaire
                     </Button>
                   </div>
                 </div>
-              )}
             </CardContent>
           </Card>
         )}

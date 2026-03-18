@@ -311,37 +311,43 @@ export default function InterventionPage() {
   }, [tasks, todayKey]);
 
   const parseTaskTime = (task: LotTask): { dateKey: string | null; startHour: number | null; endHour: number | null; timeLabel: string | null; cleanDesc: string | null } => {
-    if (!task.dueDate) return { dateKey: null, startHour: null, endHour: null, timeLabel: null, cleanDesc: task.description };
-    const dateKey = task.dueDate.substring(0, 10);
-    // Check time in description "[[time:HH:MM-HH:MM]] ..." (main format)
-    if (task.description) {
-      const match = task.description.match(/^\[\[time:(\d{2}:\d{2})-(\d{2}:\d{2})\]\]\s*(.*)?$/);
-      if (match) {
-        const [startH, startM] = match[1].split(":").map(Number);
-        const [endH, endM] = match[2].split(":").map(Number);
-        return {
-          dateKey,
-          startHour: startH + startM / 60,
-          endHour: endH + endM / 60,
-          timeLabel: `${match[1]} - ${match[2]}`,
-          cleanDesc: (match[3] ?? "").trim() || null,
-        };
+    let dateKey = task.dueDate ? task.dueDate.substring(0, 10) : null;
+    let startHour: number | null = null;
+    let endHour: number | null = null;
+    let timeLabel: string | null = null;
+    let cleanDesc = task.description || null;
+
+    if (cleanDesc) {
+      const startMatch = cleanDesc.match(/\[\[(?:start|date):(\d{4}-\d{2}-\d{2})\]\]/);
+      if (startMatch) {
+         if (!dateKey) dateKey = startMatch[1];
+         cleanDesc = cleanDesc.replace(startMatch[0], "");
       }
-      // Fallback: "[HH:MM-HH:MM] ..." (from AI proposals)
-      const matchAlt = task.description.match(/^\[(\d{2}:\d{2})-(\d{2}:\d{2})\]\s*/);
-      if (matchAlt) {
-        const [startH, startM] = matchAlt[1].split(":").map(Number);
-        const [endH, endM] = matchAlt[2].split(":").map(Number);
-        return {
-          dateKey,
-          startHour: startH + startM / 60,
-          endHour: endH + endM / 60,
-          timeLabel: `${matchAlt[1]} - ${matchAlt[2]}`,
-          cleanDesc: task.description.substring(matchAlt[0].length).trim() || null,
-        };
+
+      const timeMatch = cleanDesc.match(/\[\[time:(\d{2}:\d{2})-(\d{2}:\d{2})\]\]/);
+      if (timeMatch) {
+        const [startH, startM] = timeMatch[1].split(":").map(Number);
+        const [endH, endM] = timeMatch[2].split(":").map(Number);
+        startHour = startH + startM / 60;
+        endHour = endH + endM / 60;
+        timeLabel = `${timeMatch[1]} - ${timeMatch[2]}`;
+        cleanDesc = cleanDesc.replace(timeMatch[0], "");
+      } else {
+        const altTimeMatch = cleanDesc.match(/\[(\d{2}:\d{2})-(\d{2}:\d{2})\]/);
+        if (altTimeMatch) {
+          const [startH, startM] = altTimeMatch[1].split(":").map(Number);
+          const [endH, endM] = altTimeMatch[2].split(":").map(Number);
+          startHour = startH + startM / 60;
+          endHour = endH + endM / 60;
+          timeLabel = `${altTimeMatch[1]} - ${altTimeMatch[2]}`;
+          cleanDesc = cleanDesc.replace(altTimeMatch[0], "");
+        }
       }
+
+      cleanDesc = cleanDesc.trim();
     }
-    return { dateKey, startHour: null, endHour: null, timeLabel: null, cleanDesc: task.description };
+
+    return { dateKey, startHour, endHour, timeLabel, cleanDesc: cleanDesc || null };
   };
 
   const tasksByDay = useMemo(() => {
@@ -612,31 +618,22 @@ export default function InterventionPage() {
 
   const openEditTask = (task: LotTask) => {
     setEditingTask(task);
-    // Parse time from description
+    const parsed = parseTaskTime(task);
     let startTime = "";
     let endTime = "";
-    let cleanDesc = task.description ?? "";
-    if (task.description) {
-      const match = task.description.match(/^\[\[time:(\d{2}:\d{2})-(\d{2}:\d{2})\]\]\s*(.*)?$/);
-      if (match) {
-        startTime = match[1];
-        endTime = match[2];
-        cleanDesc = (match[3] ?? "").trim();
-      } else {
-        const matchAlt = task.description.match(/^\[(\d{2}:\d{2})-(\d{2}:\d{2})\]\s*(.*)?$/);
-        if (matchAlt) {
-          startTime = matchAlt[1];
-          endTime = matchAlt[2];
-          cleanDesc = (matchAlt[3] ?? "").trim();
-        }
+    if (parsed.timeLabel) {
+      const parts = parsed.timeLabel.split(" - ");
+      if (parts.length === 2) {
+        startTime = parts[0];
+        endTime = parts[1];
       }
     }
     setEditForm({
       title: task.title,
-      dueDate: task.dueDate?.substring(0, 10) ?? "",
+      dueDate: task.dueDate?.substring(0, 10) ?? parsed.dateKey ?? "",
       startTime,
       endTime,
-      description: cleanDesc,
+      description: parsed.cleanDesc ?? "",
       assignedTo: task.assignedTo ?? "",
       status: task.status,
     });
