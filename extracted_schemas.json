@@ -1,0 +1,335 @@
+{
+  "pro_tag_scores": {
+    "id": {
+      "default": "gen_random_uuid()",
+      "description": "Note:\nThis is a Primary Key.<pk/>",
+      "format": "uuid",
+      "type": "string"
+    },
+    "pro_id": {
+      "description": "Note:\nThis is a Foreign Key to `profiles.id`.<fk table='profiles' column='id'/>",
+      "format": "uuid",
+      "type": "string"
+    },
+    "tag": {
+      "format": "text",
+      "type": "string"
+    },
+    "confidence": {
+      "default": 0,
+      "format": "numeric",
+      "type": "number"
+    },
+    "evidence_count": {
+      "default": 0,
+      "format": "integer",
+      "type": "integer"
+    },
+    "last_seen_at": {
+      "format": "timestamp with time zone",
+      "type": "string"
+    },
+    "source": {
+      "format": "text",
+      "type": "string"
+    },
+    "created_at": {
+      "default": "now()",
+      "format": "timestamp with time zone",
+      "type": "string"
+    },
+    "updated_at": {
+      "default": "now()",
+      "format": "timestamp with time zone",
+      "type": "string"
+    }
+  },
+  "project_members": {
+    "id": {
+      "default": "gen_random_uuid()",
+      "description": "Note:\nThis is a Primary Key.<pk/>",
+      "format": "uuid",
+      "type": "string"
+    },
+    "project_id": {
+      "description": "Note:\nThis is a Foreign Key to `projects.id`.<fk table='projects' column='id'/>",
+      "format": "uuid",
+      "type": "string"
+    },
+    "user_id": {
+      "description": "Note:\nThis is a Foreign Key to `profiles.id`.<fk table='profiles' column='id'/>",
+      "format": "uuid",
+      "type": "string"
+    },
+    "invited_email": {
+      "format": "text",
+      "type": "string"
+    },
+    "role": {
+      "format": "text",
+      "type": "string"
+    },
+    "status": {
+      "default": "pending",
+      "format": "text",
+      "type": "string"
+    },
+    "invited_at": {
+      "default": "now()",
+      "format": "timestamp with time zone",
+      "type": "string"
+    },
+    "invited_by": {
+      "description": "Note:\nThis is a Foreign Key to `profiles.id`.<fk table='profiles' column='id'/>",
+      "format": "uuid",
+      "type": "string"
+    },
+    "accepted_at": {
+      "format": "timestamp with time zone",
+      "type": "string"
+    }
+  },
+  "profiles": {
+    "id": {
+      "description": "Note:\nThis is a Primary Key.<pk/>",
+      "format": "uuid",
+      "type": "string"
+    },
+    "full_name": {
+      "format": "text",
+      "type": "string"
+    },
+    "company": {
+      "format": "text",
+      "type": "string"
+    },
+    "role": {
+      "format": "text",
+      "type": "string"
+    },
+    "created_at": {
+      "default": "now()",
+      "format": "timestamp with time zone",
+      "type": "string"
+    },
+    "email": {
+      "format": "text",
+      "type": "string"
+    },
+    "phone": {
+      "format": "text",
+      "type": "string"
+    },
+    "company_name": {
+      "format": "text",
+      "type": "string"
+    },
+    "siret": {
+      "format": "text",
+      "type": "string"
+    },
+    "user_type": {
+      "default": "client",
+      "format": "text",
+      "type": "string"
+    },
+    "avatar_url": {
+      "format": "text",
+      "type": "string"
+    },
+    "address": {
+      "format": "text",
+      "type": "string"
+    },
+    "city": {
+      "format": "text",
+      "type": "string"
+    },
+    "postal_code": {
+      "format": "text",
+      "type": "string"
+    },
+    "updated_at": {
+      "default": "now()",
+      "format": "timestamp with time zone",
+      "type": "string"
+    },
+    "company_description": {
+      "format": "text",
+      "type": "string"
+    },
+    "company_website": {
+      "format": "text",
+      "type": "string"
+    },
+    "public_portfolio_enabled": {
+      "default": false,
+      "format": "boolean",
+      "type": "boolean"
+    },
+    "preferences": {
+      "format": "jsonb"
+    },
+    "display_name": {
+      "format": "text",
+      "type": "string"
+    },
+    "rating_avg": {
+      "format": "numeric",
+      "type": "number"
+    },
+    "rating_count": {
+      "default": 0,
+      "format": "integer",
+      "type": "integer"
+    }
+  },
+  "public_pro_profiles": {
+    "pro_id": {
+      "description": "Note:\nThis is a Primary Key.<pk/>",
+      "format": "uuid",
+      "type": "string"
+    },
+    "display_name": {
+      "format": "text",
+      "type": "string"
+    },
+    "company_name": {
+      "format": "text",
+      "type": "string"
+    },
+    "city": {
+      "format": "text",
+      "type": "string"
+    },
+    "postal_code": {
+      "format": "text",
+      "type": "string"
+    },
+    "company_description": {
+      "format": "text",
+      "type": "string"
+    },
+    "company_website": {
+      "format": "text",
+      "type": "string"
+    },
+    "email": {
+      "format": "text",
+      "type": "string"
+    },
+    "phone": {
+      "format": "text",
+      "type": "string"
+    },
+    "address": {
+      "format": "text",
+      "type": "string"
+    },
+    "rating_avg": {
+      "format": "numeric",
+      "type": "number"
+    },
+    "rating_count": {
+      "format": "integer",
+      "type": "integer"
+    }
+  },
+  "lots": {
+    "id": {
+      "default": "gen_random_uuid()",
+      "description": "Note:\nThis is a Primary Key.<pk/>",
+      "format": "uuid",
+      "type": "string"
+    },
+    "phase_id": {
+      "description": "Note:\nThis is a Foreign Key to `phases.id`.<fk table='phases' column='id'/>",
+      "format": "uuid",
+      "type": "string"
+    },
+    "name": {
+      "format": "text",
+      "type": "string"
+    },
+    "description": {
+      "format": "text",
+      "type": "string"
+    },
+    "lot_type": {
+      "format": "text",
+      "type": "string"
+    },
+    "company_name": {
+      "format": "text",
+      "type": "string"
+    },
+    "company_contact_name": {
+      "format": "text",
+      "type": "string"
+    },
+    "company_contact_email": {
+      "format": "text",
+      "type": "string"
+    },
+    "company_contact_phone": {
+      "format": "text",
+      "type": "string"
+    },
+    "responsible_user_id": {
+      "description": "Note:\nThis is a Foreign Key to `profiles.id`.<fk table='profiles' column='id'/>",
+      "format": "uuid",
+      "type": "string"
+    },
+    "start_date": {
+      "format": "date",
+      "type": "string"
+    },
+    "end_date": {
+      "format": "date",
+      "type": "string"
+    },
+    "estimated_duration_days": {
+      "format": "integer",
+      "type": "integer"
+    },
+    "actual_duration_days": {
+      "format": "integer",
+      "type": "integer"
+    },
+    "delay_days": {
+      "default": 0,
+      "format": "integer",
+      "type": "integer"
+    },
+    "budget_estimated": {
+      "default": 0,
+      "format": "numeric",
+      "type": "number"
+    },
+    "budget_actual": {
+      "default": 0,
+      "format": "numeric",
+      "type": "number"
+    },
+    "status": {
+      "default": "planifie",
+      "format": "text",
+      "type": "string"
+    },
+    "progress_percentage": {
+      "default": 0,
+      "format": "integer",
+      "type": "integer"
+    },
+    "created_at": {
+      "default": "now()",
+      "format": "timestamp with time zone",
+      "type": "string"
+    },
+    "updated_at": {
+      "default": "now()",
+      "format": "timestamp with time zone",
+      "type": "string"
+    }
+  }
+}

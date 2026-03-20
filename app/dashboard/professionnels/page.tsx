@@ -453,8 +453,27 @@ export default function ProfessionnelsPage() {
         if (ac !== bc) return bc - ac;
         return withTieBreaker(a, b);
       });
+    } else if (sortBy === "score") {
+      rows.sort((a: any, b: any) => {
+        const as = extractNumber(a?.raw?.score) ?? 0;
+        const bs = extractNumber(b?.raw?.score) ?? 0;
+        if (as !== bs) return bs - as;
+        // Petit tie-breaker: nombre d'avis
+        const ac = a?.rating?.count ?? 0;
+        const bc = b?.rating?.count ?? 0;
+        if (ac !== bc) return bc - ac;
+        return withTieBreaker(a, b);
+      });
+    } else if (sortBy === "popularite") {
+      rows.sort((a: any, b: any) => {
+        const ap = a.rating.count ?? 0;
+        const bp = b.rating.count ?? 0;
+        if (ap !== bp) return bp - ap;
+        return withTieBreaker(a, b);
+      });
     } else {
-      rows.sort((a, b) => {
+      // Fallback: popularite
+      rows.sort((a: any, b: any) => {
         const ap = a.rating.count ?? 0;
         const bp = b.rating.count ?? 0;
         if (ap !== bp) return bp - ap;

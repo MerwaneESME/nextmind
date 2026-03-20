@@ -1,0 +1,35 @@
+[
+  {
+    "id": "b4f2cd7a-9f8a-4841-801f-2cab742c28b3",
+    "pro_id": "00000000-0000-0000-0000-000000000127",
+    "tag": "chauffage",
+    "confidence": 0.81,
+    "evidence_count": 9,
+    "last_seen_at": "2026-01-19T21:24:35.942817+00:00",
+    "source": "computed",
+    "created_at": "2026-03-15T03:00:00.173988+00:00",
+    "updated_at": "2026-03-15T03:00:00.173988+00:00"
+  },
+  {
+    "id": "dac05a82-e1b5-4dee-9e10-55669de23783",
+    "pro_id": "00000000-0000-0000-0000-000000000137",
+    "tag": "peinture",
+    "confidence": 0.83,
+    "evidence_count": 9,
+    "last_seen_at": "2026-01-19T21:24:35.942817+00:00",
+    "source": "computed",
+    "created_at": "2026-03-15T03:00:00.173988+00:00",
+    "updated_at": "2026-03-15T03:00:00.173988+00:00"
+  },
+  {
+    "id": "9aa6858c-dfac-4712-af66-27a5a106eeb0",
+    "pro_id": "00000000-0000-0000-0000-000000000118",
+    "tag": "gros_oeuvre",
+    "confidence": 0.84,
+    "evidence_count": 9,
+    "last_seen_at": "2026-01-19T21:24:35.942817+00:00",
+    "source": "computed",
+    "created_at": "2026-03-15T03:00:00.173988+00:00",
+    "updated_at": "2026-03-15T03:00:00.173988+00:00"
+  }
+]
