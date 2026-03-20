@@ -104,7 +104,7 @@ async function main() {
   }
 
   const supabase = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
-  const basePassword = "NextMind2024!";
+  const basePassword = "Artisia2024!";
 
   // Récupérer les pro_ids par company_name
   const { data: proProfiles } = await supabase

@@ -104,8 +104,8 @@ export default function RegisterPage() {
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center mb-4">
             <img
-              src="/images/nextmind.png"
-              alt="NextMind"
+              src="/images/artisia_bgremove.png"
+              alt="Artisia"
               className="h-8 w-auto logo-blend"
             />
           </Link>

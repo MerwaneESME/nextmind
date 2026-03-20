@@ -15,7 +15,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { DocumentPreviewTrigger } from "@/components/documents/DocumentPreviewModal";
 
-const APERCU_RECAP_KEY = "nextmind_apercu_recap";
+const APERCU_RECAP_KEY = "artisia_apercu_recap";
 
 function formatDateFr(dateStr: string | null) {
   if (!dateStr) return "-";

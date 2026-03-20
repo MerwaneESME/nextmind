@@ -79,7 +79,7 @@ export const lotLabelColorByKey = LOT_LABEL_COLORS.reduce(
   {} as Record<LotLabelColorKey, (typeof LOT_LABEL_COLORS)[number]>
 );
 
-const STORAGE_KEY = "nextmind.lotLabelColors";
+const STORAGE_KEY = "artisia.lotLabelColors";
 
 export function getLotLabelColor(
   userId: string | null | undefined,

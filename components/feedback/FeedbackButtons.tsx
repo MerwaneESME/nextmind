@@ -15,7 +15,7 @@ interface FeedbackButtonsProps {
 /**
  * FeedbackButtons - Boutons thumbs up/down pour noter les réponses de l'assistant
  *
- * Design: Style NextMind avec couleurs primaires (#38b6ff) et transitions douces
+ * Design: Style Artisia avec couleurs primaires (#38b6ff) et transitions douces
  *
  * @example
  * ```tsx

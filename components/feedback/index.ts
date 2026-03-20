@@ -1,8 +1,8 @@
 /**
  * Feedback System Components
  *
- * Système de feedback utilisateur pour NextMind
- * Style: Cohérent avec le design system NextMind
+ * Système de feedback utilisateur pour Artisia
+ * Style: Cohérent avec le design system Artisia
  */
 
 export { default as FeedbackButtons } from "./FeedbackButtons";

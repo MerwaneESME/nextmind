@@ -4,8 +4,8 @@ import { PublicLayout } from "@/components/layout/PublicLayout";
 import { Mail, MessageSquare, HelpCircle } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "Contact | NEXTMIND",
-  description: "Contactez l'équipe NEXTMIND pour toute question ou demande.",
+  title: "Contact | ARTISIA",
+  description: "Contactez l'équipe ARTISIA pour toute question ou demande.",
 };
 
 export default function ContactPage() {
@@ -25,10 +25,10 @@ export default function ContactPage() {
               Pour toute demande générale ou partenariat :
             </p>
             <a
-              href="mailto:contact@nextmind.fr"
+              href="mailto:contact@artisia.fr"
               className="text-primary-600 hover:underline font-medium"
             >
-              contact@nextmind.fr
+              contact@artisia.fr
             </a>
           </div>
 

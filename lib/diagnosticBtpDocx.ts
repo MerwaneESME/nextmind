@@ -67,7 +67,7 @@ async function readLogoData(logoPath: string | undefined): Promise<Uint8Array | 
       ? path.isAbsolute(logoPath)
         ? logoPath
         : path.join(process.cwd(), logoPath)
-      : path.join(process.cwd(), "public", "images", "nextmind.png");
+      : path.join(process.cwd(), "public", "images", "artisia_bgremove.png");
 
   try {
     const buffer = await fs.readFile(resolved);
@@ -349,7 +349,7 @@ function footerBlock(): Footer {
         spacing: { before: 150 },
         children: [
           new TextRun({
-            text: "Document généré par NEXTMIND",
+            text: "Document généré par ARTISIA",
             bold: true,
             color: colors.primaryBlue,
             size: 20, // 10pt

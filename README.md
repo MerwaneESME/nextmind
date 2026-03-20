@@ -1,4 +1,4 @@
-# NEXTMIND
+# ARTISIA
 
 **Tout sur le BTP pour mieux vous accompagner**
 
@@ -49,7 +49,7 @@ Le site sera accessible sur [http://localhost:3000](http://localhost:3000)
 ## 📁 Structure du projet
 
 ```
-Site_NextMind/
+Site_Artisia/
 ├── app/                    # Pages Next.js (App Router)
 │   ├── dashboard/         # Dashboards utilisateurs
 │   ├── chat/              # Page chat IA dédiée
@@ -130,5 +130,5 @@ L'authentification est actuellement simulée. Pour intégrer Supabase :
 
 ## 📄 Licence
 
-Propriétaire - NEXTMIND
+Propriétaire - ARTISIA
 

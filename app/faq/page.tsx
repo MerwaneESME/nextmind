@@ -2,14 +2,14 @@ import type { Metadata } from "next";
 import { PublicLayout } from "@/components/layout/PublicLayout";
 
 export const metadata: Metadata = {
-  title: "FAQ | NEXTMIND",
-  description: "Questions fréquentes sur la plateforme NEXTMIND et les services BTP.",
+  title: "FAQ | ARTISIA",
+  description: "Questions fréquentes sur la plateforme ARTISIA et les services BTP.",
 };
 
 const faqs = [
   {
-    q: "Qu'est-ce que NEXTMIND ?",
-    a: "NEXTMIND est une plateforme qui met en relation particuliers et professionnels du BTP. Elle propose un assistant IA pour vous accompagner dans vos projets (rénovation, construction, etc.) et faciliter la recherche de devis et le suivi des interventions.",
+    q: "Qu'est-ce que ARTISIA ?",
+    a: "ARTISIA est une plateforme qui met en relation particuliers et professionnels du BTP. Elle propose un assistant IA pour vous accompagner dans vos projets (rénovation, construction, etc.) et faciliter la recherche de devis et le suivi des interventions.",
   },
   {
     q: "Comment créer un projet ?",
@@ -39,7 +39,7 @@ export default function FaqPage() {
       <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <h1 className="text-4xl font-bold text-gray-900 mb-4">Questions fréquentes</h1>
         <p className="text-lg text-gray-600 mb-12">
-          Retrouvez les réponses aux questions les plus posées sur NEXTMIND et nos services.
+          Retrouvez les réponses aux questions les plus posées sur ARTISIA et nos services.
         </p>
 
         <dl className="space-y-8">

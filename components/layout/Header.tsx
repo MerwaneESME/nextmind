@@ -406,7 +406,7 @@ export function Header({ user }: HeaderProps) {
         className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[55%] flex items-center hover:opacity-75 transition-opacity focus-visible:outline-none rounded"
         aria-label="Retour au tableau de bord"
       >
-        <img src="/images/nextmind.png" alt="NextMind" className="h-12 w-auto" />
+        <img src="/images/artisia_bgremove.png" alt="Artisia" className="h-12 w-auto" />
       </button>
 
       {/* Right side — notifications + user pill */}

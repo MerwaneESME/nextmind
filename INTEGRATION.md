@@ -1,6 +1,6 @@
-# Guide d'intégration NEXTMIND
+# Guide d'intégration ARTISIA
 
-Ce document décrit les étapes pour intégrer Supabase et l'API IA dans le projet NEXTMIND.
+Ce document décrit les étapes pour intégrer Supabase et l'API IA dans le projet ARTISIA.
 
 ## 🔐 Intégration Supabase
 

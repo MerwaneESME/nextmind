@@ -3,8 +3,8 @@ import { PublicLayout } from "@/components/layout/PublicLayout";
 import { Bot, Users, FileText, BarChart3, MessageSquare, Shield } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "Fonctionnalités | NEXTMIND",
-  description: "Découvrez les fonctionnalités de la plateforme NEXTMIND pour le BTP.",
+  title: "Fonctionnalités | ARTISIA",
+  description: "Découvrez les fonctionnalités de la plateforme ARTISIA pour le BTP.",
 };
 
 export default function FonctionnalitesPage() {
@@ -46,7 +46,7 @@ export default function FonctionnalitesPage() {
       <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <h1 className="text-4xl font-bold text-gray-900 mb-4">Fonctionnalités</h1>
         <p className="text-lg text-gray-600 mb-12">
-          NEXTMIND met à votre disposition un ensemble d&apos;outils pour simplifier vos projets BTP,
+          ARTISIA met à votre disposition un ensemble d&apos;outils pour simplifier vos projets BTP,
           de la conception à la réalisation.
         </p>
 

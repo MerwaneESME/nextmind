@@ -4,7 +4,7 @@
 -- IMPORTANT : ce fichier ne modifie pas ta base tout seul.
 -- Tu DOIS exécuter ce SQL dans le projet Supabase :
 --   1. Ouvre https://supabase.com/dashboard
---   2. Sélectionne ton projet (nextmind)
+--   2. Sélectionne ton projet (artisia)
 --   3. Menu de gauche : SQL Editor
 --   4. New query
 --   5. Copie-colle TOUT le bloc ci-dessous (entre BEGIN et COMMIT)

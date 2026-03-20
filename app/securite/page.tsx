@@ -3,8 +3,8 @@ import { PublicLayout } from "@/components/layout/PublicLayout";
 import { Shield, Lock, Database, Eye, Server } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "Sécurité | NEXTMIND",
-  description: "Sécurité des données et bonnes pratiques NEXTMIND.",
+  title: "Sécurité | ARTISIA",
+  description: "Sécurité des données et bonnes pratiques ARTISIA.",
 };
 
 const points = [

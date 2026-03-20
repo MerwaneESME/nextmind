@@ -2,7 +2,7 @@
  * Constantes de l'application
  */
 
-export const APP_NAME = "NEXTMIND";
+export const APP_NAME = "ARTISIA";
 export const APP_TAGLINE = "Tout sur le BTP pour mieux vous accompagner";
 
 export const USER_ROLES = {

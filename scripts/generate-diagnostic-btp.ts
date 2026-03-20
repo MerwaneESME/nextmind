@@ -31,7 +31,7 @@ function parseArgs(argv: string[]): Record<string, string | boolean> {
 function defaultInput(): DiagnosticBtpDocInput {
   return {
     projet: "Rénovation Immeuble Haussmann",
-    logoPath: "public/images/nextmind.png",
+    logoPath: "public/images/artisia_bgremove.png",
     sections: [
       {
         titre: "Points de contrôle prioritaires",

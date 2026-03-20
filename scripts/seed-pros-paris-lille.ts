@@ -137,7 +137,7 @@ async function main() {
   }
 
   const supabase = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
-  const basePassword = "NextMind2024!";
+  const basePassword = "Artisia2024!";
 
   const rows: string[][] = [];
   const headers = ["role", "email", "password", "full_name", "company_name", "phone", "address", "city", "postal_code", "siret", "company_website", "company_description", "specialties"];
@@ -154,7 +154,7 @@ async function main() {
     const sectorsList = p.sectors.split(",").map((s) => s.trim()).filter(Boolean);
 
     // Email unique pour auth (éviter doublons si déjà existant)
-    const authEmail = p.email.includes("@") ? p.email : `pro.${randomId()}@nextmind-demo.fr`;
+    const authEmail = p.email.includes("@") ? p.email : `pro.${randomId()}@artisia-demo.fr`;
 
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email: authEmail,

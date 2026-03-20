@@ -3,7 +3,7 @@
 ## Objectif
 Améliorer le **visuel** sur la partie Projet et proposer des changements/idées concrets.  
 **But métier :** faciliter la **communication** sur un projet (petit, moyen ou grand).  
-*Travail uniquement sur nextmind (pas d’autre backend).*
+*Travail uniquement sur artisia (pas d’autre backend).*
 
 ---
 
@@ -39,7 +39,7 @@ Dans l’UI :
 
 ## 2. Assistant IA (hors périmètre actuel)
 
-On ne travaille que sur **nextmind**. L’onglet **Assistant IA** (projet et intervention) est prêt côté UI ; il pourra être branché plus tard à une API de ton choix via `NEXT_PUBLIC_AI_API_URL` et `lib/ai-service.ts`. Pour l’instant, pas besoin de configurer ou tester un backend externe.
+On ne travaille que sur **artisia**. L’onglet **Assistant IA** (projet et intervention) est prêt côté UI ; il pourra être branché plus tard à une API de ton choix via `NEXT_PUBLIC_AI_API_URL` et `lib/ai-service.ts`. Pour l’instant, pas besoin de configurer ou tester un backend externe.
 
 ---
 

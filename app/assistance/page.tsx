@@ -4,8 +4,8 @@ import { PublicLayout } from "@/components/layout/PublicLayout";
 import { BookOpen, Mail, MessageCircle, Search } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "Assistance | NEXTMIND",
-  description: "Assistance et support utilisateur NEXTMIND.",
+  title: "Assistance | ARTISIA",
+  description: "Assistance et support utilisateur ARTISIA.",
 };
 
 export default function AssistancePage() {
@@ -14,7 +14,7 @@ export default function AssistancePage() {
       <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <h1 className="text-4xl font-bold text-gray-900 mb-4">Assistance</h1>
         <p className="text-lg text-gray-600 mb-12">
-          Trouvez de l&apos;aide et des réponses pour utiliser NEXTMIND au quotidien.
+          Trouvez de l&apos;aide et des réponses pour utiliser ARTISIA au quotidien.
         </p>
 
         <div className="space-y-8">

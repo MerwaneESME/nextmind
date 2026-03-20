@@ -1,5 +1,5 @@
 -- ============================================================================
--- NextMind Supabase schema (single file)
+-- Artisia Supabase schema (single file)
 -- This file is intended to be run in Supabase SQL Editor (admin role).
 -- Consolidated / updated on 2026-03-17
 -- ============================================================================

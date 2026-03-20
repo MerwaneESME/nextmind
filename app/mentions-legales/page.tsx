@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { PublicLayout } from "@/components/layout/PublicLayout";
 
 export const metadata: Metadata = {
-  title: "Mentions légales | NEXTMIND",
-  description: "Mentions légales et informations juridiques de NEXTMIND.",
+  title: "Mentions légales | ARTISIA",
+  description: "Mentions légales et informations juridiques de ARTISIA.",
 };
 
 export default function MentionsLegalesPage() {
@@ -17,7 +17,7 @@ export default function MentionsLegalesPage() {
           <section>
             <h2 className="text-2xl font-semibold text-gray-900">Éditeur du site</h2>
             <p>
-              Le site NEXTMIND est édité par NEXTMIND (ou la raison sociale de la société éditrice).
+              Le site ARTISIA est édité par ARTISIA (ou la raison sociale de la société éditrice).
               Siège social : [adresse du siège]. Pour toute question relative aux mentions légales,
               vous pouvez nous contacter via la page{" "}
               <a href="/contact" className="text-primary-600 hover:underline">Contact</a>.
@@ -63,7 +63,7 @@ export default function MentionsLegalesPage() {
           <section>
             <h2 className="text-2xl font-semibold text-gray-900">Limitation de responsabilité</h2>
             <p>
-              NEXTMIND met en relation particuliers et professionnels du BTP. La plateforme ne
+              ARTISIA met en relation particuliers et professionnels du BTP. La plateforme ne
               garantit pas les prestations réalisées par les professionnels. Les contrats et
               engagements sont conclus directement entre les utilisateurs.
             </p>

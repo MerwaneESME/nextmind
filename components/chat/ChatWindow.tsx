@@ -64,7 +64,7 @@ export function ChatWindow({
         ? `phase:${phaseId ?? "unknown"}`
         : `project:${projectId ?? "global"}`;
 
-  const storageKey = `nextmind:conversationId:${userRole}:${userId}:${scopeKey}`;
+  const storageKey = `artisia:conversationId:${userRole}:${userId}:${scopeKey}`;
   const [conversationId, setConversationId] = useState<string>(() => {
     if (typeof window === "undefined") return "";
     return window.localStorage.getItem(storageKey) ?? generateUUID();
@@ -109,7 +109,7 @@ export function ChatWindow({
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "nextmind_checklist_diagnostic.pdf";
+    a.download = "artisia_checklist_diagnostic.pdf";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -223,7 +223,7 @@ export function ChatWindow({
     <div className="chat-container flex flex-col h-full">
       <div className="chat-header">
         <div className="chat-header-left">
-          <h2 className="chat-title">NEXTMIND</h2>
+          <h2 className="chat-title">ARTISIA</h2>
           <span className="chat-subtitle">Assistant IA BTP</span>
         </div>
 

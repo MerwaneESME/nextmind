@@ -8,7 +8,7 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <Link href="/" className="flex items-center">
-              <img src="/images/nextmind.png" alt="NextMind" className="h-8 w-auto" />
+              <img src="/images/artisia_bgremove.png" alt="Artisia" className="h-8 w-auto" />
             </Link>
             <div className="flex items-center gap-4">
               <Link href="/login" className="text-gray-700 hover:text-gray-900 font-medium">
@@ -29,7 +29,7 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
           <div className="grid md:grid-cols-4 gap-8">
             <div>
               <Link href="/" className="flex items-center mb-4">
-                <img src="/images/nextmind.png" alt="NextMind" className="h-8 w-auto" />
+                <img src="/images/artisia_bgremove.png" alt="Artisia" className="h-8 w-auto" />
               </Link>
               <p className="text-gray-400 text-sm">
                 Tout sur le BTP pour mieux vous accompagner.
@@ -73,7 +73,7 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <div className="border-t border-gray-800 mt-8 pt-8 text-center text-sm text-gray-400">
-            <p>&copy; 2024 NEXTMIND. Tous droits réservés.</p>
+            <p>&copy; 2024 ARTISIA. Tous droits réservés.</p>
           </div>
         </div>
       </footer>

@@ -509,6 +509,10 @@ export default function ProfessionnelsPage() {
       lat: p.coords?.lat ?? null,
       lng: p.coords?.lng ?? null,
       addressLabel: p.address ?? null,
+      rating_avg: p.rating?.avg ?? null,
+      rating_count: p.rating?.count ?? null,
+      // Score renvoyé par l'API /pro-search (utile pour le design, optionnel)
+      score: (p.raw as any)?.score ?? null,
     }));
   }, [filteredAndSorted]);
 

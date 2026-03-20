@@ -31,7 +31,7 @@ export type Profile = {
 const PROFILE_FIELDS =
   "id,email,full_name,phone,company_name,siret,user_type,avatar_url,address,city,postal_code,company_description,company_website,public_portfolio_enabled,preferences";
 
-const PENDING_PROFILE_KEY = "nextmind_pending_profile";
+const PENDING_PROFILE_KEY = "artisia_pending_profile";
 
 const loadPendingProfile = () => {
   if (typeof localStorage === "undefined") return null;

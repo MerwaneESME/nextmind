@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -13,6 +13,9 @@ type ProMapItem = {
   lat?: number | null;
   lng?: number | null;
   addressLabel?: string | null;
+  rating_avg?: number | null;
+  rating_count?: number | null;
+  score?: number | null;
 };
 
 type UserLocation = { lat: number; lng: number };
@@ -212,7 +215,6 @@ export function ProfessionnelsMap({
   const mapRef = useRef<any>(null);
   const hoverPopupRef = useRef<any>(null);
   const clickPopupRef = useRef<any>(null);
-  const clusterMarkersRef = useRef<Map<string, any>>(new Map());
   const onSelectProIdRef = useRef<Props["onSelectProId"]>(onSelectProId);
   const onOpenProfileRef = useRef<Props["onOpenProfile"]>(onOpenProfile);
   const onContactRef = useRef<Props["onContact"]>(onContact);
@@ -220,6 +222,38 @@ export function ProfessionnelsMap({
   const didUserInteractRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   const [geocoded, setGeocoded] = useState<Record<string, UserLocation>>({});
+
+  const CLUSTER_POPUP_LIMIT = 8;
+  const CLUSTER_POPUP_MAX_HEIGHT = 260;
+
+  const toBoundsFromLeaves = (leaves: any[]) => {
+    let minLng = Infinity;
+    let minLat = Infinity;
+    let maxLng = -Infinity;
+    let maxLat = -Infinity;
+    for (const leaf of leaves ?? []) {
+      const c = leaf?.geometry?.coordinates;
+      if (!Array.isArray(c) || c.length < 2) continue;
+      const lng = Number(c[0]);
+      const lat = Number(c[1]);
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
+      minLng = Math.min(minLng, lng);
+      minLat = Math.min(minLat, lat);
+      maxLng = Math.max(maxLng, lng);
+      maxLat = Math.max(maxLat, lat);
+    }
+    if (![minLng, minLat, maxLng, maxLat].every(Number.isFinite)) return null;
+    return [
+      [minLng, minLat],
+      [maxLng, maxLat],
+    ] as [[number, number], [number, number]];
+  };
+
+  const selectAndSyncFromClusterLeaves = (leaves: any[]) => {
+    const first = leaves?.[0];
+    const proId = first?.properties?.pro_id ? String(first.properties.pro_id) : null;
+    if (proId) onSelectProIdRef.current?.(proId);
+  };
 
   useEffect(() => {
     onSelectProIdRef.current = onSelectProId;
@@ -263,6 +297,9 @@ export function ProfessionnelsMap({
           postal_code: row.item.postal_code ?? "",
           specialties: (row.item.specialties ?? []).slice(0, 6).join(" • "),
           address: normalizeAddressLabel(row.item) ?? "",
+          rating_avg: row.item.rating_avg ?? null,
+          rating_count: row.item.rating_count ?? null,
+          score: row.item.score ?? null,
         },
       };
     });
@@ -275,7 +312,6 @@ export function ProfessionnelsMap({
 
   useEffect(() => {
     let cancelled = false;
-    const markers = clusterMarkersRef.current;
     const run = async () => {
       try {
         const maplibregl = await ensureMapLibreLoaded();
@@ -347,8 +383,6 @@ export function ProfessionnelsMap({
     return () => {
       cancelled = true;
       try {
-        markers.forEach((marker) => marker?.remove?.());
-        markers.clear();
         hoverPopupRef.current?.remove?.();
         clickPopupRef.current?.remove?.();
         mapRef.current?.remove?.();
@@ -391,94 +425,24 @@ export function ProfessionnelsMap({
         },
       });
 
-      const renderClusterMarkers = () => {
-        if (!map.getSource?.(srcId)) return;
-        const visible = map.queryRenderedFeatures({ layers: ["clusters"] }) ?? [];
-        const nextIds = new Set<string>();
-
-        for (const f of visible) {
-          const props: any = f?.properties ?? {};
-          const id = String(props.cluster_id ?? "");
-          const count = Number(props.point_count ?? 0);
-          const coords = f?.geometry?.coordinates;
-          if (!id || !Array.isArray(coords)) continue;
-          nextIds.add(id);
-
-          if (!clusterMarkersRef.current.has(id)) {
-            const el = document.createElement("button");
-            el.type = "button";
-            const safeCount = Number.isFinite(count) ? Math.max(1, Math.round(count)) : 1;
-            const size = Math.min(56, 34 + Math.floor(Math.log10(safeCount + 1) * 10));
-            el.style.width = `${size}px`;
-            el.style.height = `${size}px`;
-            el.style.borderRadius = "9999px";
-            el.style.border = "2px solid #ffffff";
-            el.style.background = "rgba(40,91,214,0.95)";
-            el.style.color = "#ffffff";
-            el.style.fontWeight = "700";
-            el.style.fontSize = "12px";
-            el.style.boxShadow = "0 10px 22px rgba(0,0,0,0.18)";
-            el.style.display = "grid";
-            el.style.placeItems = "center";
-            el.style.cursor = "pointer";
-            el.dataset.clusterId = id;
-            el.dataset.pointCount = String(safeCount);
-            el.dataset.lng = String(coords[0]);
-            el.dataset.lat = String(coords[1]);
-            el.setAttribute("aria-label", `Cluster ${safeCount} professionnels`);
-
-            el.onclick = () => {
-              const source: any = map.getSource?.(srcId);
-              const clusterId = Number(el.dataset.clusterId);
-              const lng = Number(el.dataset.lng);
-              const lat = Number(el.dataset.lat);
-              const center = Number.isFinite(lng) && Number.isFinite(lat) ? [lng, lat] : coords;
-
-              if (!Number.isFinite(clusterId) || !source?.getClusterExpansionZoom) {
-                map.easeTo({ center, zoom: Math.min((map.getZoom?.() ?? 12) + 2, 18), duration: 260 });
-                return;
-              }
-              source.getClusterExpansionZoom(clusterId, (err: any, zoom: number) => {
-                if (err) {
-                  map.easeTo({ center, zoom: Math.min((map.getZoom?.() ?? 12) + 2, 18), duration: 260 });
-                  return;
-                }
-                map.easeTo({ center, zoom, duration: 260 });
-              });
-            };
-
-            const marker = new (window as any).maplibregl.Marker({ element: el, anchor: "center" })
-              .setLngLat(coords)
-              .addTo(map);
-            clusterMarkersRef.current.set(id, marker);
-          }
-
-          const marker = clusterMarkersRef.current.get(id);
-          const element = marker?.getElement?.() as HTMLButtonElement | undefined;
-          if (element) {
-            const safeCount = Number.isFinite(count) ? Math.max(1, Math.round(count)) : 1;
-            const size = Math.min(56, 34 + Math.floor(Math.log10(safeCount + 1) * 10));
-            element.style.width = `${size}px`;
-            element.style.height = `${size}px`;
-            element.textContent = String(safeCount);
-            element.dataset.pointCount = String(safeCount);
-            element.dataset.lng = String(coords[0]);
-            element.dataset.lat = String(coords[1]);
-            element.setAttribute("aria-label", `Cluster ${safeCount} professionnels`);
-          }
-          marker?.setLngLat?.(coords);
-        }
-
-        for (const [id, marker] of clusterMarkersRef.current.entries()) {
-          if (nextIds.has(id)) continue;
-          marker?.remove?.();
-          clusterMarkersRef.current.delete(id);
-        }
-      };
-
-      map.on("render", renderClusterMarkers);
-      map.on("moveend", renderClusterMarkers);
-      map.on("zoomend", renderClusterMarkers);
+      // (Clusters count text) - rendu sur la couche MapLibre, sans boutons DOM
+      map.addLayer({
+        id: "clusters-count",
+        type: "symbol",
+        source: srcId,
+        filter: ["has", "point_count"],
+        layout: {
+          "text-field": ["get", "point_count"],
+          "text-size": 12,
+          "text-allow-overlap": true,
+          "text-ignore-placement": true,
+        },
+        paint: {
+          "text-color": "#ffffff",
+          "text-halo-color": "rgba(0,0,0,0.35)",
+          "text-halo-width": 1,
+        },
+      });
 
       map.addLayer({
         id: "unclustered-point",
@@ -506,39 +470,217 @@ export function ProfessionnelsMap({
         },
       });
 
-      map.on("click", "clusters", async (e: any) => {
-        const hit = map.queryRenderedFeatures(e.point, { layers: ["clusters"] });
-        const first = hit?.[0];
+      map.on("click", ["clusters", "clusters-count"], async (e: any) => {
+        // Important: si on clique sur la couche "clusters-count" (texte),
+        // un query uniquement sur "clusters" peut renvoyer [].
+        const hit = map.queryRenderedFeatures(e.point, { layers: ["clusters", "clusters-count"] });
+        const first = hit?.find((f: any) => Number.isFinite(Number(f?.properties?.cluster_id))) ?? hit?.[0];
         const clusterId = Number(first?.properties?.cluster_id);
         const pointCount = Number(first?.properties?.point_count);
-        const coords = first?.geometry?.coordinates;
+        let coords = first?.geometry?.coordinates;
+        if (!Array.isArray(coords) && e?.lngLat) {
+          coords = [Number(e.lngLat.lng), Number(e.lngLat.lat)];
+        }
         if (!Array.isArray(coords)) return;
         if (!Number.isFinite(clusterId)) {
-          map.easeTo({ center: coords, zoom: Math.min((map.getZoom?.() ?? 12) + 2, 18), duration: 260 });
-          return;
-        }
-
-        if (Number.isFinite(pointCount) && clickPopupRef.current) {
-          const html = `
-            <div style="min-width:220px">
-              <div style="font-weight:700;color:#111827">Zone avec ${Math.round(pointCount)} professionnel(s)</div>
-              <div style="margin-top:6px;font-size:12px;color:#4b5563">Zoom automatique sur la zone.</div>
-            </div>`;
-          clickPopupRef.current.setLngLat(coords).setHTML(html).addTo(map);
-        }
-
-        const source = map.getSource(srcId);
-        if (!source?.getClusterExpansionZoom) {
-          map.easeTo({ center: coords, zoom: Math.min((map.getZoom?.() ?? 12) + 2, 18), duration: 260 });
-          return;
-        }
-        source.getClusterExpansionZoom(clusterId, (err: any, zoom: number) => {
-          if (err) {
+          try {
             map.easeTo({ center: coords, zoom: Math.min((map.getZoom?.() ?? 12) + 2, 18), duration: 260 });
-            return;
+          } catch {
+            // ignore
           }
-          map.easeTo({ center: coords, zoom, duration: 260 });
-        });
+          return;
+        }
+        // Nota: le clic sur le bouton DOM du cluster est deja couvert par el.onclick.
+        // Ici, on garde un fallback pour les cas ou l'event maplibre est le seul qui se déclenche.
+        const source: any = map.getSource(srcId);
+        if (!source) return;
+
+        // Eviter les popups empilées qui peuvent gêner l'interaction.
+        try {
+          clickPopupRef.current?.remove?.();
+        } catch {
+          // ignore
+        }
+
+        // Zoom immédiat (évite le "plusieurs double-clics" si fitBounds échoue)
+        try {
+          // 1) Feeback immédiat: zoom léger
+          try {
+            const nextZoom = Math.min((map.getZoom?.() ?? 12) + 2, 18);
+            if (typeof map.jumpTo === "function") map.jumpTo({ center: coords, zoom: nextZoom });
+            else map.easeTo({ center: coords, zoom: nextZoom, duration: 0 });
+          } catch {
+            // ignore
+          }
+
+          if (typeof source.getClusterExpansionZoom === "function") {
+            source.getClusterExpansionZoom(clusterId, (err: any, zoom: number) => {
+              if (err || !Number.isFinite(zoom)) return;
+              try {
+                if (typeof map.jumpTo === "function") {
+                  map.jumpTo({ center: coords, zoom });
+                } else {
+                  map.easeTo({ center: coords, zoom, duration: 0 });
+                }
+              } catch {
+                // ignore
+              }
+            });
+          } else {
+            try {
+              if (typeof map.jumpTo === "function") {
+                map.jumpTo({ center: coords, zoom: Math.min((map.getZoom?.() ?? 12) + 2, 18) });
+              } else {
+                map.easeTo({ center: coords, zoom: Math.min((map.getZoom?.() ?? 12) + 2, 18), duration: 0 });
+              }
+            } catch {
+              // ignore
+            }
+          }
+        } catch {
+          // ignore
+        }
+
+        if (typeof source.getClusterLeaves === "function") {
+          source.getClusterLeaves(clusterId, CLUSTER_POPUP_LIMIT, 0, (err: any, leaves: any[]) => {
+            const bounds = toBoundsFromLeaves(leaves);
+            try {
+              if (bounds) map.fitBounds(bounds, { padding: 48, maxZoom: 16, duration: 280 });
+              else map.easeTo({ center: coords, zoom: Math.min((map.getZoom?.() ?? 12) + 2, 18), duration: 260 });
+            } catch {
+              // ignore
+            }
+            selectAndSyncFromClusterLeaves(leaves);
+
+            if (clickPopupRef.current) {
+              const center = coords;
+              const root = document.createElement("div");
+              // Empêche la popup de bloquer le drag/pan sur la map.
+              // Les boutons (rows) gardent `pointerEvents: auto` pour rester cliquables.
+              root.style.pointerEvents = "none";
+              root.style.minWidth = "280px";
+              root.style.maxWidth = "360px";
+
+              const title = document.createElement("div");
+              title.style.fontWeight = "800";
+              title.style.color = "#111827";
+              title.style.marginBottom = "2px";
+              title.textContent = `Zone avec ${Number.isFinite(pointCount) ? Math.round(pointCount) : CLUSTER_POPUP_LIMIT} professionnel(s)`;
+
+              const sub = document.createElement("div");
+              sub.style.fontSize = "12px";
+              sub.style.color = "#6b7280";
+              sub.style.marginBottom = "10px";
+              sub.textContent = "Cliquez pour synchroniser la liste.";
+
+              const list = document.createElement("div");
+              list.style.maxHeight = `${CLUSTER_POPUP_MAX_HEIGHT}px`;
+              list.style.overflow = "auto";
+
+              const effectiveLeaves = leaves?.slice(0, CLUSTER_POPUP_LIMIT) ?? [];
+              for (const leaf of effectiveLeaves) {
+                const proId = leaf?.properties?.pro_id ? String(leaf.properties.pro_id) : null;
+                if (!proId) continue;
+
+                const row = document.createElement("button");
+                row.type = "button";
+                row.style.width = "100%";
+                row.style.textAlign = "left";
+                row.style.padding = "10px 8px";
+                row.style.pointerEvents = "auto";
+                row.style.border = "1px solid #e5e7eb";
+                row.style.borderRadius = "12px";
+                row.style.background = "#ffffff";
+                row.style.cursor = "pointer";
+
+                const t = document.createElement("div");
+                t.style.fontWeight = "700";
+                t.style.color = "#111827";
+                t.style.marginBottom = "2px";
+                t.textContent = String(leaf?.properties?.title ?? "Professionnel");
+
+                const s = document.createElement("div");
+                s.style.fontSize = "12px";
+                s.style.color = "#6b7280";
+                s.textContent = `${String(leaf?.properties?.city ?? "")} ${
+                  leaf?.properties?.postal_code ? `(${leaf.properties.postal_code})` : ""
+                }`.trim();
+
+                  const ratingAvg = leaf?.properties?.rating_avg;
+                  const ratingCount = leaf?.properties?.rating_count;
+                  const ratingLine = document.createElement("div");
+                  ratingLine.style.marginTop = "6px";
+                  ratingLine.style.fontSize = "12px";
+                  ratingLine.style.color = "#374151";
+                  const ratingText =
+                    typeof ratingAvg === "number" && Number.isFinite(ratingAvg)
+                      ? `${ratingAvg.toFixed(1)}/5`
+                      : "Non noté";
+                  const countText =
+                    typeof ratingCount === "number" && Number.isFinite(ratingCount)
+                      ? ` · ${Math.round(ratingCount)} avis`
+                      : "";
+                  ratingLine.textContent = ratingText + countText;
+
+                  const specs = leaf?.properties?.specialties ? String(leaf.properties.specialties) : "";
+                  const chipWrap = document.createElement("div");
+                  chipWrap.style.marginTop = "8px";
+                  chipWrap.style.display = "flex";
+                  chipWrap.style.flexWrap = "wrap";
+                  chipWrap.style.gap = "6px";
+                  if (specs) {
+                    const parts = specs.split(" • ").map((x: string) => x.trim()).filter(Boolean);
+                    for (const part of parts) {
+                      const chip = document.createElement("span");
+                      chip.style.padding = "4px 8px";
+                      chip.style.border = "1px solid #e5e7eb";
+                      chip.style.borderRadius = "9999px";
+                      chip.style.background = "#f8fafc";
+                      chip.style.color = "#0f172a";
+                      chip.style.fontSize = "12px";
+                      chip.textContent = part;
+                      chipWrap.appendChild(chip);
+                    }
+                  }
+
+                row.appendChild(t);
+                row.appendChild(s);
+                  row.appendChild(ratingLine);
+                  if (chipWrap.childNodes.length > 0) row.appendChild(chipWrap);
+
+                row.onclick = () => {
+                  onSelectProIdRef.current?.(proId);
+                  try {
+                    clickPopupRef.current?.remove?.();
+                  } catch {
+                    // ignore
+                  }
+                };
+
+                list.appendChild(row);
+                const spacer = document.createElement("div");
+                spacer.style.height = "8px";
+                list.appendChild(spacer);
+              }
+
+              if (list.lastChild) {
+                const last = list.lastChild as HTMLDivElement;
+                if (last && last.style && last.style.height === "8px") last.remove();
+              }
+
+              root.appendChild(title);
+              root.appendChild(sub);
+              root.appendChild(list);
+              clickPopupRef.current.setLngLat(center).setDOMContent(root).addTo(map);
+            }
+          });
+        } else {
+          try {
+            map.easeTo({ center: coords, zoom: Math.min((map.getZoom?.() ?? 12) + 2, 18), duration: 260 });
+          } catch {
+            // ignore
+          }
+        }
       });
 
       map.on("mouseenter", "clusters", () => {
@@ -579,78 +721,12 @@ export function ProfessionnelsMap({
         const proId = props?.pro_id ? String(props.pro_id) : null;
         if (!proId) return;
         onSelectProIdRef.current?.(proId);
-
-        if (Array.isArray(coords) && clickPopupRef.current) {
-          const root = document.createElement("div");
-          root.style.minWidth = "240px";
-          root.style.maxWidth = "320px";
-
-          const title = document.createElement("div");
-          title.style.fontWeight = "700";
-          title.style.color = "#111827";
-          title.style.marginBottom = "4px";
-          title.textContent = String(props?.title ?? "Professionnel");
-
-          const sub = document.createElement("div");
-          sub.style.fontSize = "12px";
-          sub.style.color = "#4b5563";
-          sub.textContent = `${String(props?.city ?? "")} ${String(
-            props?.postal_code ? `(${props.postal_code})` : ""
-          )}`.trim();
-
-          const specs = document.createElement("div");
-          specs.style.marginTop = "6px";
-          specs.style.fontSize = "12px";
-          specs.style.color = "#374151";
-          specs.textContent = props?.specialties ? String(props.specialties) : "";
-          if (!specs.textContent) specs.style.display = "none";
-
-          const actions = document.createElement("div");
-          actions.style.display = "flex";
-          actions.style.gap = "8px";
-          actions.style.marginTop = "10px";
-
-          const mkBtn = (label: string, variant: "primary" | "outline") => {
-            const btn = document.createElement("button");
-            btn.type = "button";
-            btn.textContent = label;
-            btn.style.flex = "1";
-            btn.style.padding = "8px 10px";
-            btn.style.borderRadius = "10px";
-            btn.style.fontSize = "12px";
-            btn.style.fontWeight = "600";
-            btn.style.cursor = "pointer";
-            if (variant === "primary") {
-              btn.style.border = "1px solid #1800ad";
-              btn.style.background = "#1800ad";
-              btn.style.color = "#ffffff";
-            } else {
-              btn.style.border = "1px solid #d5d7dc";
-              btn.style.background = "#ffffff";
-              btn.style.color = "#111827";
-            }
-            return btn;
-          };
-
-          const viewBtn = mkBtn("Voir profil", "outline");
-          viewBtn.onclick = () => {
-            onOpenProfileRef.current?.(proId);
-          };
-
-          const contactBtn = mkBtn("Contacter", "primary");
-          contactBtn.onclick = () => {
-            onContactRef.current?.(proId);
-          };
-
-          actions.appendChild(viewBtn);
-          actions.appendChild(contactBtn);
-
-          root.appendChild(title);
-          root.appendChild(sub);
-          root.appendChild(specs);
-          root.appendChild(actions);
-
-          clickPopupRef.current.setLngLat(coords).setDOMContent(root).addTo(map);
+        // UX: on ne montre pas de popup "carte" sur clic.
+        // La carte côté liste (à gauche) est déjà la bonne UI, et ça évite de bloquer l'interaction avec la map.
+        try {
+          clickPopupRef.current?.remove?.();
+        } catch {
+          // ignore
         }
       });
     } else {
@@ -723,18 +799,9 @@ export function ProfessionnelsMap({
     }
   }, [features, mapReady]);
 
-  useEffect(() => {
-    if (!mapReady || !mapRef.current || !selectedProId) return;
-    const map = mapRef.current;
-    const source: any = map.getSource?.("pros");
-    if (!source) return;
-
-    const f = (features as any)?.features?.find((x: any) => x?.properties?.pro_id === selectedProId);
-    const coords = f?.geometry?.coordinates;
-    if (!Array.isArray(coords)) return;
-
-    map.easeTo({ center: coords, zoom: Math.max(map.getZoom?.() ?? 10, 11), duration: 500 });
-  }, [features, mapReady, selectedProId]);
+  // Note: on ne recadre pas la carte lors d'un simple clic sur un pro.
+  // La synchronisation UI se fait via selectedProId (carte gauche + pin sélectionnée),
+  // ce qui évite que la map "sautent" et empêche l'interaction.
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;

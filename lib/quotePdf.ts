@@ -56,7 +56,7 @@ export const downloadQuotePdf = (data: QuotePreviewData, title: string) => {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
   doc.setTextColor(255, 255, 255);
-  doc.text("NextMind", margin, 36);
+  doc.text("Artisia", margin, 36);
 
   doc.setFontSize(26);
   doc.text("DEVIS", margin, 68);
@@ -172,7 +172,7 @@ export const downloadQuotePdf = (data: QuotePreviewData, title: string) => {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   setColor(muted);
-  doc.text("Document généré par NextMind — devis non contractuel.", margin, pageHeight - 34);
+  doc.text("Document généré par Artisia — devis non contractuel.", margin, pageHeight - 34);
 
   const safeFile = sanitizeFileName((safeTitle || "devis").toLowerCase());
   doc.save(`${safeFile}.pdf`);

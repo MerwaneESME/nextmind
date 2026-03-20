@@ -15,7 +15,7 @@ interface FeedbackModalProps {
 /**
  * FeedbackModal - Modal pour soumettre un feedback détaillé avec étoiles (1-5) et commentaire
  *
- * Design: Style NextMind avec animations douces et palette de couleurs cohérente
+ * Design: Style Artisia avec animations douces et palette de couleurs cohérente
  *
  * @example
  * ```tsx

@@ -44,7 +44,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
-      const saved = window.localStorage.getItem("nextmind.sidebarCollapsed");
+      const saved = window.localStorage.getItem("artisia.sidebarCollapsed");
       if (saved === "1") setSidebarCollapsed(true);
     } catch {
       // ignore
@@ -53,7 +53,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem("nextmind.sidebarCollapsed", sidebarCollapsed ? "1" : "0");
+      window.localStorage.setItem("artisia.sidebarCollapsed", sidebarCollapsed ? "1" : "0");
     } catch {
       // ignore
     }

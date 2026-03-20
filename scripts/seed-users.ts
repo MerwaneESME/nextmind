@@ -1,5 +1,5 @@
 /**
- * Script de création de profils professionnels et particuliers pour NextMind.
+ * Script de création de profils professionnels et particuliers pour Artisia.
  * Utilise l'API Admin Supabase (clé service_role).
  *
  * Prérequis :
@@ -177,12 +177,12 @@ async function main() {
   const { count, output } = parseArgs();
 
   const created: CreatedUser[] = [];
-  const basePassword = "NextMind2024!";
+  const basePassword = "Artisia2024!";
 
   // --- Particuliers ---
   for (let i = 0; i < count; i++) {
     const suffix = randomId();
-    const email = `particulier.${suffix}@nextmind-demo.fr`;
+    const email = `particulier.${suffix}@artisia-demo.fr`;
     const fullName = NOMS_PARTICULIERS[i % NOMS_PARTICULIERS.length]!;
     const city = randomItem(VILLES);
     const cp = CP[VILLES.indexOf(city)] ?? "75001";
@@ -235,7 +235,7 @@ async function main() {
   // --- Professionnels (tous les champs profiles + pro_specialties + pro_portfolio_projects) ---
   for (let i = 0; i < count; i++) {
     const suffix = randomId();
-    const email = `pro.${suffix}@nextmind-demo.fr`;
+    const email = `pro.${suffix}@artisia-demo.fr`;
     const companyName = NOMS_PRO[i % NOMS_PRO.length]!;
     const city = randomItem(VILLES);
     const cp = CP[VILLES.indexOf(city)] ?? "75001";

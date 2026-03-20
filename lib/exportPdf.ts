@@ -211,13 +211,13 @@ function addFooter(doc: jsPDF, pageNum: number, totalPages: number, projectName:
   doc.setFont("helvetica", "bold");
   doc.setFontSize(7.5);
   doc.setTextColor(...BLUE_PRIMARY);
-  doc.text("NextMind", MARGIN, fy + 4);
+  doc.text("Artisia", MARGIN, fy + 4);
 
   doc.setFont("helvetica", "normal");
   doc.setTextColor(...GRAY_500);
   doc.text(
     `  ·  ${sanitizePdfText(projectName)}  ·  Généré le ${new Date().toLocaleDateString("fr-FR")}`,
-    MARGIN + doc.getTextWidth("NextMind"),
+    MARGIN + doc.getTextWidth("Artisia"),
     fy + 4
   );
 
@@ -284,7 +284,7 @@ export async function generateProjectExportPdf(
   doc.rect(0, HEADER_H + 4, PAGE_W, 2, "F");
 
   // Logo
-  const logoDataUrl = await loadImageDataUrl("/images/nextmind.png");
+  const logoDataUrl = await loadImageDataUrl("/images/artisia_bgremove.png");
   let logoRendered = false;
   if (logoDataUrl) {
     try {
@@ -300,7 +300,7 @@ export async function generateProjectExportPdf(
     doc.setFont("helvetica", "bold");
     doc.setFontSize(18);
     doc.setTextColor(...WHITE);
-    doc.text("NextMind", MARGIN, 42);
+    doc.text("Artisia", MARGIN, 42);
   }
 
   // Preset type label (top right, small caps style)

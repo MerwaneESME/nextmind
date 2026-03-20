@@ -2,19 +2,19 @@ import type { Metadata } from "next";
 import { PublicLayout } from "@/components/layout/PublicLayout";
 
 export const metadata: Metadata = {
-  title: "À propos | NEXTMIND",
-  description: "À propos de NEXTMIND, plateforme BTP pour particuliers et professionnels.",
+  title: "À propos | ARTISIA",
+  description: "À propos de ARTISIA, plateforme BTP pour particuliers et professionnels.",
 };
 
 export default function AProposPage() {
   return (
     <PublicLayout>
       <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">À propos de NEXTMIND</h1>
+        <h1 className="text-4xl font-bold text-gray-900 mb-4">À propos de ARTISIA</h1>
 
         <div className="prose prose-gray max-w-none space-y-6 text-gray-600">
           <p className="text-lg">
-            NEXTMIND a pour ambition de simplifier la relation entre les particuliers et les
+            ARTISIA a pour ambition de simplifier la relation entre les particuliers et les
             professionnels du bâtiment et des travaux publics (BTP). Nous croyons que chaque projet
             mérite un accompagnement clair, de la première idée jusqu&apos;à la réalisation.
           </p>
@@ -38,7 +38,7 @@ export default function AProposPage() {
 
           <h2 className="text-2xl font-semibold text-gray-900 pt-4">Contact</h2>
           <p>
-            Pour toute question sur NEXTMIND, rendez-vous sur notre page{" "}
+            Pour toute question sur ARTISIA, rendez-vous sur notre page{" "}
             <a href="/contact" className="text-primary-600 hover:underline">Contact</a>.
           </p>
         </div>

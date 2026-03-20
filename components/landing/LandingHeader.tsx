@@ -13,7 +13,7 @@ export default function LandingHeader() {
         <div className="flex items-center justify-between h-16 lg:h-20">
           {/* Logo */}
           <Link href="/" className="flex items-center">
-            <img src="/images/nextmind.png" alt="NextMind" className="h-8 w-auto" />
+            <img src="/images/artisia_bgremove.png" alt="Artisia" className="h-8 w-auto" />
           </Link>
 
           {/* Desktop nav */}

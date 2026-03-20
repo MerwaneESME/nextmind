@@ -94,7 +94,7 @@ export default function HomePage() {
 
             {/* Description */}
             <p className="animate-fade-in-up-1 text-lg sm:text-xl text-neutral-500 max-w-2xl mx-auto mb-10 leading-relaxed">
-              De l'estimation à la réalisation, NextMind connecte particuliers et
+              De l'estimation à la réalisation, Artisia connecte particuliers et
               professionnels du bâtiment grâce à l'intelligence artificielle.
             </p>
 
@@ -175,7 +175,7 @@ export default function HomePage() {
               </h2>
               <p className="text-neutral-500 text-lg mb-8 leading-relaxed">
                 Que ce soit une rénovation de cuisine ou la construction d'une extension,
-                NextMind vous guide à chaque étape.
+                Artisia vous guide à chaque étape.
               </p>
               <ul className="space-y-4">
                 {particuliersBenefits.map((b, i) => (
@@ -290,7 +290,7 @@ export default function HomePage() {
               Prêt à démarrer votre <span className="gradient-text">projet ?</span>
             </h2>
             <p className="text-neutral-500 text-lg mb-10 max-w-xl mx-auto">
-              Rejoignez NextMind et bénéficiez de la puissance de l'IA pour vos projets
+              Rejoignez Artisia et bénéficiez de la puissance de l'IA pour vos projets
               de construction et rénovation.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -320,8 +320,8 @@ export default function HomePage() {
             <div className="col-span-2 md:col-span-1">
               <Link href="/" className="flex items-center mb-4">
                 <img
-                  src="/images/nextmind.png"
-                  alt="NextMind"
+                  src="/images/artisia_bgremove.png"
+                  alt="Artisia"
                   className="h-8 w-auto brightness-0 invert"
                 />
               </Link>
@@ -375,7 +375,7 @@ export default function HomePage() {
 
           <div className="border-t border-slate-800 mt-12 pt-8 text-center">
             <p className="text-sm text-slate-500">
-              © {new Date().getFullYear()} NextMind. Tous droits réservés.
+              © {new Date().getFullYear()} Artisia. Tous droits réservés.
             </p>
           </div>
         </div>
