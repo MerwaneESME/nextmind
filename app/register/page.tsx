@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import Link from "next/link";
@@ -34,7 +34,7 @@ export default function RegisterPage() {
     if (!formData.name.trim()) newErrors.name = "Le nom est requis";
     if (!formData.email.trim()) newErrors.email = "L'email est requis";
     if (formData.password.length < 8) {
-      newErrors.password = "Le mot de passe doit contenir au moins 8 caractères";
+      newErrors.password = "Le mot de passe doit contenir au moins 8 caractÃ¨res";
     }
     if (formData.password !== formData.confirmPassword) {
       newErrors.confirmPassword = "Les mots de passe ne correspondent pas";
@@ -59,7 +59,7 @@ export default function RegisterPage() {
       savePendingProfile(profilePayload);
 
       // 1. Inscription via Supabase (Standard)
-      // NOTE: Pour que cela fonctionne sans mail, désactivez "Confirm email" dans le dashboard Supabase
+      // NOTE: Pour que cela fonctionne sans mail, dÃ©sactivez "Confirm email" dans le dashboard Supabase
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
@@ -73,17 +73,17 @@ export default function RegisterPage() {
 
       if (signUpError) throw signUpError;
 
-      // 2. Connexion immédiate
-      // Si la confirmation par mail est active sur Supabase, cette étape échouera pour les nouveaux comptes
+      // 2. Connexion immÃ©diate
+      // Si la confirmation par mail est active sur Supabase, cette Ã©tape Ã©chouera pour les nouveaux comptes
       const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
         email: formData.email,
         password: formData.password,
       });
 
       if (loginError || !loginData.user) {
-        // Si l'e-mail n'est pas encore confirmé, Supabase peut bloquer ici
+        // Si l'e-mail n'est pas encore confirmÃ©, Supabase peut bloquer ici
         setNotice(
-          "Compte créé ! (Si vous avez activé la confirmation par mail, vérifiez votre boîte de réception avant de vous connecter)."
+          "Compte crÃ©Ã© ! (Si vous avez activÃ© la confirmation par mail, vÃ©rifiez votre boÃ®te de rÃ©ception avant de vous connecter)."
         );
         return;
       }
@@ -106,14 +106,14 @@ export default function RegisterPage() {
             <img
               src="/images/artisia_cadre.png"
               alt="Artisia"
-              className="h-8 w-auto logo-blend"
+              className="h-14 w-auto logo-blend"
             />
           </Link>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">
             Créer un compte
           </h1>
           <p className="text-gray-600">
-            Rejoignez Nextmind et commencez dès aujourd'hui
+            Rejoignez Artisia et commencez dès aujourd'hui
           </p>
           <img
             src="/images/subscribe.png"
@@ -123,7 +123,7 @@ export default function RegisterPage() {
         </div>
 
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          {/* Sélection du type de compte */}
+          {/* SÃ©lection du type de compte */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-3">
               Je suis un :
@@ -210,12 +210,12 @@ export default function RegisterPage() {
             />
 
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Création du compte..." : "Créer mon compte"}
+              {isLoading ? "CrÃ©ation du compte..." : "CrÃ©er mon compte"}
             </Button>
           </form>
 
           <div className="mt-6 text-center text-sm text-gray-600">
-            Déjà un compte ?{" "}
+            DÃ©jÃ  un compte ?{" "}
             <Link href="/login" className="text-primary-600 hover:text-primary-700 font-medium">
               Se connecter
             </Link>
@@ -225,3 +225,4 @@ export default function RegisterPage() {
     </div>
   );
 }
+
