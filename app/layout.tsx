@@ -5,6 +5,11 @@ import { Providers } from "./providers";
 export const metadata: Metadata = {
   title: "ARTISIA - Tout sur le BTP pour mieux vous accompagner",
   description: "Plateforme BTP mettant en relation particuliers et professionnels avec un assistant IA intelligent",
+  icons: {
+    icon: "/images/artisia_cadre.png",
+    shortcut: "/images/artisia_cadre.png",
+    apple: "/images/artisia_cadre.png",
+  },
 };
 
 export default function RootLayout({

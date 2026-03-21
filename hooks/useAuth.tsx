@@ -111,7 +111,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       id: userId,
       email: email ?? null,
       full_name: metadata.full_name || null,
-      user_type: metadata.user_type || "client",
+      user_type: ["pro", "client"].includes(metadata.user_type) 
+        ? metadata.user_type 
+        : "client",
     };
 
     const { data: inserted, error: insertError } = await supabase

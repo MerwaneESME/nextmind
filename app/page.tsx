@@ -275,6 +275,121 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* ── Tarifs ── */}
+      <section className="py-24 lg:py-32 bg-neutral-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-2xl mx-auto mb-12">
+            <h2 className="text-3xl sm:text-4xl font-bold text-neutral-900 mb-4">
+              Nos tarifs
+            </h2>
+            <p className="text-neutral-500 text-lg">
+              Simple, transparent, sans engagement.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Plan 1 */}
+            <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-8 flex flex-col transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:border-primary-200">
+              <div className="mb-6">
+                <h3 className="text-xl font-semibold text-neutral-900 mb-2">Gratuit</h3>
+                <p className="text-3xl font-bold text-neutral-900">0 €</p>
+                <p className="text-sm text-neutral-500">/mois</p>
+              </div>
+              <ul className="space-y-3 text-sm text-neutral-700 flex-1">
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-primary-600" />
+                  3 devis / mois
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-primary-600" />
+                  1 chantier actif
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-primary-600" />
+                  Facturation basique
+                </li>
+              </ul>
+              <Link
+                href="/register"
+                className="mt-8 inline-flex items-center justify-center px-6 py-3 rounded-xl border border-neutral-200 text-neutral-700 font-semibold hover:border-primary-300 hover:text-primary-700 transition-colors"
+              >
+                Commencer gratuitement
+              </Link>
+            </div>
+
+            {/* Plan 2 */}
+            <div className="bg-white rounded-2xl border-2 border-primary-400 shadow-sm p-8 flex flex-col relative transition-all duration-200 hover:-translate-y-1 hover:shadow-lg">
+              <span className="absolute -top-3 left-6 px-3 py-1 rounded-full bg-primary-600 text-white text-xs font-semibold shadow-sm">
+                Recommandé
+              </span>
+              <div className="mb-6">
+                <h3 className="text-xl font-semibold text-neutral-900 mb-2">Solo Pro</h3>
+                <p className="text-3xl font-bold text-neutral-900">29,99 €</p>
+                <p className="text-sm text-neutral-500">/mois</p>
+              </div>
+              <ul className="space-y-3 text-sm text-neutral-700 flex-1">
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-primary-600" />
+                  Devis & factures illimités
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-primary-600" />
+                  Suivi chantier en temps réel
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-primary-600" />
+                  Comparateur fournisseurs
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-primary-600" />
+                  Mise en relation clients
+                </li>
+              </ul>
+              <Link
+                href="/register"
+                className="mt-8 inline-flex items-center justify-center px-6 py-3 rounded-xl bg-gradient-to-r from-primary-400 to-primary-600 text-white font-semibold shadow-sm hover:opacity-90 transition-opacity"
+              >
+                S'inscrire
+              </Link>
+            </div>
+
+            {/* Plan 3 */}
+            <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-8 flex flex-col transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:border-primary-200">
+              <div className="mb-6">
+                <h3 className="text-xl font-semibold text-neutral-900 mb-2">Équipe</h3>
+                <p className="text-3xl font-bold text-neutral-900">79,99 €</p>
+                <p className="text-sm text-neutral-500">/mois</p>
+              </div>
+              <ul className="space-y-3 text-sm text-neutral-700 flex-1">
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-primary-600" />
+                  Tout Solo Pro inclus
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-primary-600" />
+                  Jusqu'à 5 utilisateurs
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-primary-600" />
+                  Tableau de bord multi-chantiers
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-primary-600" />
+                  Export comptable
+                </li>
+              </ul>
+              <Link
+                href="/register"
+                className="mt-8 inline-flex items-center justify-center px-6 py-3 rounded-xl border border-neutral-200 text-neutral-700 font-semibold hover:border-primary-300 hover:text-primary-700 transition-colors"
+              >
+                S'inscrire
+              </Link>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
       {/* ── CTA ── */}
       <section className="py-24 lg:py-32 bg-neutral-50 relative overflow-hidden">
         <div
@@ -320,7 +435,7 @@ export default function HomePage() {
             <div className="col-span-2 md:col-span-1">
               <Link href="/" className="flex items-center mb-4">
                 <img
-                  src="/images/artisia_bgremove.png"
+                  src="/images/artisia_cadre.png"
                   alt="Artisia"
                   className="h-8 w-auto brightness-0 invert"
                 />

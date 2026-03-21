@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -61,7 +61,7 @@ export function Sidebar({ userRole, collapsed = false, onToggleCollapse, user }:
         type="button"
         onClick={onToggleCollapse}
         aria-label={collapsed ? "Afficher le menu" : "Masquer le menu"}
-        className="absolute top-20 -right-3 w-6 h-6 rounded-full bg-white shadow-md border border-neutral-200 flex items-center justify-center hover:bg-neutral-50 transition-colors z-10"
+        className="absolute top-28 -right-3 w-6 h-6 rounded-full bg-white shadow-md border border-neutral-200 flex items-center justify-center hover:bg-neutral-50 transition-colors z-10"
       >
         {collapsed
           ? <ChevronRight className="h-3 w-3 text-neutral-600" />
@@ -98,7 +98,7 @@ export function Sidebar({ userRole, collapsed = false, onToggleCollapse, user }:
         })}
       </nav>
 
-      {/* Bottom — Assistant IA + User profile */}
+      {/* Bottom â€” Assistant IA + Logout */}
       <div className={cn("pb-3 space-y-1 border-t border-white/10 pt-3", collapsed ? "px-2" : "px-3")}>
         <Link
           href={currentRole ? `/dashboard/assistant?role=${currentRole}` : "/dashboard/assistant"}
@@ -119,43 +119,22 @@ export function Sidebar({ userRole, collapsed = false, onToggleCollapse, user }:
           {!collapsed && <span className="text-current">Assistant IA</span>}
         </Link>
 
-        {/* User profile */}
         {user && (
-          <div
+          <button
+            onClick={handleLogout}
+            title="Déconnexion"
             className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-lg",
+              "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold",
+              "!text-red-500 hover:!text-red-400 hover:bg-red-500/10 transition-colors",
               collapsed && "justify-center px-0"
             )}
           >
-            {user.avatarUrl ? (
-              <img
-                src={user.avatarUrl}
-                alt={`Avatar de ${user.name}`}
-                className="w-8 h-8 rounded-full object-cover flex-shrink-0 border border-white/20"
-              />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center flex-shrink-0">
-                <span className="text-xs font-bold text-white">{initials}</span>
-              </div>
-            )}
-            {!collapsed && (
-              <>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-white truncate">{user.name}</p>
-                  <p className="text-xs text-slate-400 truncate capitalize">{user.role}</p>
-                </div>
-                <button
-                  onClick={handleLogout}
-                  title="Déconnexion"
-                  className="text-slate-400 hover:text-red-400 transition-colors flex-shrink-0"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </>
-            )}
-          </div>
+            <LogOut className="w-4 h-4 flex-shrink-0 !text-red-500" />
+            {!collapsed && <span className="!text-red-500">Déconnexion</span>}
+          </button>
         )}
       </div>
     </aside>
   );
 }
+

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import Link from "next/link";
@@ -80,16 +80,16 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center mb-4">
             <img
-              src="/images/artisia_bgremove.png"
+              src="/images/artisia_cadre.png"
               alt="Artisia"
-              className="h-8 w-auto logo-blend"
+              className="h-14 w-auto logo-blend"
             />
           </Link>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">
             Connexion
           </h1>
           <p className="text-gray-600">
-            Connectez-vous à votre compte Nextmind
+            Connectez-vous à votre compte Artisia
           </p>
           <img
             src="/images/connexion.png"

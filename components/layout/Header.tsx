@@ -371,7 +371,7 @@ export function Header({ user }: HeaderProps) {
   }, [openNotif]);
 
   return (
-    <header className="h-20 bg-white border-b border-neutral-200 shadow-sm flex items-center justify-end px-6 sticky top-0 z-50">
+    <header className="h-28 w-full bg-white/80 backdrop-blur-lg border-b border-neutral-200 shadow-sm flex items-center justify-end px-6">
       {/* Breadcrumb — left side */}
       {breadcrumb.length > 0 ? (
         <nav
@@ -403,10 +403,10 @@ export function Header({ user }: HeaderProps) {
       <button
         type="button"
         onClick={goToDashboard}
-        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[55%] flex items-center hover:opacity-75 transition-opacity focus-visible:outline-none rounded"
+        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center hover:opacity-75 transition-opacity focus-visible:outline-none rounded"
         aria-label="Retour au tableau de bord"
       >
-        <img src="/images/artisia_bgremove.png" alt="Artisia" className="h-12 w-auto" />
+        <img src="/images/Artisia_full.png" alt="Artisia" className="block h-28 sm:h-32 w-auto object-contain" />
       </button>
 
       {/* Right side — notifications + user pill */}

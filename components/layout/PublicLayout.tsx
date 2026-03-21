@@ -6,11 +6,18 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-white flex flex-col">
       <header className="border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <Link href="/" className="flex items-center">
-              <img src="/images/artisia_bgremove.png" alt="Artisia" className="h-8 w-auto" />
+          <div className="relative flex items-center h-24">
+            <Link
+              href="/"
+              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center"
+            >
+              <img
+                src="/images/Artisia_full.png"
+                alt="Artisia"
+                className="block h-24 sm:h-28 w-auto object-contain"
+              />
             </Link>
-            <div className="flex items-center gap-4">
+            <div className="ml-auto flex items-center gap-4">
               <Link href="/login" className="text-gray-700 hover:text-gray-900 font-medium">
                 Connexion
               </Link>
@@ -29,7 +36,7 @@ export function PublicLayout({ children }: { children: React.ReactNode }) {
           <div className="grid md:grid-cols-4 gap-8">
             <div>
               <Link href="/" className="flex items-center mb-4">
-                <img src="/images/artisia_bgremove.png" alt="Artisia" className="h-8 w-auto" />
+                <img src="/images/artisia_cadre.png" alt="Artisia" className="h-8 w-auto" />
               </Link>
               <p className="text-gray-400 text-sm">
                 Tout sur le BTP pour mieux vous accompagner.

@@ -85,8 +85,15 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
             sidebarCollapsed ? "ml-16" : "ml-64"
           )}
         >
-          <Header user={activeUser} />
-          <main className="p-6">{children}</main>
+          <div
+            className={cn(
+              "fixed top-0 right-0 z-50",
+              sidebarCollapsed ? "left-16" : "left-64"
+            )}
+          >
+            <Header user={activeUser} />
+          </div>
+          <main className="px-6 pb-6 pt-32">{children}</main>
         </div>
         {!hideChatWidget && (
           <ChatWidget
