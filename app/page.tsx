@@ -287,100 +287,97 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {/* Plan 1 */}
-            <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-8 flex flex-col transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:border-primary-200">
-              <div className="mb-6">
-                <h3 className="text-xl font-semibold text-neutral-900 mb-2">Gratuit</h3>
-                <p className="text-3xl font-bold text-neutral-900">0 €</p>
-                <p className="text-sm text-neutral-500">/mois</p>
+            <div className="bg-white rounded-3xl border border-neutral-200/80 shadow-[0_12px_30px_rgba(16,24,40,0.08)] p-10 flex flex-col transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_18px_40px_rgba(16,24,40,0.12)]">
+              <div className="mb-7 min-h-[112px] flex flex-col items-start text-left">
+                <span className="inline-flex items-center justify-center px-4 py-1 rounded-full bg-emerald-200/80 text-emerald-800 text-xs font-semibold mb-3">
+                  Gratuit
+                </span>
+                <h3 className="text-xl font-semibold text-neutral-900 mb-3">Fondation</h3>
+                <div className="flex items-baseline gap-2 leading-none">
+                  <p className="text-4xl font-bold text-neutral-900">0 €</p>
+                  <span className="text-sm text-neutral-500">/mois</span>
+                </div>
               </div>
+              <div className="h-px w-full bg-neutral-200/70 mb-6" />
               <ul className="space-y-3 text-sm text-neutral-700 flex-1">
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-primary-600" />
-                  3 devis / mois
+                  100 requêtes IA par mois
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-primary-600" />
-                  1 chantier actif
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-primary-600" />
-                  Facturation basique
+                  1 projet actif en simultané
                 </li>
               </ul>
               <Link
                 href="/register"
-                className="mt-8 inline-flex items-center justify-center px-6 py-3 rounded-xl border border-neutral-200 text-neutral-700 font-semibold hover:border-primary-300 hover:text-primary-700 transition-colors"
+                className="mt-9 inline-flex items-center justify-center px-6 py-3.5 rounded-xl border border-neutral-200 text-neutral-700 font-semibold hover:border-primary-300 hover:text-primary-700 transition-colors"
               >
                 Commencer gratuitement
               </Link>
             </div>
 
             {/* Plan 2 */}
-            <div className="bg-white rounded-2xl border-2 border-primary-400 shadow-sm p-8 flex flex-col relative transition-all duration-200 hover:-translate-y-1 hover:shadow-lg">
-              <span className="absolute -top-3 left-6 px-3 py-1 rounded-full bg-primary-600 text-white text-xs font-semibold shadow-sm">
+            <div className="bg-white rounded-3xl border-2 border-blue-500 shadow-[0_14px_34px_rgba(17,24,39,0.10)] p-10 flex flex-col relative transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_20px_46px_rgba(17,24,39,0.14)]">
+              <span className="absolute -top-3 left-6 px-3 py-1 rounded-full bg-blue-700 text-white text-xs font-semibold shadow-sm">
                 Recommandé
               </span>
-              <div className="mb-6">
-                <h3 className="text-xl font-semibold text-neutral-900 mb-2">Solo Pro</h3>
-                <p className="text-3xl font-bold text-neutral-900">29,99 €</p>
-                <p className="text-sm text-neutral-500">/mois</p>
+              <div className="mb-7 min-h-[112px] flex flex-col items-start text-left">
+                <h3 className="text-xl font-semibold text-neutral-900 mb-3">Artisans</h3>
+                <div className="flex items-baseline gap-2 leading-none">
+                  <p className="text-4xl font-bold text-neutral-900">29 €</p>
+                  <span className="text-sm text-neutral-500">/mois</span>
+                </div>
               </div>
+              <div className="h-px w-full bg-neutral-200/70 mb-6" />
               <ul className="space-y-3 text-sm text-neutral-700 flex-1">
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-primary-600" />
-                  Devis & factures illimités
+                  Requêtes IA illimitées
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-primary-600" />
-                  Suivi chantier en temps réel
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-primary-600" />
-                  Comparateur fournisseurs
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-primary-600" />
-                  Mise en relation clients
+                  Projets illimités
                 </li>
               </ul>
               <Link
                 href="/register"
-                className="mt-8 inline-flex items-center justify-center px-6 py-3 rounded-xl bg-gradient-to-r from-primary-400 to-primary-600 text-white font-semibold shadow-sm hover:opacity-90 transition-opacity"
+                className="mt-9 inline-flex items-center justify-center px-6 py-3.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-700 text-white font-semibold shadow-sm hover:opacity-90 transition-opacity"
               >
                 S'inscrire
               </Link>
             </div>
 
             {/* Plan 3 */}
-            <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-8 flex flex-col transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:border-primary-200">
-              <div className="mb-6">
-                <h3 className="text-xl font-semibold text-neutral-900 mb-2">Équipe</h3>
-                <p className="text-3xl font-bold text-neutral-900">79,99 €</p>
-                <p className="text-sm text-neutral-500">/mois</p>
+            <div className="bg-white rounded-3xl border border-neutral-200/80 shadow-[0_12px_30px_rgba(16,24,40,0.08)] p-10 flex flex-col transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_18px_40px_rgba(16,24,40,0.12)]">
+              <div className="mb-7 min-h-[112px] flex flex-col items-start text-left">
+                <h3 className="text-xl font-semibold text-neutral-900 mb-3">Équipe</h3>
+                <div className="flex items-baseline gap-2 leading-none">
+                  <p className="text-4xl font-bold text-neutral-900">49 €</p>
+                  <span className="text-sm text-neutral-500">/mois</span>
+                </div>
+                <p className="text-sm text-neutral-500 mt-2">(+ 10 € / compte)</p>
               </div>
+              <div className="h-px w-full bg-neutral-200/70 mb-6" />
               <ul className="space-y-3 text-sm text-neutral-700 flex-1">
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-primary-600" />
-                  Tout Solo Pro inclus
+                  Les avantages de Artisans
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-primary-600" />
-                  Jusqu'à 5 utilisateurs
+                  Espace de coordination des sous-traitants
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-primary-600" />
-                  Tableau de bord multi-chantiers
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-primary-600" />
-                  Export comptable
+                  Multi-utilisateurs (gestion rôle et permissions)
                 </li>
               </ul>
               <Link
                 href="/register"
-                className="mt-8 inline-flex items-center justify-center px-6 py-3 rounded-xl border border-neutral-200 text-neutral-700 font-semibold hover:border-primary-300 hover:text-primary-700 transition-colors"
+                className="mt-9 inline-flex items-center justify-center px-6 py-3.5 rounded-xl border border-neutral-200 text-neutral-700 font-semibold hover:border-primary-300 hover:text-primary-700 transition-colors"
               >
                 S'inscrire
               </Link>

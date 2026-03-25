@@ -97,7 +97,7 @@ begin
   ) values (
     v_project_id,
     v_user_id,
-    'owner',
+    'client',
     'accepted',
     v_user_id,
     now()

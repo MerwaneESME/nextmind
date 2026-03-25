@@ -660,10 +660,11 @@ export default function ProjectDetailPage() {
       const creatorId = (projectRes.data as Project)?.created_by;
       if (creatorId && user.id === creatorId) {
         const myMember = normalizedMembers.find(m => m.user?.id === user.id);
-        if (myMember && myMember.role !== "owner") {
+        const expectedRole = userRole === "professionnel" ? "owner" : "client";
+        if (myMember && myMember.role !== expectedRole) {
           try {
-            await supabase.from("project_members").update({ role: "owner" }).eq("project_id", projectId).eq("user_id", user.id);
-            setMembers(prev => prev.map(m => m.user?.id === user.id ? { ...m, role: "owner" } : m));
+            await supabase.from("project_members").update({ role: expectedRole }).eq("project_id", projectId).eq("user_id", user.id);
+            setMembers(prev => prev.map(m => m.user?.id === user.id ? { ...m, role: expectedRole } : m));
           } catch (e) {
             console.error("Auto-fix role failed:", e);
           }

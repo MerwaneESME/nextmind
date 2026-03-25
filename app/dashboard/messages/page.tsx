@@ -916,7 +916,7 @@ export default function MessagesPage() {
           currentUserId,
           shareProjectId,
           selectedConversation.counterpartEmail,
-          "collaborator"
+          "owner"
         );
       } catch (inviteErr: any) {
         if (inviteErr?.code !== "23505" && !inviteErr?.message?.includes("duplicate")) throw inviteErr;
